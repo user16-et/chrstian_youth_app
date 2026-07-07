@@ -24,3 +24,7 @@ coverage/
 
 # Merge-conflict leftovers
 *.orig
+
+# Claude Code local settings and transient temp files
+.claude/settings.local.json
+.claude/*.tmp*
