@@ -2476,6 +2476,16 @@ class ApiClient {
     );
   }
 
+  Future<List<Map<String, dynamic>>> fetchIceServers(String token) async {
+    final response = await _getJson('/calls/ice-servers',
+        headers: {'Authorization': 'Bearer $token'});
+    final servers = (response as Map<String, dynamic>)['iceServers'];
+    if (servers is List) {
+      return servers.whereType<Map>().map(Map<String, dynamic>.from).toList();
+    }
+    return const [];
+  }
+
   Future<dynamic> enrollChallenge(String token, String challengeId) {
     return _postJson('/connected-life/challenges/$challengeId/enroll', const {},
         headers: {'Authorization': 'Bearer $token'});
