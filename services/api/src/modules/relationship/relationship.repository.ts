@@ -43,21 +43,47 @@ export class RelationshipRepository {
   }
 
   async discover(userId: string, filters: Record<string, unknown>) {
-    const rows = await this.db.query(this.profileSelect(`c.user_id<>$1 AND c.visible=true AND c.visibility<>'hidden'
-      AND ($2::text='' OR lower(c.city)=lower($2)) AND ($3::text='' OR lower(c.gender)=lower($3))
-      AND ($4::text='' OR c.relationship_intent=$4 OR c.activation_mode=$4)`), [userId, filters.city ?? '', filters.gender ?? '', filters.goal ?? '']);
     const me = await this.profile(userId);
+    // 'relationship_mode_only' profiles are visible only to viewers who
+    // themselves have a profile (are in relationship mode). Teens are excluded.
+    const rows = await this.db.query(this.profileSelect(`c.user_id<>$1 AND c.visible=true AND c.visibility<>'hidden'
+      AND ($5 OR c.visibility<>'relationship_mode_only')
+      AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=c.user_id AND p.is_teen)
+      AND ($2::text='' OR lower(c.city)=lower($2)) AND ($3::text='' OR lower(c.gender)=lower($3))
+      AND ($4::text='' OR c.relationship_intent=$4 OR c.activation_mode=$4)`), [userId, filters.city ?? '', filters.gender ?? '', filters.goal ?? '', me !== null]);
     return rows.rows.map((profile) => ({ ...profile, compatibility: this.compatibility(me, profile) }));
   }
 
   async viewProfile(viewerId: string, viewedUserId: string) {
+    if (viewerId === viewedUserId) return this.profile(viewerId);
+    // Respect visibility: hidden/invisible/teen profiles are not viewable by id.
+    const target = await this.one(this.profileSelect(`c.user_id=$1 AND c.visible=true AND c.visibility<>'hidden'
+      AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=c.user_id AND p.is_teen)`), [viewedUserId]);
+    if (!target) return null;
     await this.db.query(`INSERT INTO relationship_profile_views(viewer_id,viewed_user_id) VALUES($1,$2) ON CONFLICT(viewer_id,viewed_user_id) DO UPDATE SET viewed_at=now()`, [viewerId, viewedUserId]);
     await this.db.query('UPDATE courtship_profiles SET profile_views=profile_views+1 WHERE user_id=$1', [viewedUserId]);
-    return this.profile(viewedUserId);
+    return target;
   }
 
+  // Only allow interest in a receiver who has a visible, adult profile. A
+  // previously declined interest is not resurrected to 'pending' (no pestering).
   createInterest(senderId: string, input: Record<string, unknown>) {
-    return this.one(`INSERT INTO courtship_interests(sender_id,receiver_id,note,status) VALUES($1,$2,$3,'pending') ON CONFLICT(sender_id,receiver_id) DO UPDATE SET note=EXCLUDED.note,status='pending',updated_at=now() RETURNING *`, [senderId, input.receiverId, input.note ?? 'I would like a respectful introduction.']);
+    return this.one(`INSERT INTO courtship_interests(sender_id,receiver_id,note,status)
+      SELECT $1,$2::uuid,$3,'pending'
+      WHERE EXISTS(
+        SELECT 1 FROM courtship_profiles c
+         WHERE c.user_id=$2::uuid AND c.visible=true AND c.visibility<>'hidden'
+           AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=$2::uuid AND p.is_teen)
+      )
+      ON CONFLICT(sender_id,receiver_id) DO UPDATE SET note=EXCLUDED.note,
+        status=CASE WHEN courtship_interests.status='declined' THEN 'declined' ELSE 'pending' END,
+        updated_at=now()
+      RETURNING *`, [senderId, input.receiverId, input.note ?? 'I would like a respectful introduction.']);
+  }
+
+  isMember(userId: string, relationshipId: string) {
+    return this.db.query('SELECT 1 FROM relationship_connections WHERE id=$1 AND (user1_id=$2 OR user2_id=$2)', [relationshipId, userId])
+      .then((result) => (result.rowCount ?? 0) > 0);
   }
 
   async updateInterest(userId: string, id: string, status: 'accepted' | 'declined' | 'rejected') {
@@ -116,7 +142,11 @@ export class RelationshipRepository {
 
   private compatibility(me: any, other: any) {
     if (!me) return { faith: 70, ministry: 70, lifeGoals: 70, familyVision: 70, location: 70, overall: 70 };
-    const overlap = (a = '', b = '') => String(a).toLowerCase().split(/[,\s]+/).filter(Boolean).some((x) => String(b).toLowerCase().includes(x));
+    const overlap = (a = '', b = '') => {
+      const target = String(b).toLowerCase();
+      // Ignore fragments shorter than 3 chars ("a", "in") to avoid false matches.
+      return String(a).toLowerCase().split(/[,\s]+/).filter((x) => x.length >= 3).some((x) => target.includes(x));
+    };
     const faith = overlap(me.faithStatement, other.faithStatement) || overlap(me.favoritePassages, other.favoritePassages) ? 95 : 78;
     const ministry = overlap(me.ministryInvolvement, other.ministryInvolvement) || overlap(me.interests, other.interests) ? 90 : 74;
     const lifeGoals = overlap(me.lifeGoals, other.lifeGoals) || me.relationshipIntent === other.relationshipIntent ? 88 : 72;
