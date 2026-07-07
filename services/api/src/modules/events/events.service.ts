@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { UserRepository } from '../../common/user.repository';
 import { QueueProducer } from '../../common/queue.producer';
@@ -39,6 +39,9 @@ export class EventsService {
 
   async create(token: string, input: Record<string, unknown>) {
     const actor = await this.actor(token);
+    if (!(await this.userRepository.isContentLeader(actor.id))) {
+      throw new ForbiddenException('event_organizer_role_required');
+    }
     this.required(input.title, 'event_title_required');
     this.required(input.startsAt, 'event_start_required');
     const event = await this.eventsRepository.create(actor.id, input);

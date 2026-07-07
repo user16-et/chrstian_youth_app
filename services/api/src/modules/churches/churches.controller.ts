@@ -1,6 +1,9 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { PLATFORM_ADMIN_ROLES } from '../../common/authorization.service';
 import { requireBearerToken } from '../../common/request-auth';
+import { Roles } from '../../common/roles.decorator';
+import { RolesGuard } from '../../common/roles.guard';
 import { ChurchesService } from './churches.service';
 
 const token=(h?:string)=>requireBearerToken(h);
@@ -64,6 +67,9 @@ export class ChurchAttendanceController {
 }
 
 @ApiTags('admin-churches')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Roles(...PLATFORM_ADMIN_ROLES)
 @Controller('/admin/churches')
 export class AdminChurchesController {
   constructor(private readonly service:ChurchesService){}

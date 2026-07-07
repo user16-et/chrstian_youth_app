@@ -291,6 +291,29 @@ export class UserRepository implements OnModuleInit {
     return result.rowCount === 0 ? null : this.mapUserRow(result.rows[0]);
   }
 
+  /**
+   * True if the user may create leadership-level content (e.g. events): a
+   * platform/moderation role, OR a church/ministry leadership membership. This
+   * captures church leaders whose global users.role is still 'member'.
+   */
+  async isContentLeader(userId: string) {
+    const result = await this.pool.query(
+      `SELECT EXISTS(
+         SELECT 1 FROM users
+          WHERE id=$1 AND role IN ('admin','platform_admin','super_admin','moderator','pastor','church_admin','ministry_leader')
+         UNION ALL
+         SELECT 1 FROM church_memberships
+          WHERE user_id=$1 AND status IN ('active','approved')
+            AND role IN ('pastor','church_admin','elder','branch_admin')
+         UNION ALL
+         SELECT 1 FROM ministry_memberships
+          WHERE user_id=$1 AND role IN ('leader','ministry_leader','coordinator','admin')
+       ) AS ok`,
+      [userId],
+    );
+    return result.rows[0]?.ok === true;
+  }
+
   async listUsers(input?: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated?: false }): Promise<UserDirectoryRecord[]>;
   async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated: true }): Promise<{ items: UserDirectoryRecord[]; total: number; limit: number; offset: number }>;
   async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated?: boolean } = {}) {
