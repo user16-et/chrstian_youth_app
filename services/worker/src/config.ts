@@ -15,6 +15,8 @@ export interface WorkerConfig {
   mediaAccessKeyId: string | null;
   mediaSecretAccessKey: string | null;
   mediaForcePathStyle: boolean;
+  mediaBucket: string | null;
+  mediaPublicBaseUrl: string | null;
   clamavHost: string;
   clamavPort: number;
   clamavTimeoutMs: number;
@@ -46,6 +48,8 @@ export function loadWorkerConfig(): WorkerConfig {
     mediaAccessKeyId: optional('MEDIA_ACCESS_KEY_ID'),
     mediaSecretAccessKey: optional('MEDIA_SECRET_ACCESS_KEY'),
     mediaForcePathStyle: bool('MEDIA_FORCE_PATH_STYLE', false),
+    mediaBucket: optional('MEDIA_BUCKET'),
+    mediaPublicBaseUrl: optional('MEDIA_PUBLIC_BASE_URL'),
     clamavHost: process.env.CLAMAV_HOST?.trim() || 'clamav',
     clamavPort: int('CLAMAV_PORT', 3310, 1, 65535),
     clamavTimeoutMs: int('CLAMAV_TIMEOUT_MS', 120_000, 1_000, 10 * 60 * 1000),

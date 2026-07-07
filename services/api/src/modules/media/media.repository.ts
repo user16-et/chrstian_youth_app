@@ -12,7 +12,7 @@ export interface PendingMediaInput {
 const projection = `id,owner_id AS "ownerId",usage,status,scan_status AS "scanStatus",scan_provider AS "scanProvider",
   scan_result AS "scanResult",scanned_at AS "scannedAt",bucket,object_key AS "objectKey",public_url AS "publicUrl",
   original_filename AS "originalFilename",content_type AS "contentType",byte_size AS "byteSize",checksum,
-  scope_type AS "scopeType",scope_id AS "scopeId",metadata,created_at AS "createdAt",uploaded_at AS "uploadedAt"`;
+  scope_type AS "scopeType",scope_id AS "scopeId",metadata,variants,width,height,created_at AS "createdAt",uploaded_at AS "uploadedAt"`;
 
 @Injectable()
 export class MediaRepository {

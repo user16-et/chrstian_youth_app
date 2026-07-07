@@ -4,6 +4,13 @@ import { createConnection } from 'net';
 import type { Pool } from 'pg';
 import type { WorkerConfig } from './config';
 
+export interface ScanResult {
+  clean: boolean;
+  contentType: string;
+  bucket: string;
+  objectKey: string;
+}
+
 export class VirusScanner {
   private readonly storage: S3Client;
 
@@ -19,7 +26,7 @@ export class VirusScanner {
     });
   }
 
-  async scan(data: { assetId: string; bucket: string; objectKey: string }) {
+  async scan(data: { assetId: string; bucket: string; objectKey: string }): Promise<ScanResult> {
     await this.db.query(
       `UPDATE media_assets SET status='scanning',scan_status='scanning',scan_provider='clamav',scan_result='' WHERE id=$1 AND status IN ('quarantined','scanning')`,
       [data.assetId],
@@ -27,6 +34,7 @@ export class VirusScanner {
     try {
       const object = await this.storage.send(new GetObjectCommand({ Bucket: data.bucket, Key: data.objectKey }));
       if (!object.Body) throw new Error('media_object_body_missing');
+      const contentType = object.ContentType?.split(';')[0]?.trim().toLowerCase() ?? '';
       const result = await this.scanStream(object.Body as AsyncIterable<Uint8Array>);
       const clean = result.endsWith('OK');
       const infected = result.includes('FOUND');
@@ -53,6 +61,7 @@ export class VirusScanner {
          VALUES('virus_scan','media_asset',$1,$2,$3)`,
         [data.assetId, clean ? 'success' : 'failure', JSON.stringify({ result })],
       );
+      return { clean, contentType, bucket: data.bucket, objectKey: trustedKey ?? data.objectKey };
     } catch (error) {
       await this.db.query(
         `UPDATE media_assets SET status='quarantined',scan_status='error',scan_result=$2,scanned_at=now() WHERE id=$1`,

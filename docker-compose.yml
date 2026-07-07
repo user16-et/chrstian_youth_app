@@ -167,6 +167,8 @@ services:
       SEARCH_INDEX_NAME: global_search
       MEDIA_REGION: us-east-1
       MEDIA_ENDPOINT: http://minio:9000
+      MEDIA_BUCKET: christian-super-app-media
+      MEDIA_PUBLIC_BASE_URL: http://127.0.0.1:9000/christian-super-app-media
       MEDIA_ACCESS_KEY_ID: minioadmin
       MEDIA_SECRET_ACCESS_KEY: minioadmin
       MEDIA_FORCE_PATH_STYLE: "true"

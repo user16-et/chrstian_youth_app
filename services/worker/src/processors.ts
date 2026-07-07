@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 
 import { QUEUE_NAMES, type QueueName, type SearchIndexingJob } from '@christian-super-app/shared';
 import type { WorkerConfig } from './config';
+import { ImageProcessor } from './image-processor';
 import { SearchIndexer } from './search-indexer';
 import { SmsSender } from './sms-sender';
 import { VirusScanner } from './virus-scanner';
@@ -12,6 +13,7 @@ type ProcessorMap = Record<QueueName, (job: Job) => Promise<void>>;
 export function createProcessors(db: Pool, config: WorkerConfig): ProcessorMap {
   const searchIndexer = new SearchIndexer(db, config);
   const virusScanner = new VirusScanner(db, config);
+  const imageProcessor = new ImageProcessor(db, config);
   const smsSender = new SmsSender(config);
   return {
     [QUEUE_NAMES.pushNotifications]: async (job) => {
@@ -79,7 +81,17 @@ export function createProcessors(db: Pool, config: WorkerConfig): ProcessorMap {
       );
     },
     [QUEUE_NAMES.virusScanning]: async (job) => {
-      await virusScanner.scan(job.data as { assetId: string; bucket: string; objectKey: string });
+      const data = job.data as { assetId: string; bucket: string; objectKey: string };
+      const scan = await virusScanner.scan(data);
+      // Generate low-bandwidth image variants after a clean scan. A resize
+      // failure must not fail the scan job — the original is already usable.
+      if (scan.clean && scan.contentType.startsWith('image/') && scan.contentType !== 'image/gif') {
+        try {
+          await imageProcessor.process({ assetId: data.assetId, bucket: scan.bucket, objectKey: scan.objectKey });
+        } catch (error) {
+          console.error(JSON.stringify({ level: 'error', event: 'image_resize_failed', assetId: data.assetId, message: error instanceof Error ? error.message : String(error) }));
+        }
+      }
     },
     [QUEUE_NAMES.badgeAwarding]: async (job) => {
       const data = job.data as { userId: string; reason: string; contextId?: string };
