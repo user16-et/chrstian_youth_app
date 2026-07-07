@@ -25,6 +25,7 @@ import { ProfileModule } from './modules/profile/profile.module';
 import { MediaModule } from './modules/media/media.module';
 import { SecurityModule } from './modules/security/security.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { CallsModule } from './modules/calls/calls.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { AdminModule } from './modules/admin/admin.module';
     MediaModule,
     SecurityModule,
     AdminModule,
+    CallsModule,
   ],
   controllers: [HealthController, AppBootstrapController, MetricsController],
   providers: [AppStore],
