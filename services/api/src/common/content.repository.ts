@@ -1283,21 +1283,29 @@ export class ContentRepository implements OnModuleInit {
     return result.rows.map((row) => ({ post: this.mapPostView(row), cursor: { createdAt: String(row.feed_created_at), id: String(row.feed_event_id) } }));
   }
 
-  async listPublicFeedPage(input: { language?: 'en' | 'am'; limit: number; cursor?: FeedCursorInput }) {
+  async hasFeedEvents(userId: string) {
+    const result = await this.readPool.query('SELECT 1 FROM feed_events WHERE user_id=$1 LIMIT 1', [userId]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listPublicFeedPage(input: { viewerId?: string; language?: 'en' | 'am'; limit: number; cursor?: FeedCursorInput }) {
     const result = await this.readPool.query(
       `SELECT p.id,p.author_id,u.full_name AS author_name,p.body,p.language,
               COALESCE((SELECT question FROM post_polls WHERE post_id=p.id), '') AS poll_question,
               COALESCE((SELECT options FROM post_polls WHERE post_id=p.id), '{}'::text[]) AS poll_options,
               p.post_type,p.media_urls,p.media_type,p.repost_of,
               '{}'::json AS reaction_counts,'' AS my_reaction,p.created_at AS feed_created_at,
-              p.created_at,p.like_count,p.comment_count,p.share_count,false AS liked_by_me,false AS saved_by_me
+              p.created_at,p.like_count,p.comment_count,p.share_count,
+              CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id=p.id AND pl.user_id=$5) THEN true ELSE false END AS liked_by_me,
+              CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$5) THEN true ELSE false END AS saved_by_me
        FROM posts p
        JOIN users u ON u.id=p.author_id
        WHERE ($1::text IS NULL OR p.language=$1)
          AND ($2::timestamptz IS NULL OR (p.created_at, p.id) < ($2::timestamptz, $3::uuid))
+         AND ($5::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$5 AND b.blocked_id=p.author_id) OR (b.blocker_id=p.author_id AND b.blocked_id=$5)))
        ORDER BY p.created_at DESC, p.id DESC
        LIMIT $4`,
-      [input.language ?? null, input.cursor?.createdAt ?? null, input.cursor?.id ?? null, input.limit + 1],
+      [input.language ?? null, input.cursor?.createdAt ?? null, input.cursor?.id ?? null, input.limit + 1, input.viewerId ?? null],
     );
     return result.rows.map((row) => ({ post: this.mapPostView(row), cursor: { createdAt: String(row.feed_created_at), id: String(row.id) } }));
   }

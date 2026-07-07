@@ -30,9 +30,12 @@ export class FeedService {
     const cached = await this.getCached(cacheKey);
     if (cached) return { ...cached, cached: true };
 
-    const rows = actor
-      ? await this.contentRepository.listFeedPage({ viewerId: actor.id, language: input.language, limit, cursor })
-      : await this.contentRepository.listPublicFeedPage({ language: input.language, limit, cursor });
+    // Personalized (followed + church) feed when the viewer has one; otherwise
+    // fall back to public discovery so new users never see an empty feed.
+    const usePersonalized = actor ? await this.contentRepository.hasFeedEvents(actor.id) : false;
+    const rows = usePersonalized
+      ? await this.contentRepository.listFeedPage({ viewerId: actor!.id, language: input.language, limit, cursor })
+      : await this.contentRepository.listPublicFeedPage({ viewerId: actor?.id, language: input.language, limit, cursor });
     const pageRows = rows.slice(0, limit);
     const nextCursor = rows.length > limit && pageRows.length > 0 ? this.encodeCursor(pageRows[pageRows.length - 1].cursor) : null;
     const response = {
