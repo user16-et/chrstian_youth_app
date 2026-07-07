@@ -1,0 +1,8851 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../../data/api_client.dart';
+import '../../data/app_models.dart';
+import '../../i18n/app_i18n.dart';
+import '../../theme/app_theme.dart';
+
+import 'church_detail_page.dart';
+import 'live_chat_panel.dart';
+import 'prayer_growth_pages.dart';
+
+String _shortDate(String value) {
+  if (value.isEmpty) return '';
+  return value.length >= 10 ? value.substring(0, 10) : value;
+}
+
+class ChurchScreen extends StatefulWidget {
+  const ChurchScreen(
+      {super.key,
+      required this.language,
+      required this.snapshotFuture,
+      required this.apiClient,
+      required this.session,
+      required this.onDataChanged});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+  final Future<DashboardSnapshot> snapshotFuture;
+
+  @override
+  State<ChurchScreen> createState() => _ChurchScreenState();
+}
+
+class _ChurchScreenState extends State<ChurchScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+  String _city = 'All';
+  bool _verifiedOnly = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return FutureBuilder<DashboardSnapshot>(
+      future: widget.snapshotFuture,
+      builder: (context, snapshot) {
+        final churches = snapshot.data?.churches ?? const <ChurchItem>[];
+        final cities = <String>{'All', ...churches.map((item) => item.city)};
+        final filtered = churches.where((church) {
+          final matchesQuery = _query.isEmpty ||
+              church.name.toLowerCase().contains(_query.toLowerCase()) ||
+              church.city.toLowerCase().contains(_query.toLowerCase());
+          return matchesQuery &&
+              (_city == 'All' || church.city == _city) &&
+              (!_verifiedOnly || church.verified);
+        }).toList();
+        return _ListModuleScreen(
+          title: AppStrings.of(language, 'church_network'),
+          subtitle: 'Discover, join and serve in verified Gospel communities.',
+          header: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [Color(0xFF0B5147), Color(0xFF167D68)]),
+                  borderRadius: BorderRadius.circular(26),
+                ),
+                child: Row(children: [
+                  const Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text('Find your spiritual home',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800)),
+                        SizedBox(height: 5),
+                        Text(
+                            'Church pages, service times, sermons and ministries in one place.',
+                            style: TextStyle(color: Colors.white70)),
+                      ])),
+                  const Chip(
+                    avatar: Icon(Icons.verified_rounded),
+                    label: Text('Official pages'),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 14),
+              _SearchField(
+                controller: _searchController,
+                labelText: AppStrings.of(language, 'search'),
+                hintText: AppStrings.of(language, 'church_search_hint'),
+                onChanged: (value) => setState(() => _query = value.trim()),
+                onClear: _query.isEmpty
+                    ? null
+                    : () {
+                        _searchController.clear();
+                        setState(() => _query = '');
+                      },
+              ),
+              const SizedBox(height: 10),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
+                  FilterChip(
+                    selected: _verifiedOnly,
+                    avatar: const Icon(Icons.verified_rounded, size: 17),
+                    label: const Text('Verified only'),
+                    onSelected: (value) =>
+                        setState(() => _verifiedOnly = value),
+                  ),
+                  const SizedBox(width: 8),
+                  ...cities.map((city) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(city),
+                          selected: _city == city,
+                          onSelected: (_) => setState(() => _city = city),
+                        ),
+                      )),
+                ]),
+              ),
+            ],
+          ),
+          items: snapshot.connectionState == ConnectionState.waiting &&
+                  churches.isEmpty
+              ? const [
+                  Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ]
+              : filtered.isEmpty
+                  ? [
+                      _EmptyState(
+                        message: _query.isEmpty
+                            ? AppStrings.of(language, 'no_churches_available')
+                            : AppStrings.of(language, 'no_search_results'),
+                      ),
+                    ]
+                  : filtered
+                      .map(
+                        (church) => Card(
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ChurchDetailScreen(
+                                  language: language,
+                                  apiClient: widget.apiClient,
+                                  church: church,
+                                  session: widget.session,
+                                  onDataChanged: widget.onDataChanged,
+                                ),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(18),
+                              child: Row(children: [
+                                Container(
+                                  width: 58,
+                                  height: 58,
+                                  decoration: BoxDecoration(
+                                    color: church.verified
+                                        ? const Color(0xFFE2F4ED)
+                                        : const Color(0xFFFFF1D5),
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                  child: Icon(Icons.church_rounded,
+                                      color: church.verified
+                                          ? AppTheme.evergreen
+                                          : const Color(0xFF9A6500)),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                      Row(children: [
+                                        Expanded(
+                                            child: Text(church.name,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w800))),
+                                        if (church.verified)
+                                          const Icon(Icons.verified_rounded,
+                                              color: Color(0xFF16876F),
+                                              size: 20),
+                                      ]),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                          '${church.city} • ${church.churchType}'),
+                                      if (church.description.isNotEmpty) ...[
+                                        const SizedBox(height: 5),
+                                        Text(church.description,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis),
+                                      ],
+                                      const SizedBox(height: 8),
+                                      Text(
+                                          '${church.memberCount} members  •  ${church.followerCount} followers  •  ${church.branchCount} branches',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: AppTheme.evergreen)),
+                                    ])),
+                                const Icon(Icons.arrow_forward_ios_rounded,
+                                    size: 16),
+                              ]),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+        );
+      },
+    );
+  }
+}
+
+class FeedScreen extends StatefulWidget {
+  const FeedScreen({
+    super.key,
+    required this.language,
+    required this.apiClient,
+    required this.snapshotFuture,
+    required this.session,
+    required this.onDataChanged,
+  });
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final Future<DashboardSnapshot> snapshotFuture;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends State<FeedScreen> {
+  final TextEditingController _postBodyController = TextEditingController();
+  final TextEditingController _mediaUrlController = TextEditingController();
+  final TextEditingController _pollQuestionController = TextEditingController();
+  final TextEditingController _pollOptionsController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
+  String _languageFilter = 'all';
+  String _feedMode = 'for_you';
+  String _postType = 'text';
+  String _query = '';
+  bool _savedOnly = false;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void dispose() {
+    _postBodyController.dispose();
+    _mediaUrlController.dispose();
+    _pollQuestionController.dispose();
+    _pollOptionsController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _publishPost() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'login_required');
+      });
+      return;
+    }
+
+    final success = await _runAction(() async {
+      await widget.apiClient.createPost(
+        token: token,
+        body: _postBodyController.text,
+        language: widget.language.code,
+        postType: _postType,
+        mediaUrls: _mediaUrlController.text
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(),
+        pollQuestion:
+            _postType == 'poll' ? _pollQuestionController.text.trim() : null,
+        pollOptions: _pollOptionsController.text
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(),
+      );
+      _postBodyController.clear();
+      _mediaUrlController.clear();
+      _pollQuestionController.clear();
+      _pollOptionsController.clear();
+      await widget.onDataChanged();
+    });
+
+    if (success) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'post_success');
+      });
+    }
+  }
+
+  Future<bool> _runAction(Future<dynamic> Function() action) async {
+    setState(() {
+      _busy = true;
+    });
+    var success = false;
+    try {
+      await action();
+      success = true;
+    } catch (error) {
+      setState(() {
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+    return success;
+  }
+
+  Future<void> _savePost(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final result = await widget.apiClient.toggleSavedPost(token, item.id);
+    if (!mounted) return;
+    setState(() => _status =
+        result['saved'] == true ? 'Post saved.' : 'Post removed from saved.');
+    await widget.onDataChanged();
+  }
+
+  Future<void> _reportPost(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'login_required');
+      });
+      return;
+    }
+
+    final success = await _runAction(() async {
+      await widget.apiClient.createReport(
+        token: token,
+        targetType: 'post',
+        targetId: item.id,
+        reason: AppStrings.of(widget.language, 'reported_from_feed'),
+      );
+      await widget.onDataChanged();
+    });
+
+    if (success) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'report_success');
+      });
+    }
+  }
+
+  Future<void> _openPostActions(BuildContext context, FeedItem item) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PostDetailScreen(
+          language: widget.language,
+          item: item,
+          apiClient: widget.apiClient,
+          session: widget.session,
+          onReport: () => _reportPost(item),
+          onDataChanged: widget.onDataChanged,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return FutureBuilder<DashboardSnapshot>(
+      future: widget.snapshotFuture,
+      builder: (context, snapshot) {
+        final feed = snapshot.data?.feed ?? const <FeedItem>[];
+        final filteredByLanguage = _languageFilter == 'all'
+            ? feed
+            : feed.where((item) => item.language == _languageFilter).toList();
+        final modeFeed = _feedMode == 'media'
+            ? filteredByLanguage
+                .where((item) => item.mediaUrls.isNotEmpty)
+                .toList()
+            : [...filteredByLanguage];
+        if (_feedMode == 'trending') {
+          modeFeed.sort((a, b) => (b.likeCount +
+                  b.commentCount * 2 +
+                  b.shareCount * 3)
+              .compareTo(a.likeCount + a.commentCount * 2 + a.shareCount * 3));
+        }
+        final visibleFeed = _savedOnly
+            ? modeFeed.where((item) => item.savedByMe).toList()
+            : modeFeed;
+        final filteredFeed = _query.isEmpty
+            ? visibleFeed
+            : visibleFeed
+                .where((item) =>
+                    item.title.toLowerCase().contains(_query.toLowerCase()) ||
+                    item.body.toLowerCase().contains(_query.toLowerCase()) ||
+                    item.author.toLowerCase().contains(_query.toLowerCase()) ||
+                    item.hashtags.any((tag) =>
+                        tag.toLowerCase().contains(_query.toLowerCase())) ||
+                    item.mentions.any((mention) =>
+                        mention.toLowerCase().contains(_query.toLowerCase())))
+                .toList();
+        return RefreshIndicator(
+          onRefresh: widget.onDataChanged,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            children: [
+              _SectionHeader(
+                title: AppStrings.of(language, 'community_feed'),
+                subtitle: AppStrings.of(language, 'social_feed_subtitle'),
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'create_post'),
+                children: [
+                  Text(AppStrings.of(language, 'post_hint'),
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _postBodyController,
+                    decoration: InputDecoration(
+                        labelText: AppStrings.of(language, 'post_body')),
+                    maxLines: 4,
+                  ),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    for (final type in const [
+                      ("text", "Text", Icons.edit_rounded),
+                      ("image", "Photo", Icons.image_rounded),
+                      ("video", "Video", Icons.play_circle_rounded),
+                      ("carousel", "Carousel", Icons.view_carousel_rounded),
+                      ("poll", "Poll", Icons.poll_rounded)
+                    ])
+                      ChoiceChip(
+                          label: Text(type.$2),
+                          avatar: Icon(type.$3, size: 17),
+                          selected: _postType == type.$1,
+                          onSelected: (_) =>
+                              setState(() => _postType = type.$1)),
+                  ]),
+                  if (["image", "video", "carousel"].contains(_postType)) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: _mediaUrlController,
+                        decoration: const InputDecoration(
+                            labelText: "Media URL(s)",
+                            hintText: "Separate carousel URLs with commas")),
+                  ],
+                  if (_postType == "poll") ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: _pollQuestionController,
+                        decoration:
+                            const InputDecoration(labelText: "Poll question")),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: _pollOptionsController,
+                        decoration: const InputDecoration(
+                            labelText: "Options",
+                            hintText: "Separate options with commas")),
+                  ],
+                  const SizedBox(height: 12),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _busy ? null : _publishPost,
+                    child: Text(AppStrings.of(language, 'publish_post')),
+                  ),
+                  if (_status.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'filter_posts'),
+                children: [
+                  SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(children: [
+                        for (final mode in const [
+                          ("for_you", "For You"),
+                          ("trending", "Trending"),
+                          ("media", "Media")
+                        ]) ...[
+                          ChoiceChip(
+                              label: Text(mode.$2),
+                              selected: _feedMode == mode.$1,
+                              onSelected: (_) =>
+                                  setState(() => _feedMode = mode.$1)),
+                          const SizedBox(width: 8),
+                        ],
+                      ])),
+                  const SizedBox(height: 12),
+                  _SearchField(
+                    controller: _searchController,
+                    labelText: AppStrings.of(language, 'search'),
+                    hintText: AppStrings.of(language, 'feed_search_hint'),
+                    onChanged: (value) => setState(() => _query = value.trim()),
+                    onClear: _query.isEmpty
+                        ? null
+                        : () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      FilterChip(
+                        label: Text(AppStrings.of(language, 'all')),
+                        selected: _languageFilter == 'all',
+                        onSelected: (selected) =>
+                            setState(() => _languageFilter = 'all'),
+                      ),
+                      FilterChip(
+                        label:
+                            Text(AppStrings.of(AppLanguage.english, 'english')),
+                        selected: _languageFilter == 'en',
+                        onSelected: (selected) =>
+                            setState(() => _languageFilter = 'en'),
+                      ),
+                      FilterChip(
+                        label:
+                            Text(AppStrings.of(AppLanguage.amharic, 'amharic')),
+                        selected: _languageFilter == 'am',
+                        onSelected: (selected) =>
+                            setState(() => _languageFilter = 'am'),
+                      ),
+                      FilterChip(
+                        avatar: const Icon(Icons.bookmark_rounded, size: 18),
+                        label: const Text('Saved'),
+                        selected: _savedOnly,
+                        onSelected: (selected) =>
+                            setState(() => _savedOnly = selected),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'community_feed'),
+                children: snapshot.connectionState == ConnectionState.waiting &&
+                        filteredFeed.isEmpty
+                    ? const [
+                        Padding(
+                          padding: EdgeInsets.only(top: 24),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      ]
+                    : filteredFeed.isEmpty
+                        ? [
+                            _EmptyState(
+                              message: _query.isEmpty
+                                  ? AppStrings.of(language, 'no_posts_yet')
+                                  : AppStrings.of(
+                                      language, 'no_search_results'),
+                            ),
+                          ]
+                        : [
+                            for (final item in filteredFeed)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: Card(
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(18),
+                                    onTap: () =>
+                                        _openPostActions(context, item),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              CircleAvatar(
+                                                radius: 20,
+                                                backgroundColor:
+                                                    Theme.of(context)
+                                                        .colorScheme
+                                                        .primaryContainer,
+                                                child: Icon(
+                                                  item.language == 'am'
+                                                      ? Icons.translate_rounded
+                                                      : Icons
+                                                          .dynamic_feed_rounded,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onPrimaryContainer,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(item.author,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .titleMedium),
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      item.createdAt.isEmpty
+                                                          ? item.language
+                                                              .toUpperCase()
+                                                          : '${_shortDate(item.createdAt)} • ${item.language.toUpperCase()}',
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              IconButton(
+                                                tooltip: item.savedByMe
+                                                    ? 'Remove saved post'
+                                                    : 'Save post',
+                                                onPressed: _busy
+                                                    ? null
+                                                    : () => _savePost(item),
+                                                icon: Icon(item.savedByMe
+                                                    ? Icons.bookmark_rounded
+                                                    : Icons
+                                                        .bookmark_border_rounded),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 14),
+                                          Text(item.body,
+                                              maxLines: 4,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyLarge),
+                                          if (item.mediaUrls.isNotEmpty) ...[
+                                            const SizedBox(height: 12),
+                                            ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(20),
+                                                child: AspectRatio(
+                                                  aspectRatio: 16 / 9,
+                                                  child: Image.network(
+                                                    item.mediaUrls.first,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __,
+                                                            ___) =>
+                                                        Container(
+                                                            color:
+                                                                AppTheme.mint,
+                                                            child: const Center(
+                                                                child: Icon(
+                                                                    Icons
+                                                                        .broken_image_rounded,
+                                                                    size: 40))),
+                                                  ),
+                                                )),
+                                            if (item.mediaUrls.length > 1)
+                                              Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 6),
+                                                  child: Text(
+                                                      "+${item.mediaUrls.length - 1} more moments",
+                                                      style: const TextStyle(
+                                                          fontWeight: FontWeight
+                                                              .w800))),
+                                          ],
+                                          if (item.postType == "poll") ...[
+                                            const SizedBox(height: 12),
+                                            Container(
+                                                padding:
+                                                    const EdgeInsets.all(14),
+                                                decoration: BoxDecoration(
+                                                    color: AppTheme.gold
+                                                        .withValues(alpha: .14),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            18)),
+                                                child: const Row(children: [
+                                                  Icon(Icons.poll_rounded,
+                                                      color: AppTheme.coral),
+                                                  SizedBox(width: 10),
+                                                  Text(
+                                                      "Community poll • Open to vote",
+                                                      style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w900))
+                                                ])),
+                                          ],
+                                          if (item.hashtags.isNotEmpty ||
+                                              item.mentions.isNotEmpty) ...[
+                                            const SizedBox(height: 12),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                for (final tag in item.hashtags)
+                                                  Chip(
+                                                      label: Text(tag,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis)),
+                                                for (final mention
+                                                    in item.mentions)
+                                                  Chip(
+                                                      label: Text(mention,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis)),
+                                              ],
+                                            ),
+                                          ],
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: [
+                                              _SocialStat(
+                                                  icon: item.likedByMe
+                                                      ? Icons.favorite_rounded
+                                                      : Icons
+                                                          .favorite_border_rounded,
+                                                  label: '${item.likeCount}'),
+                                              const SizedBox(width: 10),
+                                              _SocialStat(
+                                                  icon: Icons
+                                                      .mode_comment_outlined,
+                                                  label:
+                                                      '${item.commentCount}'),
+                                              const SizedBox(width: 10),
+                                              _SocialStat(
+                                                  icon: Icons.ios_share_rounded,
+                                                  label: '${item.shareCount}'),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class GroupsScreen extends StatefulWidget {
+  const GroupsScreen(
+      {super.key,
+      required this.language,
+      required this.snapshotFuture,
+      required this.apiClient,
+      required this.session,
+      required this.onDataChanged});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+  final Future<DashboardSnapshot> snapshotFuture;
+
+  @override
+  State<GroupsScreen> createState() => _GroupsScreenState();
+}
+
+class _GroupsScreenState extends State<GroupsScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return FutureBuilder<DashboardSnapshot>(
+      future: widget.snapshotFuture,
+      builder: (context, snapshot) {
+        final groups = snapshot.data?.groups ?? const <GroupItem>[];
+        final filtered = _query.isEmpty
+            ? groups
+            : groups
+                .where((group) =>
+                    group.name.toLowerCase().contains(_query.toLowerCase()) ||
+                    group.category.toLowerCase().contains(_query.toLowerCase()))
+                .toList();
+        return _ListModuleScreen(
+          title: AppStrings.of(language, 'groups'),
+          subtitle: AppStrings.of(language, 'groups_subtitle'),
+          header: _SearchField(
+            controller: _searchController,
+            labelText: AppStrings.of(language, 'search'),
+            hintText: AppStrings.of(language, 'group_search_hint'),
+            onChanged: (value) => setState(() => _query = value.trim()),
+            onClear: _query.isEmpty
+                ? null
+                : () {
+                    _searchController.clear();
+                    setState(() => _query = '');
+                  },
+          ),
+          items: snapshot.connectionState == ConnectionState.waiting &&
+                  groups.isEmpty
+              ? const [
+                  Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ]
+              : filtered.isEmpty
+                  ? [
+                      _EmptyState(
+                        message: _query.isEmpty
+                            ? AppStrings.of(language, 'no_groups_yet')
+                            : AppStrings.of(language, 'no_search_results'),
+                      ),
+                    ]
+                  : filtered
+                      .map(
+                        (group) => _ListTileRow(
+                          icon: Icons.groups_rounded,
+                          title: group.name,
+                          subtitle: group.category,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => GroupDetailScreen(
+                                language: language,
+                                apiClient: widget.apiClient,
+                                group: group,
+                                session: widget.session,
+                                onDataChanged: widget.onDataChanged,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+        );
+      },
+    );
+  }
+}
+
+class GroupDetailScreen extends StatefulWidget {
+  const GroupDetailScreen({
+    super.key,
+    required this.language,
+    required this.apiClient,
+    required this.group,
+    required this.session,
+    required this.onDataChanged,
+  });
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final GroupItem group;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<GroupDetailScreen> createState() => _GroupDetailScreenState();
+}
+
+class _GroupDetailScreenState extends State<GroupDetailScreen> {
+  final TextEditingController _resourceTitleController =
+      TextEditingController();
+  final TextEditingController _resourceUrlController = TextEditingController();
+  late Future<List<GroupMembershipItem>> _membersFuture;
+  late Future<List<GroupMembershipItem>> _myMembershipsFuture;
+  late Future<Map<String, dynamic>> _activityFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _membersFuture = widget.apiClient.fetchGroupMembers(widget.group.id);
+    _myMembershipsFuture = _loadMyMemberships();
+    _activityFuture = widget.apiClient.fetchGroupActivity(widget.group.id);
+  }
+
+  @override
+  void didUpdateWidget(covariant GroupDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.group.id != widget.group.id ||
+        oldWidget.session?.token != widget.session?.token) {
+      _refresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    _resourceTitleController.dispose();
+    _resourceUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<List<GroupMembershipItem>> _loadMyMemberships() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      return const <GroupMembershipItem>[];
+    }
+    return widget.apiClient.fetchMyGroupMemberships(token);
+  }
+
+  void _refresh() {
+    setState(() {
+      _membersFuture = widget.apiClient.fetchGroupMembers(widget.group.id);
+      _myMembershipsFuture = _loadMyMemberships();
+      _activityFuture = widget.apiClient.fetchGroupActivity(widget.group.id);
+    });
+  }
+
+  Future<void> _join() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.joinGroup(token: token, groupId: widget.group.id);
+      await widget.onDataChanged();
+      _refresh();
+    }, successMessage: AppStrings.of(widget.language, 'join_success'));
+  }
+
+  Future<void> _leave() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.leaveGroup(token: token, groupId: widget.group.id);
+      await widget.onDataChanged();
+      _refresh();
+    }, successMessage: AppStrings.of(widget.language, 'group_removed'));
+  }
+
+  Future<void> _createResource() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final title = _resourceTitleController.text.trim();
+    final url = _resourceUrlController.text.trim();
+    if (title.isEmpty || url.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'message_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient
+          .createGroupResource(token, widget.group.id, title, url);
+      _resourceTitleController.clear();
+      _resourceUrlController.clear();
+      await widget.onDataChanged();
+      _refresh();
+    }, successMessage: 'Resource added.');
+  }
+
+  Future<void> _runAction(Future<void> Function() action,
+      {required String successMessage}) async {
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await action();
+      if (mounted) {
+        setState(() => _status = successMessage);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _status = error.toString().replaceFirst('HttpException: ', '');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return FutureBuilder<List<GroupMembershipItem>>(
+      future: _myMembershipsFuture,
+      builder: (context, myMembershipsSnapshot) {
+        final joined =
+            (myMembershipsSnapshot.data ?? const <GroupMembershipItem>[])
+                .any((membership) => membership.groupId == widget.group.id);
+        return FutureBuilder<List<GroupMembershipItem>>(
+          future: _membersFuture,
+          builder: (context, membersSnapshot) {
+            final members =
+                membersSnapshot.data ?? const <GroupMembershipItem>[];
+            return Scaffold(
+              appBar: AppBar(
+                  title: Text(widget.group.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis)),
+              body: RefreshIndicator(
+                onRefresh: () async {
+                  _refresh();
+                  await Future.wait(
+                      [_membersFuture, _myMembershipsFuture, _activityFuture]);
+                },
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    _SectionCard(
+                      title: widget.group.category,
+                      children: [
+                        Text(
+                          AppStrings.of(language, 'group_details_body'),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${AppStrings.of(language, 'group_members')}: ${members.length}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            FilledButton(
+                              onPressed: _busy
+                                  ? null
+                                  : joined
+                                      ? _leave
+                                      : _join,
+                              child: Text(joined
+                                  ? AppStrings.of(language, 'leave_group')
+                                  : AppStrings.of(language, 'join_group')),
+                            ),
+                          ],
+                        ),
+                        if (_status.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(_status,
+                              maxLines: 2, overflow: TextOverflow.ellipsis),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (joined) ...[
+                      LiveChatPanel(
+                        apiClient: widget.apiClient,
+                        session: widget.session,
+                        language: language,
+                        scopeType: 'group',
+                        scopeId: widget.group.id,
+                        title: '${widget.group.name} chat',
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    FutureBuilder<Map<String, dynamic>>(
+                      future: _activityFuture,
+                      builder: (context, activitySnapshot) {
+                        final resources = (activitySnapshot.data?['resources']
+                                    as List<dynamic>? ??
+                                const [])
+                            .whereType<Map>()
+                            .map((item) => Map<String, dynamic>.from(item))
+                            .toList();
+                        return _SectionCard(
+                          title: 'Group resources',
+                          children: [
+                            TextField(
+                              controller: _resourceTitleController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Resource title'),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _resourceUrlController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Resource URL'),
+                              keyboardType: TextInputType.url,
+                            ),
+                            const SizedBox(height: 10),
+                            FilledButton.icon(
+                              onPressed: _busy ? null : _createResource,
+                              icon: const Icon(Icons.link_rounded),
+                              label: const Text('Add resource'),
+                            ),
+                            const SizedBox(height: 12),
+                            if (activitySnapshot.connectionState ==
+                                    ConnectionState.waiting &&
+                                resources.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 12),
+                                child:
+                                    Center(child: CircularProgressIndicator()),
+                              )
+                            else if (resources.isEmpty)
+                              const Text('No resources yet.')
+                            else
+                              for (final resource in resources.take(6))
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: _ListTileRow(
+                                    icon: Icons.link_rounded,
+                                    title: resource['title']?.toString() ??
+                                        'Resource',
+                                    subtitle: resource['resource_url']
+                                            ?.toString() ??
+                                        resource['resourceUrl']?.toString() ??
+                                        '',
+                                  ),
+                                ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      title: AppStrings.of(language, 'group_members'),
+                      children: membersSnapshot.connectionState ==
+                                  ConnectionState.waiting &&
+                              members.isEmpty
+                          ? const [
+                              Padding(
+                                padding: EdgeInsets.only(top: 24),
+                                child:
+                                    Center(child: CircularProgressIndicator()),
+                              ),
+                            ]
+                          : members.isEmpty
+                              ? [
+                                  Text(AppStrings.of(
+                                      language, 'no_group_members'))
+                                ]
+                              : [
+                                  for (final member in members)
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 10),
+                                      child: _ListTileRow(
+                                        icon: Icons.person_rounded,
+                                        title: member.userFullName,
+                                        subtitle:
+                                            '${member.phoneNumber} • ${member.role}',
+                                      ),
+                                    ),
+                                ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class PeopleScreen extends StatefulWidget {
+  const PeopleScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+
+  @override
+  State<PeopleScreen> createState() => _PeopleScreenState();
+}
+
+class _PeopleScreenState extends State<PeopleScreen> {
+  static const int _pageSize = 25;
+
+  late Future<UserDirectoryPage> _usersFuture;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  String _query = '';
+  String _status = '';
+  String? _busyUserId;
+  int _offset = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _usersFuture = _loadUsers();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<UserDirectoryPage> _loadUsers({int? offset}) {
+    return widget.apiClient.fetchUsersPage(
+      token: widget.session?.token,
+      query: _query,
+      limit: _pageSize,
+      offset: offset ?? _offset,
+    );
+  }
+
+  Future<void> _refresh({int? offset}) async {
+    final nextOffset = offset ?? _offset;
+    setState(() {
+      _offset = nextOffset < 0 ? 0 : nextOffset;
+      _usersFuture = _loadUsers(offset: _offset);
+    });
+    await _usersFuture;
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    setState(() => _query = value.trim());
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) _refresh(offset: 0);
+    });
+  }
+
+  Future<void> _follow(String userId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+        userId,
+        () => widget.apiClient.followUser(token: token, userId: userId),
+        AppStrings.of(widget.language, 'follow_success'));
+  }
+
+  Future<void> _unfollow(String userId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+        userId,
+        () => widget.apiClient.unfollowUser(token: token, userId: userId),
+        'Unfollowed.');
+  }
+
+  Future<void> _block(String userId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+        userId,
+        () => widget.apiClient.blockUser(token: token, userId: userId),
+        AppStrings.of(widget.language, 'block_success'));
+  }
+
+  Future<void> _unblock(String userId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+        userId,
+        () => widget.apiClient.unblockUser(token: token, userId: userId),
+        'Unblocked.');
+  }
+
+  Future<void> _friend(String userId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+        userId,
+        () => widget.apiClient.sendFriendRequest(token, userId),
+        'Friend request sent.');
+  }
+
+  Future<void> _withdrawFriend(UserDirectoryItem user) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    if (user.friendRequestId.isEmpty) {
+      setState(() => _status = 'Friend request was not found.');
+      return;
+    }
+    await _runAction(
+        user.id,
+        () =>
+            widget.apiClient.withdrawFriendRequest(token, user.friendRequestId),
+        'Friend request withdrawn.');
+  }
+
+  Future<void> _runAction(String userId, Future<dynamic> Function() action,
+      String successMessage) async {
+    setState(() {
+      _busyUserId = userId;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await action();
+      if (mounted) {
+        setState(() {
+          _status = successMessage;
+          _usersFuture = _loadUsers();
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _status = error.toString().replaceFirst('HttpException: ', '');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busyUserId = null);
+      }
+    }
+  }
+
+  Future<void> _openUserProfile(UserDirectoryItem user) async {
+    try {
+      final profile = await widget.apiClient.fetchPublicProfile(user.id);
+      if (!mounted) return;
+      final profileUser =
+          profile['identity'] as Map? ?? profile['user'] as Map? ?? profile;
+      final fullName = profileUser['fullName']?.toString() ?? user.fullName;
+      final username = profileUser['username']?.toString() ?? user.username;
+      final city = profileUser['city']?.toString() ?? '';
+      final occupation = profileUser['occupation']?.toString() ?? '';
+      final churchList =
+          profile['church'] is List ? profile['church'] as List : const [];
+      final church = churchList.isNotEmpty && churchList.first is Map
+          ? ((churchList.first as Map)['churchName']?.toString() ?? '')
+          : (profile['church'] as Map?)?['name']?.toString() ?? '';
+      final ministries = profile['ministries'] is List
+          ? profile['ministries'] as List
+          : const [];
+      final community =
+          profile['community'] is Map ? profile['community'] as Map : const {};
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(fullName, style: Theme.of(context).textTheme.titleLarge),
+              if (username.isNotEmpty) Text('@$username'),
+              if (city.isNotEmpty || occupation.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text([city, occupation]
+                    .where((value) => value.isNotEmpty)
+                    .join(' • ')),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (church.isNotEmpty)
+                    Chip(
+                        label: Text(church,
+                            maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  Chip(label: Text('${community['followers'] ?? 0} followers')),
+                  Chip(label: Text('${community['friends'] ?? 0} friends')),
+                  if (ministries.isNotEmpty)
+                    Chip(label: Text('${ministries.length} ministries')),
+                ],
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _openDirectChat(user);
+                },
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Chat'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
+  }
+
+  Future<void> _openDirectChat(UserDirectoryItem user) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: LiveChatPanel(
+          apiClient: widget.apiClient,
+          session: widget.session,
+          language: widget.language,
+          scopeType: 'direct',
+          scopeId: user.id,
+          otherUserId: user.id,
+          title: 'Chat with ${user.fullName}',
+          compact: true,
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _actionsFor(UserDirectoryItem user) {
+    final language = widget.language;
+    final busy = _busyUserId == user.id;
+    final blocked = user.blockedByMe || user.blockedMe;
+    final pendingByMe = user.friendStatus == 'pending' &&
+        user.friendRequestedByMe &&
+        user.friendRequestId.isNotEmpty;
+    return [
+      FilledButton.tonalIcon(
+        onPressed: () => _openUserProfile(user),
+        icon: const Icon(Icons.person_outline),
+        label: const Text('Profile'),
+      ),
+      if (blocked && user.blockedByMe)
+        OutlinedButton.icon(
+          onPressed: busy ? null : () => _unblock(user.id),
+          icon: const Icon(Icons.lock_open_rounded),
+          label: const Text('Unblock'),
+        ),
+      if (!blocked) ...[
+        FilledButton.icon(
+          onPressed: () => _openDirectChat(user),
+          icon: const Icon(Icons.chat_bubble_outline),
+          label: const Text('Chat'),
+        ),
+        FilledButton.tonalIcon(
+          onPressed: busy
+              ? null
+              : user.followedByMe
+                  ? () => _unfollow(user.id)
+                  : () => _follow(user.id),
+          icon: Icon(user.followedByMe
+              ? Icons.person_remove_alt_1_rounded
+              : Icons.person_add_alt_1),
+          label: Text(user.followedByMe
+              ? 'Unfollow'
+              : AppStrings.of(language, 'follow_user')),
+        ),
+        FilledButton.icon(
+          onPressed: busy
+              ? null
+              : user.friendStatus == 'accepted'
+                  ? null
+                  : pendingByMe
+                      ? () => _withdrawFriend(user)
+                      : user.friendStatus == 'pending'
+                          ? null
+                          : () => _friend(user.id),
+          icon: Icon(user.friendStatus == 'accepted'
+              ? Icons.handshake_rounded
+              : pendingByMe
+                  ? Icons.cancel_schedule_send_rounded
+                  : user.friendStatus == 'pending'
+                      ? Icons.schedule_rounded
+                      : Icons.group_add_rounded),
+          label: Text(user.friendStatus == 'accepted'
+              ? 'Connected'
+              : pendingByMe
+                  ? 'Withdraw'
+                  : user.friendStatus == 'pending'
+                      ? 'Pending'
+                      : 'Connect'),
+        ),
+        OutlinedButton.icon(
+          onPressed: busy ? null : () => _block(user.id),
+          icon: const Icon(Icons.block_rounded),
+          label: Text(AppStrings.of(language, 'block_user')),
+        ),
+      ],
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return FutureBuilder<UserDirectoryPage>(
+      future: _usersFuture,
+      builder: (context, snapshot) {
+        final page = snapshot.data ??
+            const UserDirectoryPage(
+                items: <UserDirectoryItem>[],
+                total: 0,
+                limit: _pageSize,
+                offset: 0);
+        final users = page.items;
+        final isLoading = snapshot.connectionState == ConnectionState.waiting &&
+            users.isEmpty;
+        final rangeStart = page.total == 0 ? 0 : page.offset + 1;
+        final rangeEnd = page.offset + users.length;
+        final canGoBack = page.offset > 0;
+        final canGoNext = rangeEnd < page.total;
+        return Scaffold(
+          appBar: AppBar(
+              title: Text(AppStrings.of(language, 'people_directory'),
+                  maxLines: 1, overflow: TextOverflow.ellipsis)),
+          body: RefreshIndicator(
+            onRefresh: () => _refresh(),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: [
+                _SectionHeader(
+                  title: AppStrings.of(language, 'people_directory'),
+                  subtitle: AppStrings.of(language, 'people_subtitle'),
+                ),
+                const SizedBox(height: 16),
+                _SearchField(
+                  controller: _searchController,
+                  labelText: AppStrings.of(language, 'search'),
+                  hintText: AppStrings.of(language, 'search_people_hint'),
+                  onChanged: _onSearchChanged,
+                  onClear: _query.isEmpty
+                      ? null
+                      : () {
+                          _searchDebounce?.cancel();
+                          _searchController.clear();
+                          setState(() => _query = '');
+                          _refresh(offset: 0);
+                        },
+                ),
+                const SizedBox(height: 16),
+                if (_status.isNotEmpty) ...[
+                  Text(_status, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 12),
+                ],
+                _SectionCard(
+                  title: AppStrings.of(language, 'all_people'),
+                  children: isLoading
+                      ? const [
+                          Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ]
+                      : users.isEmpty
+                          ? [Text(AppStrings.of(language, 'no_search_results'))]
+                          : [
+                              for (final user in users)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Card(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(user.fullName,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .titleMedium),
+                                              ),
+                                            ],
+                                          ),
+                                          if (user.username.isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text('@${user.username}',
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis),
+                                          ],
+                                          const SizedBox(height: 6),
+                                          Text(
+                                              '${user.phoneNumber} • ${user.role}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                              '${AppStrings.of(language, 'language')}: ${user.language}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis),
+                                          const SizedBox(height: 12),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: _actionsFor(user),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Showing $rangeStart-$rangeEnd of ${page.total}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  IconButton.filledTonal(
+                                    tooltip: 'Previous page',
+                                    onPressed: canGoBack
+                                        ? () => _refresh(
+                                            offset: page.offset - _pageSize)
+                                        : null,
+                                    icon: const Icon(Icons.chevron_left),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton.filledTonal(
+                                    tooltip: 'Next page',
+                                    onPressed: canGoNext
+                                        ? () => _refresh(
+                                            offset: page.offset + _pageSize)
+                                        : null,
+                                    icon: const Icon(Icons.chevron_right),
+                                  ),
+                                ],
+                              ),
+                            ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class TeenZoneScreen extends StatelessWidget {
+  const TeenZoneScreen({super.key, required this.language});
+
+  final AppLanguage language;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        _SectionHeader(
+            title: AppStrings.of(language, 'teen_zone'),
+            subtitle: AppStrings.of(language, 'teen_zone_subtitle')),
+        const SizedBox(height: 16),
+        _SectionCard(
+          title: AppStrings.of(language, 'teen_zone_body'),
+          children: [
+            _MiniCard(
+              icon: Icons.auto_awesome_rounded,
+              title: AppStrings.of(language, 'teen_challenge'),
+              body: language == AppLanguage.english
+                  ? 'Memorize one verse and pray daily this week.'
+                  : 'አንድ ቁጥር አስታውስ እና በየቀኑ ጸልይ።',
+            ),
+            const SizedBox(height: 12),
+            _MiniCard(
+              icon: Icons.shield_rounded,
+              title: AppStrings.of(language, 'teen_safety'),
+              body: language == AppLanguage.english
+                  ? 'Stay in church-guided spaces, report abuse, and keep accountability.'
+                  : 'በቤተ ክርስቲያን የተመራ ቦታዎች ቆይ፣ ጥቃት ሪፖርት አድርግ፣ እና ተጠያቂነት ጠብቅ።',
+            ),
+            const SizedBox(height: 12),
+            _MiniCard(
+              icon: Icons.favorite_rounded,
+              title: AppStrings.of(language, 'teen_habits'),
+              body: language == AppLanguage.english
+                  ? 'Prayer, Bible reading, service, and healthy friendships.'
+                  : 'ጸሎት፣ መጽሐፍ ቅዱስ ንባብ፣ አገልግሎት እና ጤናማ ጓደኝነት።',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _BibleHubData {
+  const _BibleHubData({
+    required this.dailyVerses,
+    required this.readingPlans,
+    required this.notes,
+    required this.bookmarks,
+    required this.highlights,
+    required this.ecosystem,
+  });
+
+  final List<BibleDailyVerseItem> dailyVerses;
+  final List<BibleReadingPlanItem> readingPlans;
+  final List<BibleNoteItem> notes;
+  final List<BibleBookmarkItem> bookmarks;
+  final List<BibleHighlightItem> highlights;
+  final Map<String, dynamic> ecosystem;
+}
+
+class BibleScreen extends StatefulWidget {
+  const BibleScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+
+  @override
+  State<BibleScreen> createState() => _BibleScreenState();
+}
+
+class _BibleScreenState extends State<BibleScreen> {
+  late Future<_BibleHubData> _hubFuture;
+  final TextEditingController _referenceController = TextEditingController();
+  final TextEditingController _verseController = TextEditingController();
+  final TextEditingController _noteController = TextEditingController();
+  final TextEditingController _bookmarkReferenceController =
+      TextEditingController();
+  final TextEditingController _bookmarkVerseController =
+      TextEditingController();
+  final TextEditingController _highlightReferenceController =
+      TextEditingController();
+  final TextEditingController _highlightVerseController =
+      TextEditingController();
+  final TextEditingController _highlightNoteController =
+      TextEditingController();
+  int _selectedVerseIndex = 0;
+  String _selectedHighlightColor = 'gold';
+  String _readerVersion = 'kjv';
+  String _readerBook = 'Romans';
+  int _readerChapter = 8;
+  bool _busy = false;
+  String _status = '';
+  bool _seededVerse = false;
+
+  static const List<(String, String)> _presetVerses = [
+    ('Psalm 23:1', 'The Lord is my shepherd; I shall not want.'),
+    ('Proverbs 3:5', 'Trust in the Lord with all your heart.'),
+    ('Romans 12:2', 'Be transformed by the renewing of your mind.'),
+  ];
+
+  static const List<String> _highlightColors = [
+    'gold',
+    'green',
+    'blue',
+    'rose'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _hubFuture = _loadHub();
+  }
+
+  @override
+  void didUpdateWidget(covariant BibleScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session?.token != widget.session?.token) {
+      _hubFuture = _loadHub();
+    }
+  }
+
+  @override
+  void dispose() {
+    _referenceController.dispose();
+    _verseController.dispose();
+    _noteController.dispose();
+    _bookmarkReferenceController.dispose();
+    _bookmarkVerseController.dispose();
+    _highlightReferenceController.dispose();
+    _highlightVerseController.dispose();
+    _highlightNoteController.dispose();
+    super.dispose();
+  }
+
+  Future<_BibleHubData> _loadHub() async {
+    final token = widget.session?.token;
+    final dailyVersesFuture = widget.apiClient.fetchDailyVerses();
+    final plansFuture = widget.apiClient.fetchReadingPlans();
+    final notesFuture = token == null || token.isEmpty
+        ? Future.value(const <BibleNoteItem>[])
+        : widget.apiClient.fetchBibleNotes(token);
+    final bookmarksFuture = token == null || token.isEmpty
+        ? Future.value(const <BibleBookmarkItem>[])
+        : widget.apiClient.fetchBibleBookmarks(token);
+    final highlightsFuture = token == null || token.isEmpty
+        ? Future.value(const <BibleHighlightItem>[])
+        : widget.apiClient.fetchBibleHighlights(token);
+    final ecosystemFuture = widget.apiClient.fetchBibleHome(token);
+    final results = await Future.wait<dynamic>([
+      dailyVersesFuture,
+      plansFuture,
+      notesFuture,
+      bookmarksFuture,
+      highlightsFuture,
+      ecosystemFuture,
+    ]);
+    return _BibleHubData(
+      dailyVerses: results[0] as List<BibleDailyVerseItem>,
+      readingPlans: results[1] as List<BibleReadingPlanItem>,
+      notes: results[2] as List<BibleNoteItem>,
+      bookmarks: results[3] as List<BibleBookmarkItem>,
+      highlights: results[4] as List<BibleHighlightItem>,
+      ecosystem: results[5] as Map<String, dynamic>,
+    );
+  }
+
+  Future<void> _refreshHub() async {
+    final future = _loadHub();
+    setState(() {
+      _hubFuture = future;
+    });
+    await future;
+  }
+
+  void _applyVerse(String reference, String verseText) {
+    setState(() {
+      _referenceController.text = reference;
+      _verseController.text = verseText;
+      _bookmarkReferenceController.text = reference;
+      _bookmarkVerseController.text = verseText;
+      _highlightReferenceController.text = reference;
+      _highlightVerseController.text = verseText;
+    });
+  }
+
+  Future<void> _runAction(Future<void> Function() action) async {
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await action();
+      await _refreshHub();
+      if (mounted) {
+        setState(() => _status = AppStrings.of(widget.language, 'success'));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _saveNote([BibleNoteItem? existing]) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final reference = _referenceController.text.trim();
+    final verseText = _verseController.text.trim();
+    final note = _noteController.text.trim();
+    if (reference.isEmpty || note.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'no_bible_notes'));
+      return;
+    }
+    await _runAction(() async {
+      if (existing == null) {
+        await widget.apiClient.createBibleNote(
+          token: token,
+          reference: reference,
+          verseText: verseText,
+          note: note,
+          language: widget.language.code,
+        );
+      } else {
+        await widget.apiClient.updateBibleNote(
+          token: token,
+          noteId: existing.id,
+          reference: reference,
+          verseText: verseText,
+          note: note,
+          language: widget.language.code,
+        );
+      }
+      _referenceController.clear();
+      _verseController.clear();
+      _noteController.clear();
+    });
+  }
+
+  Future<void> _deleteNote(BibleNoteItem note) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.deleteBibleNote(token: token, noteId: note.id);
+    });
+  }
+
+  Future<void> _saveBookmark() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.createBibleBookmark(
+        token: token,
+        reference: _bookmarkReferenceController.text,
+        verseText: _bookmarkVerseController.text,
+        language: widget.language.code,
+      );
+    });
+  }
+
+  Future<void> _saveHighlight() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.createBibleHighlight(
+        token: token,
+        reference: _highlightReferenceController.text,
+        verseText: _highlightVerseController.text,
+        color: _selectedHighlightColor,
+        note: _highlightNoteController.text,
+        language: widget.language.code,
+      );
+      _highlightNoteController.clear();
+    });
+  }
+
+  Future<void> _deleteBookmark(String bookmarkId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient
+          .deleteBibleBookmark(token: token, bookmarkId: bookmarkId);
+    });
+  }
+
+  Future<void> _deleteHighlight(String highlightId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient
+          .deleteBibleHighlight(token: token, highlightId: highlightId);
+    });
+  }
+
+  Future<void> _bibleAction(
+      Future<dynamic> Function(String token) action) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await action(token);
+    });
+  }
+
+  Future<void> _loadReader(
+      {String? version, String? book, int? chapter}) async {
+    final nextVersion = version ?? _readerVersion;
+    final nextBook = book ?? _readerBook;
+    final nextChapter = chapter ?? _readerChapter;
+    setState(() {
+      _readerVersion = nextVersion;
+      _readerBook = nextBook;
+      _readerChapter = nextChapter;
+    });
+    await _runAction(() async {
+      await widget.apiClient.fetchBibleChapter(
+        token: widget.session?.token,
+        version: nextVersion,
+        book: nextBook,
+        chapter: nextChapter,
+      );
+    });
+  }
+
+  List<Map<String, dynamic>> _list(Map<String, dynamic> data, String key) {
+    return ((data[key] as List<dynamic>?) ?? const <dynamic>[])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Map<String, dynamic> _map(Map<String, dynamic> data, String key) {
+    return (data[key] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return FutureBuilder<_BibleHubData>(
+      future: _hubFuture,
+      builder: (context, snapshot) {
+        final data = snapshot.data ??
+            const _BibleHubData(
+              dailyVerses: <BibleDailyVerseItem>[],
+              readingPlans: <BibleReadingPlanItem>[],
+              notes: <BibleNoteItem>[],
+              bookmarks: <BibleBookmarkItem>[],
+              highlights: <BibleHighlightItem>[],
+              ecosystem: <String, dynamic>{},
+            );
+        final ecosystem = data.ecosystem;
+        final reader = _map(ecosystem, 'reader');
+        final readerVerses = _list(reader, 'verses');
+        final comparison = _list(ecosystem, 'comparison');
+        final versions = _list(ecosystem, 'versions');
+        final topics = _list(ecosystem, 'topics');
+        final groupStudies = _list(ecosystem, 'groupStudies');
+        final memory = _list(ecosystem, 'memory');
+        final journal = _list(ecosystem, 'journal');
+        final analytics = _map(ecosystem, 'analytics');
+        final settings = _map(ecosystem, 'settings');
+        final verses = data.dailyVerses.isEmpty
+            ? _presetVerses.map((verse) => (verse.$1, verse.$2)).toList()
+            : data.dailyVerses
+                .map((verse) => (verse.reference, verse.verseText))
+                .toList();
+        final selectedVerse =
+            verses[_selectedVerseIndex.clamp(0, verses.length - 1)];
+        if (!_seededVerse && _referenceController.text.isEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && !_seededVerse) {
+              _seededVerse = true;
+              _applyVerse(selectedVerse.$1, selectedVerse.$2);
+            }
+          });
+        }
+        return RefreshIndicator(
+          onRefresh: _refreshHub,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            children: [
+              _SectionHeader(
+                  title: AppStrings.of(language, 'bible'),
+                  subtitle: AppStrings.of(language, 'bible_notes_subtitle')),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: language == AppLanguage.english
+                    ? 'Bible reader and growth dashboard'
+                    : 'የመጽሐፍ ቅዱስ ንባብ እና እድገት',
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final version in versions)
+                        ChoiceChip(
+                          label: Text('${version['code']}'),
+                          selected: _readerVersion == version['code'],
+                          onSelected: (_) => _loadReader(
+                              version: '${version['code']}',
+                              book: _readerBook,
+                              chapter: _readerChapter),
+                        ),
+                      ChoiceChip(
+                        label: const Text('Romans 8'),
+                        selected: _readerBook == 'Romans',
+                        onSelected: (_) => _loadReader(
+                            book: 'Romans',
+                            chapter: 8,
+                            version: _readerVersion),
+                      ),
+                      ChoiceChip(
+                        label: const Text('John 3'),
+                        selected: _readerBook == 'John',
+                        onSelected: (_) => _loadReader(
+                            book: 'John', chapter: 3, version: _readerVersion),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _MiniCard(
+                    icon: Icons.auto_stories_rounded,
+                    title:
+                        '${reader['book'] ?? _readerBook} ${reader['chapter'] ?? _readerChapter} • ${reader['version'] ?? _readerVersion}',
+                    body: readerVerses.isEmpty
+                        ? (language == AppLanguage.english
+                            ? 'Seeded offline-ready text appears here after migration. NIV remains metadata-only until licensed.'
+                            : 'የተዘጋጀ የኦፍላይን ጽሑፍ ከማይግሬሽን በኋላ እዚህ ይታያል። NIV ፈቃድ እስኪገኝ ድረስ ሜታዳታ ብቻ ነው።')
+                        : readerVerses
+                            .map((verse) =>
+                                '${verse['verse']}. ${verse['text']}')
+                            .join('\n'),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _BibleMetric(
+                          label: 'Chapters',
+                          value: '${analytics['chaptersRead'] ?? 0}'),
+                      _BibleMetric(
+                          label: 'Notes',
+                          value:
+                              '${analytics['notesWritten'] ?? data.notes.length}'),
+                      _BibleMetric(
+                          label: 'Memory',
+                          value:
+                              '${analytics['memorizedVerses'] ?? memory.length}'),
+                      _BibleMetric(
+                          label: 'Streak',
+                          value: '${analytics['currentStreak'] ?? 0}'),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: language == AppLanguage.english
+                    ? 'Version comparison and sharing'
+                    : 'የትርጉም ንጽጽር እና ማጋራት',
+                children: [
+                  for (final item in comparison)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _MiniCard(
+                        icon: Icons.compare_arrows_rounded,
+                        title:
+                            '${item['name'] ?? item['version']} • ${item['reference']}',
+                        body: ('${item['text']}'.isEmpty)
+                            ? '${item['notice'] ?? item['licenseStatus'] ?? ''}'
+                            : '${item['text']}',
+                      ),
+                    ),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    FilledButton.tonal(
+                      onPressed: _busy
+                          ? null
+                          : () => _bibleAction((token) => widget.apiClient
+                              .createVerseCard(
+                                  token: token,
+                                  reference: selectedVerse.$1,
+                                  verseText: selectedVerse.$2,
+                                  language: language.code)),
+                      child: Text(language == AppLanguage.english
+                          ? 'Create verse card'
+                          : 'የቁጥር ካርድ ፍጠር'),
+                    ),
+                    FilledButton.tonal(
+                      onPressed: _busy
+                          ? null
+                          : () => _bibleAction((token) => widget.apiClient
+                              .shareBibleVerse(
+                                  token: token,
+                                  reference: selectedVerse.$1,
+                                  verseText: selectedVerse.$2,
+                                  channel: 'story')),
+                      child: Text(language == AppLanguage.english
+                          ? 'Share to story'
+                          : 'ወደ ስቶሪ አጋራ'),
+                    ),
+                  ]),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'scripture_of_day'),
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (var index = 0; index < verses.length; index++)
+                        ChoiceChip(
+                          label: Text(verses[index].$1,
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          selected: _selectedVerseIndex == index,
+                          onSelected: (_) {
+                            setState(() => _selectedVerseIndex = index);
+                            _applyVerse(verses[index].$1, verses[index].$2);
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _VerseCard(
+                      reference: selectedVerse.$1, text: selectedVerse.$2),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(AppStrings.of(language, 'daily_verse'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium),
+                      ),
+                      Text(data.dailyVerses.isEmpty
+                          ? AppStrings.of(language, 'not_ready')
+                          : '${data.dailyVerses.first.theme} • ${data.dailyVerses.first.language.toUpperCase()}'),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'reading_plans'),
+                children: data.readingPlans.isEmpty
+                    ? [Text(AppStrings.of(language, 'no_reading_plans'))]
+                    : [
+                        for (final plan in data.readingPlans)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _MiniCard(
+                              icon: plan.language == 'am'
+                                  ? Icons.translate_rounded
+                                  : Icons.menu_book_rounded,
+                              title: plan.title,
+                              body:
+                                  '${plan.durationDays} ${AppStrings.of(language, 'days')} • ${plan.category} • ${plan.description}',
+                              trailing: Wrap(spacing: 6, children: [
+                                TextButton(
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _bibleAction((token) =>
+                                          widget.apiClient.joinBiblePlan(
+                                              token: token, planId: plan.id)),
+                                  child: Text(language == AppLanguage.english
+                                      ? 'Join'
+                                      : 'ተቀላቀል'),
+                                ),
+                                TextButton(
+                                  onPressed: _busy
+                                      ? null
+                                      : () => _bibleAction((token) =>
+                                          widget.apiClient.completeBiblePlanDay(
+                                              token: token,
+                                              planId: plan.id,
+                                              dayNumber: 1)),
+                                  child: Text(language == AppLanguage.english
+                                      ? 'Day 1 done'
+                                      : 'ቀን 1 ተጠናቀቀ'),
+                                ),
+                              ]),
+                            ),
+                          ),
+                      ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: language == AppLanguage.english
+                    ? 'Study journal, memory, and topics'
+                    : 'የጥናት ማስታወሻ፣ ትዝታ እና ርዕሶች',
+                children: [
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    FilledButton.tonalIcon(
+                      onPressed: _busy
+                          ? null
+                          : () => _bibleAction((token) => widget.apiClient
+                              .createStudyJournal(
+                                  token: token,
+                                  title: 'Romans 8 reflection',
+                                  body:
+                                      'Main lesson: life in the Spirit and no condemnation in Christ.',
+                                  reference: 'Romans 8')),
+                      icon: const Icon(Icons.edit_note_rounded),
+                      label: Text(language == AppLanguage.english
+                          ? 'Save journal'
+                          : 'ማስታወሻ አስቀምጥ'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _busy
+                          ? null
+                          : () => _bibleAction((token) => widget.apiClient
+                              .addMemoryVerse(
+                                  token: token,
+                                  reference: selectedVerse.$1,
+                                  verseText: selectedVerse.$2)),
+                      icon: const Icon(Icons.psychology_rounded),
+                      label: Text(language == AppLanguage.english
+                          ? 'Memorize verse'
+                          : 'ቁጥሩን በቃል ያዝ'),
+                    ),
+                  ]),
+                  const SizedBox(height: 12),
+                  if (journal.isNotEmpty)
+                    _MiniCard(
+                      icon: Icons.history_edu_rounded,
+                      title: '${journal.first['title']}',
+                      body: '${journal.first['body']}',
+                    ),
+                  if (memory.isNotEmpty)
+                    _MiniCard(
+                      icon: Icons.memory_rounded,
+                      title:
+                          '${memory.first['reference']} • ${memory.first['status']}',
+                      body: '${memory.first['verseText']}',
+                    ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final topic in topics.take(10))
+                        Chip(
+                          avatar:
+                              const Icon(Icons.local_offer_rounded, size: 16),
+                          label: Text(
+                              '${topic['name']} (${topic['verseCount'] ?? 0})'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: language == AppLanguage.english
+                    ? 'Group Bible study, audio, and settings'
+                    : 'የቡድን ጥናት፣ ድምፅ እና ቅንብሮች',
+                children: [
+                  for (final study in groupStudies.take(3))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _MiniCard(
+                        icon: Icons.groups_2_rounded,
+                        title: '${study['title']}',
+                        body: '${study['currentAssignment']}',
+                        trailing: TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _bibleAction((token) => widget.apiClient
+                                  .addGroupBibleStudyNote(
+                                      token: token,
+                                      studyId: '${study['id']}',
+                                      reference: selectedVerse.$1,
+                                      note:
+                                          'Shared note: this verse shaped my study today.')),
+                          child: Text(language == AppLanguage.english
+                              ? 'Add note'
+                              : 'ማስታወሻ ጨምር'),
+                        ),
+                      ),
+                    ),
+                  FilledButton.tonalIcon(
+                    onPressed: _busy
+                        ? null
+                        : () => _bibleAction((token) => widget.apiClient
+                            .createGroupBibleStudy(
+                                token: token,
+                                title: 'Youth Romans Study',
+                                assignment:
+                                    'Read Romans 8 and share one promise.')),
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    label: Text(language == AppLanguage.english
+                        ? 'Create group study'
+                        : 'የቡድን ጥናት ፍጠር'),
+                  ),
+                  const SizedBox(height: 12),
+                  _MiniCard(
+                    icon: Icons.settings_rounded,
+                    title: language == AppLanguage.english
+                        ? 'Bible settings'
+                        : 'የመጽሐፍ ቅዱስ ቅንብሮች',
+                    body:
+                        '${settings['defaultVersion'] ?? 'kjv'} • ${settings['theme'] ?? 'light'} • ${settings['fontSize'] ?? 18}px • ${settings['reminderTime'] ?? '07:00'}',
+                    trailing: TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => _bibleAction((token) => widget.apiClient
+                              .updateBibleSettings(
+                                  token: token,
+                                  defaultVersion: _readerVersion,
+                                  preferredLanguage: language.code,
+                                  fontSize: 20,
+                                  theme: 'focus')),
+                      child: Text(
+                          language == AppLanguage.english ? 'Save' : 'አስቀምጥ'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'bible_notes'),
+                children: [
+                  TextField(
+                      controller: _referenceController,
+                      decoration: InputDecoration(
+                          labelText:
+                              AppStrings.of(language, 'note_reference'))),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: _verseController,
+                      decoration: InputDecoration(
+                          labelText: AppStrings.of(language, 'verse_text')),
+                      maxLines: 3),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: _noteController,
+                      decoration: InputDecoration(
+                          labelText: AppStrings.of(language, 'note_body')),
+                      maxLines: 4),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _busy ? null : () => _saveNote(),
+                    child: Text(AppStrings.of(language, 'save_note')),
+                  ),
+                  if (_status.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'bookmarks'),
+                children: [
+                  TextField(
+                      controller: _bookmarkReferenceController,
+                      decoration: InputDecoration(
+                          labelText:
+                              AppStrings.of(language, 'note_reference'))),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: _bookmarkVerseController,
+                      decoration: InputDecoration(
+                          labelText: AppStrings.of(language, 'verse_text')),
+                      maxLines: 3),
+                  const SizedBox(height: 12),
+                  FilledButton.tonal(
+                    onPressed: _busy ? null : _saveBookmark,
+                    child: Text(AppStrings.of(language, 'save_bookmark')),
+                  ),
+                  const SizedBox(height: 12),
+                  if (data.bookmarks.isEmpty)
+                    Text(AppStrings.of(language, 'no_bookmarks'))
+                  else
+                    ...data.bookmarks.map((bookmark) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _MiniCard(
+                            icon: Icons.bookmark_rounded,
+                            title: bookmark.reference,
+                            body: bookmark.verseText,
+                            trailing: TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _deleteBookmark(bookmark.id),
+                              child:
+                                  Text(AppStrings.of(language, 'delete_note')),
+                            ),
+                          ),
+                        )),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'highlights'),
+                children: [
+                  TextField(
+                      controller: _highlightReferenceController,
+                      decoration: InputDecoration(
+                          labelText:
+                              AppStrings.of(language, 'note_reference'))),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: _highlightVerseController,
+                      decoration: InputDecoration(
+                          labelText: AppStrings.of(language, 'verse_text')),
+                      maxLines: 3),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: _highlightNoteController,
+                      decoration: InputDecoration(
+                          labelText: AppStrings.of(language, 'note_body')),
+                      maxLines: 3),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final color in _highlightColors)
+                        ChoiceChip(
+                          label: Text(color),
+                          selected: _selectedHighlightColor == color,
+                          onSelected: (_) =>
+                              setState(() => _selectedHighlightColor = color),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _busy ? null : _saveHighlight,
+                    child: Text(AppStrings.of(language, 'save_highlight')),
+                  ),
+                  const SizedBox(height: 12),
+                  if (data.highlights.isEmpty)
+                    Text(AppStrings.of(language, 'no_highlights'))
+                  else
+                    ...data.highlights.map((highlight) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _MiniCard(
+                            icon: Icons.highlight_rounded,
+                            title: highlight.reference,
+                            body: '${highlight.color} • ${highlight.note}',
+                            trailing: TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _deleteHighlight(highlight.id),
+                              child:
+                                  Text(AppStrings.of(language, 'delete_note')),
+                            ),
+                          ),
+                        )),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'bible_notes'),
+                children: data.notes.isEmpty
+                    ? [Text(AppStrings.of(language, 'no_bible_notes'))]
+                    : [
+                        for (final note in data.notes)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(note.reference,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium),
+                                    const SizedBox(height: 8),
+                                    Text(note.verseText,
+                                        maxLines: 3,
+                                        overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 8),
+                                    Text(note.note,
+                                        maxLines: 4,
+                                        overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        TextButton(
+                                          onPressed: _busy
+                                              ? null
+                                              : () {
+                                                  _referenceController.text =
+                                                      note.reference;
+                                                  _verseController.text =
+                                                      note.verseText;
+                                                  _noteController.text =
+                                                      note.note;
+                                                },
+                                          child: Text(AppStrings.of(
+                                              language, 'edit_note')),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        TextButton(
+                                          onPressed: _busy
+                                              ? null
+                                              : () => _deleteNote(note),
+                                          child: Text(AppStrings.of(
+                                              language, 'delete_note')),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BibleMetric extends StatelessWidget {
+  const _BibleMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: 118,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: [
+            colors.primaryContainer.withValues(alpha: .9),
+            colors.tertiaryContainer.withValues(alpha: .65),
+          ],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: colors.onPrimaryContainer,
+                  )),
+          const SizedBox(height: 4),
+          Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: colors.onPrimaryContainer.withValues(alpha: .72),
+                  )),
+        ],
+      ),
+    );
+  }
+}
+
+class EventsScreen extends StatefulWidget {
+  const EventsScreen(
+      {super.key,
+      required this.language,
+      required this.snapshotFuture,
+      required this.apiClient,
+      required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<DashboardSnapshot> snapshotFuture;
+
+  @override
+  State<EventsScreen> createState() => _EventsScreenState();
+}
+
+class _EventsScreenState extends State<EventsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 8, vsync: this);
+    _future = widget.apiClient.fetchEventsHome(widget.session?.token);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final future = widget.apiClient.fetchEventsHome(widget.session?.token);
+    setState(() => _future = future);
+    await future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final en = widget.language == AppLanguage.english;
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        final data = snapshot.data ?? const <String, dynamic>{};
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            children: [
+              _SectionHeader(
+                title: en ? 'Events engine' : 'የዝግጅቶች ማዕከል',
+                subtitle: en
+                    ? 'Discover, register, volunteer, check in, download resources, discuss, and review real gatherings.'
+                    : 'ዝግጅቶችን ፈልግ፣ ተመዝገብ፣ በፈቃድ አገልግል፣ ግባ፣ ምንጮችን ውሰድ እና ግምገማ ስጥ።',
+              ),
+              const SizedBox(height: 16),
+              _EventStats(data: data, en: en),
+              const SizedBox(height: 16),
+              TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabs: [
+                  Tab(text: en ? 'Upcoming' : 'መጪ'),
+                  Tab(text: en ? 'Nearby' : 'አቅራቢያ'),
+                  Tab(text: en ? 'Church' : 'ቤተ ክርስቲያን'),
+                  Tab(text: en ? 'Ministry' : 'አገልግሎት'),
+                  Tab(text: en ? 'Community' : 'ማህበረሰብ'),
+                  Tab(text: en ? 'My events' : 'የእኔ'),
+                  Tab(text: en ? 'Calendar' : 'ካሌንዳር'),
+                  Tab(text: en ? 'Saved' : 'የተቀመጡ'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: MediaQuery.of(context).size.height * .72,
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _eventList(data, 'upcoming', en),
+                    _eventList(data, 'nearby', en),
+                    _eventList(data, 'churchEvents', en),
+                    _eventList(data, 'ministryEvents', en),
+                    _eventList(data, 'communityEvents', en),
+                    _eventList(data, 'myEvents', en),
+                    _eventList(data, 'calendar', en),
+                    _eventList(data, 'savedEvents', en),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _eventList(Map<String, dynamic> data, String key, bool en) {
+    final items =
+        (data[key] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
+    if (items.isEmpty) {
+      return Center(
+          child: _EmptyState(
+              message: AppStrings.of(widget.language, 'no_upcoming_events')));
+    }
+    return ListView.separated(
+      itemCount: items.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final event = EventItem.fromJson(items[index]);
+        return _EventDiscoveryCard(
+          event: event,
+          en: en,
+          onTap: () => Navigator.of(context)
+              .push(MaterialPageRoute(
+                builder: (_) => EventDetailScreen(
+                    language: widget.language,
+                    apiClient: widget.apiClient,
+                    event: event,
+                    session: widget.session),
+              ))
+              .then((_) => _refresh()),
+        );
+      },
+    );
+  }
+}
+
+class EventDetailScreen extends StatefulWidget {
+  const EventDetailScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.event,
+      required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final EventItem event;
+  final AuthResult? session;
+
+  @override
+  State<EventDetailScreen> createState() => _EventDetailScreenState();
+}
+
+class _EventDetailScreenState extends State<EventDetailScreen> {
+  late Future<List<EventRegistrationItem>> _registrationsFuture;
+  late Future<Map<String, dynamic>> _detailFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _registrationsFuture =
+        widget.apiClient.fetchEventRegistrations(widget.event.id);
+    _detailFuture = widget.apiClient
+        .fetchEventDetail(widget.event.id, widget.session?.token);
+  }
+
+  Future<void> _refresh() async {
+    final future = widget.apiClient.fetchEventRegistrations(widget.event.id);
+    final detailFuture = widget.apiClient
+        .fetchEventDetail(widget.event.id, widget.session?.token);
+    if (!mounted) {
+      await future;
+      await detailFuture;
+      return;
+    }
+    setState(() {
+      _registrationsFuture = future;
+      _detailFuture = detailFuture;
+    });
+    await future;
+    await detailFuture;
+  }
+
+  Future<void> _register() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient
+          .registerForEvent(token: token, eventId: widget.event.id);
+      await _refresh();
+    }, AppStrings.of(widget.language, 'event_registered'));
+  }
+
+  Future<void> _checkIn() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient
+          .checkInForEvent(token: token, eventId: widget.event.id);
+      await _refresh();
+    }, AppStrings.of(widget.language, 'event_checked_in'));
+  }
+
+  Future<void> _save() async => _tokenAction(
+      (token) =>
+          widget.apiClient.saveEvent(token: token, eventId: widget.event.id),
+      'Saved event');
+  Future<void> _volunteer() async => _tokenAction(
+      (token) => widget.apiClient.applyEventVolunteer(
+          token: token,
+          eventId: widget.event.id,
+          role: 'media',
+          note: 'I can serve with media, registration or logistics.'),
+      'Volunteer application sent');
+  Future<void> _task() async => _tokenAction(
+      (token) => widget.apiClient.createEventTask(
+          token: token,
+          eventId: widget.event.id,
+          title: 'Prepare event follow-up'),
+      'Task created');
+  Future<void> _discussion() async => _tokenAction(
+      (token) => widget.apiClient.createEventDiscussion(
+          token: token,
+          eventId: widget.event.id,
+          title: 'Questions and coordination',
+          body:
+              'Let us coordinate transport, prayer and volunteer needs here.'),
+      'Discussion created');
+  Future<void> _feedback() async => _tokenAction(
+      (token) => widget.apiClient.submitEventFeedback(
+          token: token,
+          eventId: widget.event.id,
+          rating: 5,
+          body:
+              'Meaningful event with strong worship, teaching and fellowship.'),
+      'Feedback sent');
+
+  Future<void> _tokenAction(
+      Future<dynamic> Function(String token) action, String success) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await action(token);
+      await _refresh();
+    }, success);
+  }
+
+  Future<void> _runAction(
+      Future<void> Function() action, String successMessage) async {
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await action();
+      if (mounted) {
+        setState(() => _status = successMessage);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _status = error.toString().replaceFirst('HttpException: ', '');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(
+          title: Text(widget.event.title,
+              maxLines: 1, overflow: TextOverflow.ellipsis)),
+      body: FutureBuilder<Map<String, dynamic>>(
+        future: _detailFuture,
+        builder: (context, snapshot) {
+          final detail = snapshot.data ?? <String, dynamic>{};
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: [
+                _SectionCard(
+                  title: widget.event.title,
+                  children: [
+                    Text(
+                        '${detail['location'] ?? widget.event.location} • ${detail['startsAt'] ?? widget.event.startsAt}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 12),
+                    Text((detail['description'] ?? widget.event.description)
+                            .toString()
+                            .isEmpty
+                        ? AppStrings.of(language, 'event_detail_body')
+                        : (detail['description'] ?? widget.event.description)
+                            .toString()),
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      _InfoChip(
+                          label:
+                              '${detail['organizer'] ?? widget.event.organizer}'),
+                      _InfoChip(
+                          label:
+                              '${detail['category'] ?? widget.event.category}'),
+                      _InfoChip(
+                          label:
+                              '${detail['registrationCount'] ?? widget.event.registrationCount} registered'),
+                      _InfoChip(
+                          label:
+                              '${detail['attendanceCount'] ?? widget.event.attendanceCount} checked in'),
+                    ]),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton(
+                            onPressed: _busy ? null : _register,
+                            child: Text(
+                                AppStrings.of(language, 'register_event'))),
+                        OutlinedButton(
+                            onPressed: _busy ? null : _checkIn,
+                            child: Text(
+                                AppStrings.of(language, 'event_check_in'))),
+                        OutlinedButton(
+                            onPressed: _busy ? null : _save,
+                            child: Text(language == AppLanguage.english
+                                ? 'Save'
+                                : 'አስቀምጥ')),
+                        OutlinedButton(
+                            onPressed: _busy ? null : _volunteer,
+                            child: Text(language == AppLanguage.english
+                                ? 'Volunteer'
+                                : 'በፈቃድ አገልግል')),
+                        OutlinedButton(
+                            onPressed: _busy ? null : _discussion,
+                            child: Text(language == AppLanguage.english
+                                ? 'Discuss'
+                                : 'ተወያይ')),
+                        OutlinedButton(
+                            onPressed: _busy ? null : _feedback,
+                            child: Text(language == AppLanguage.english
+                                ? 'Rate 5★'
+                                : '5★ ስጥ')),
+                      ],
+                    ),
+                    if (_status.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(_status,
+                          maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                LiveChatPanel(
+                  apiClient: widget.apiClient,
+                  session: widget.session,
+                  language: language,
+                  scopeType: 'event',
+                  scopeId: widget.event.id,
+                  title: '${widget.event.title} chat',
+                ),
+                const SizedBox(height: 16),
+                _EventDetailCollections(
+                    detail: detail, language: language, onCreateTask: _task),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: AppStrings.of(language, 'event_registrations'),
+                  children: [
+                    FutureBuilder<List<EventRegistrationItem>>(
+                      future: _registrationsFuture,
+                      builder: (context, snapshot) {
+                        final registrations =
+                            snapshot.data ?? const <EventRegistrationItem>[];
+                        if (snapshot.connectionState ==
+                                ConnectionState.waiting &&
+                            registrations.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        if (registrations.isEmpty) {
+                          return Text(AppStrings.of(
+                              language, 'no_event_registrations'));
+                        }
+                        return Column(
+                          children: [
+                            for (final registration in registrations)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _ListTileRow(
+                                  icon: Icons.confirmation_number_rounded,
+                                  title: registration.userFullName,
+                                  subtitle: registration.checkedInAt == null
+                                      ? AppStrings.of(language, 'registered')
+                                      : '${AppStrings.of(language, 'checked_in')} • ${registration.checkedInAt}',
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _EventStats extends StatelessWidget {
+  const _EventStats({required this.data, required this.en});
+  final Map<String, dynamic> data;
+  final bool en;
+  @override
+  Widget build(BuildContext context) {
+    final analytics = (data['analytics'] as Map<String, dynamic>?) ?? const {};
+    return _SectionCard(
+        title: en ? 'Live event pulse' : 'የዝግጅት እንቅስቃሴ',
+        children: [
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _InfoChip(label: '${analytics['events'] ?? 0} events'),
+            _InfoChip(
+                label: '${analytics['registrations'] ?? 0} registrations'),
+            _InfoChip(label: '${analytics['attendance'] ?? 0} attended'),
+            _InfoChip(label: '${analytics['volunteers'] ?? 0} volunteers'),
+            _InfoChip(label: '${analytics['completedTasks'] ?? 0} tasks done'),
+          ]),
+        ]);
+  }
+}
+
+class _EventDiscoveryCard extends StatelessWidget {
+  const _EventDiscoveryCard(
+      {required this.event, required this.en, required this.onTap});
+  final EventItem event;
+  final bool en;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(title: event.title, children: [
+      Text('${event.location} • ${event.startsAt}',
+          maxLines: 2, overflow: TextOverflow.ellipsis),
+      const SizedBox(height: 8),
+      Text(
+          event.description.isEmpty
+              ? (en
+                  ? 'Open event profile for registration, QR ticket, schedule and resources.'
+                  : 'ለምዝገባ፣ QR ቲኬት፣ መርሃ ግብር እና ምንጮች ዝርዝሩን ክፈት።')
+              : event.description,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis),
+      const SizedBox(height: 12),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        _InfoChip(
+            label: event.organizerType.isEmpty ? 'event' : event.organizerType),
+        _InfoChip(
+            label: event.category.isEmpty ? 'fellowship' : event.category),
+        _InfoChip(label: '${event.registrationCount} registered'),
+        if (event.capacity > 0) _InfoChip(label: '${event.capacity} capacity'),
+      ]),
+      const SizedBox(height: 12),
+      FilledButton(
+          onPressed: onTap, child: Text(en ? 'Open event' : 'ዝግጅቱን ክፈት')),
+    ]);
+  }
+}
+
+class _EventDetailCollections extends StatelessWidget {
+  const _EventDetailCollections(
+      {required this.detail,
+      required this.language,
+      required this.onCreateTask});
+  final Map<String, dynamic> detail;
+  final AppLanguage language;
+  final VoidCallback onCreateTask;
+
+  List<Map<String, dynamic>> _items(String key) =>
+      (detail[key] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
+
+  @override
+  Widget build(BuildContext context) {
+    final en = language == AppLanguage.english;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _mini('Ticket and analytics', [
+        'Registration: ${detail['registrationType'] ?? 'open'}',
+        'Ticket: ${detail['ticketType'] ?? 'free'} ${detail['ticketPrice'] ?? 0}',
+        'Livestream: ${detail['livestreamUrl'] ?? ''}',
+        'Attendance: ${((detail['analytics'] as Map<String, dynamic>?) ?? const {})['attendance'] ?? 0}',
+      ]),
+      const SizedBox(height: 12),
+      _list(
+          en ? 'Schedule sessions' : 'የመርሃ ግብር ክፍሎች',
+          'sessions',
+          Icons.schedule_rounded,
+          (x) => x['title'] ?? '',
+          (x) => '${x['starts_at'] ?? x['startsAt'] ?? ''}'),
+      const SizedBox(height: 12),
+      _list(
+          en ? 'Speakers' : 'ተናጋሪዎች',
+          'speakers',
+          Icons.record_voice_over_rounded,
+          (x) => x['name'] ?? '',
+          (x) => '${x['title'] ?? ''} • ${x['church'] ?? ''}'),
+      const SizedBox(height: 12),
+      _list(
+          en ? 'Teams and volunteers' : 'ቡድኖች እና በፈቃደኞች',
+          'teams',
+          Icons.groups_rounded,
+          (x) => x['name'] ?? '',
+          (x) => x['description'] ?? ''),
+      const SizedBox(height: 12),
+      _list(
+          en ? 'Planning tasks' : 'የዝግጅት ስራዎች',
+          'tasks',
+          Icons.task_alt_rounded,
+          (x) => x['title'] ?? '',
+          (x) => '${x['status'] ?? ''} • ${x['priority'] ?? ''}'),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+          onPressed: onCreateTask,
+          icon: const Icon(Icons.add_task_rounded),
+          label: Text(en ? 'Add follow-up task' : 'ተከታታይ ስራ ጨምር')),
+      const SizedBox(height: 12),
+      _list(
+          en ? 'Resources' : 'ምንጮች',
+          'resources',
+          Icons.file_download_rounded,
+          (x) => x['title'] ?? '',
+          (x) => x['resource_url'] ?? x['resourceUrl'] ?? ''),
+      const SizedBox(height: 12),
+      _list(en ? 'Discussions' : 'ውይይቶች', 'discussions', Icons.forum_rounded,
+          (x) => x['title'] ?? '', (x) => x['body'] ?? ''),
+      const SizedBox(height: 12),
+      _list(
+          en ? 'Feedback' : 'ግምገማ',
+          'feedback',
+          Icons.star_rounded,
+          (x) => '${x['rating'] ?? 5}★ ${x['userName'] ?? ''}',
+          (x) => x['body'] ?? ''),
+    ]);
+  }
+
+  Widget _mini(String title, List<String> lines) =>
+      _SectionCard(title: title, children: [
+        for (final line in lines.where((line) => !line.endsWith(': ')))
+          Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(line, maxLines: 2, overflow: TextOverflow.ellipsis))
+      ]);
+
+  Widget _list(
+      String title,
+      String key,
+      IconData icon,
+      Object? Function(Map<String, dynamic>) titleOf,
+      Object? Function(Map<String, dynamic>) subtitleOf) {
+    final values = _items(key);
+    return _SectionCard(
+        title: title,
+        children: values.isEmpty
+            ? [const Text('No records yet.')]
+            : [
+                for (final item in values.take(5))
+                  Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _ListTileRow(
+                          icon: icon,
+                          title: '${titleOf(item)}',
+                          subtitle: '${subtitleOf(item)}')),
+              ]);
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.label});
+  final String label;
+  @override
+  Widget build(BuildContext context) =>
+      Chip(label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis));
+}
+
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({
+    super.key,
+    required this.language,
+    required this.apiClient,
+    required this.session,
+    required this.onAuthChanged,
+    required this.onDataChanged,
+  });
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final ValueChanged<AuthResult?> onAuthChanged;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final TextEditingController _fullNameController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _cityController = TextEditingController();
+  final TextEditingController _testimonyController = TextEditingController();
+  final TextEditingController _favoriteVerseController =
+      TextEditingController();
+  String _profileLanguage = 'en';
+  UserProfile? _profile;
+  List<ChurchMembershipItem> _memberships = const [];
+  Map<String, dynamic> _dashboard = const {};
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final user = widget.session?.user;
+    _profile = user;
+    _profileLanguage = user?.language ?? widget.language.code;
+    _fullNameController.text = user?.fullName ?? '';
+    if (widget.session != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
+    }
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _bioController.dispose();
+    _cityController.dispose();
+    _testimonyController.dispose();
+    _favoriteVerseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reload() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      return;
+    }
+    final profile = await widget.apiClient.me(token);
+    final memberships = await widget.apiClient.fetchMyChurchMemberships(token);
+    final dashboard = await widget.apiClient.fetchProfileDashboard(token);
+    if (!mounted) {
+      return;
+    }
+    final identity =
+        (dashboard['identity'] as Map<String, dynamic>?) ?? const {};
+    setState(() {
+      _profile = profile ?? widget.session?.user;
+      _memberships = memberships;
+      _dashboard = dashboard;
+      _fullNameController.text = _profile?.fullName ?? '';
+      _bioController.text = '${identity['bio'] ?? ''}';
+      _cityController.text = '${identity['city'] ?? ''}';
+      _testimonyController.text = '${identity['testimony'] ?? ''}';
+      _favoriteVerseController.text = '${identity['favoriteVerse'] ?? ''}';
+      _profileLanguage = _profile?.language ?? widget.language.code;
+    });
+  }
+
+  Future<void> _changePassword() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final current = TextEditingController();
+    final next = TextEditingController();
+    final confirm = TextEditingController();
+    final en = widget.language == AppLanguage.english;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(en ? 'Change password' : 'የይለፍ ቃል ቀይር'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+              controller: current,
+              obscureText: true,
+              decoration: InputDecoration(
+                  labelText: en ? 'Current password' : 'የአሁኑ የይለፍ ቃል'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: next,
+              obscureText: true,
+              decoration: InputDecoration(
+                  labelText: en ? 'New password' : 'አዲስ የይለፍ ቃል'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: confirm,
+              obscureText: true,
+              decoration: InputDecoration(
+                  labelText:
+                      en ? 'Confirm new password' : 'አዲሱን የይለፍ ቃል ያረጋግጡ'),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(en ? 'Change' : 'ቀይር')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (next.text != confirm.text) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(en ? 'Passwords do not match.' : 'የይለፍ ቃሎቹ አይዛመዱም።')));
+      }
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.changePassword(
+        token: token,
+        currentPassword: current.text,
+        newPassword: next.text,
+        confirmPassword: confirm.text,
+      );
+      if (!mounted) return;
+      widget.onAuthChanged(null);
+      await widget.onDataChanged();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(en
+              ? 'Password changed. Sign in again.'
+              : 'የይለፍ ቃል ተቀይሯል። እንደገና ይግቡ።')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _save() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+    });
+    try {
+      await widget.apiClient.updateProfileDashboard(token, {
+        'fullName': _fullNameController.text,
+        'language': _profileLanguage,
+        'bio': _bioController.text,
+        'city': _cityController.text,
+        'testimony': _testimonyController.text,
+        'favoriteVerse': _favoriteVerseController.text,
+      });
+      final updated = await widget.apiClient.me(token);
+      final dashboard = await widget.apiClient.fetchProfileDashboard(token);
+      if (!mounted) return;
+      setState(() {
+        _profile = updated ?? _profile;
+        _dashboard = dashboard;
+      });
+      widget.onAuthChanged(
+          AuthResult(token: token, user: _profile ?? widget.session!.user));
+      await widget.onDataChanged();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    final en = language == AppLanguage.english;
+    final identity =
+        (_dashboard['identity'] as Map<String, dynamic>?) ?? const {};
+    final community =
+        (_dashboard['community'] as Map<String, dynamic>?) ?? const {};
+    final bible = (_dashboard['bible'] as Map<String, dynamic>?) ?? const {};
+    final prayers =
+        (_dashboard['prayers'] as Map<String, dynamic>?) ?? const {};
+    final volunteer =
+        (_dashboard['volunteer'] as Map<String, dynamic>?) ?? const {};
+    final relationship =
+        (_dashboard['relationship'] as Map<String, dynamic>?) ?? const {};
+    final analytics =
+        (_dashboard['analytics'] as Map<String, dynamic>?) ?? const {};
+    List<Map<String, dynamic>> items(String key) =>
+        (_dashboard[key] as List<dynamic>? ?? const [])
+            .cast<Map<String, dynamic>>();
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'profile_details'))),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          _SectionHeader(
+            title: en ? 'Complete Christian identity' : 'ሙሉ ክርስቲያናዊ መታወቂያ',
+            subtitle: en
+                ? 'Social, church, ministry, spiritual, relationship, service and achievement profile.'
+                : 'ማህበራዊ፣ ቤተ ክርስቲያን፣ አገልግሎት፣ መንፈሳዊ፣ ግንኙነት፣ አገልግሎት እና ሽልማት መገለጫ።',
+          ),
+          const SizedBox(height: 16),
+          _SectionCard(title: en ? 'Public profile' : 'የሚታይ መገለጫ', children: [
+            Row(children: [
+              CircleAvatar(
+                  radius: 34,
+                  child: Text((_profile?.fullName.isNotEmpty == true
+                          ? _profile!.fullName[0]
+                          : '?')
+                      .toUpperCase())),
+              const SizedBox(width: 14),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(_profile?.fullName ?? '',
+                        style: Theme.of(context).textTheme.titleLarge),
+                    Text(
+                        '@${identity['username'] ?? ''} • ${identity['city'] ?? ''} • ${identity['country'] ?? 'Ethiopia'}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                    Text('${identity['bio'] ?? ''}',
+                        maxLines: 3, overflow: TextOverflow.ellipsis),
+                  ])),
+            ]),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              _InfoChip(label: '${community['followers'] ?? 0} followers'),
+              _InfoChip(label: '${community['following'] ?? 0} following'),
+              _InfoChip(label: '${community['friends'] ?? 0} friends'),
+              _InfoChip(label: '${items('achievements').length} badges'),
+            ]),
+          ]),
+          const SizedBox(height: 16),
+          _SectionCard(
+            title:
+                en ? 'Personal, spiritual and settings' : 'የግል፣ መንፈሳዊ እና ቅንብሮች',
+            children: [
+              TextField(
+                controller: _fullNameController,
+                decoration: InputDecoration(
+                    labelText: AppStrings.of(language, 'full_name')),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                  controller: _bioController,
+                  decoration: const InputDecoration(labelText: 'Bio'),
+                  maxLines: 2),
+              const SizedBox(height: 12),
+              TextField(
+                  controller: _cityController,
+                  decoration: InputDecoration(
+                      labelText: AppStrings.of(language, 'city'))),
+              const SizedBox(height: 12),
+              TextField(
+                  controller: _testimonyController,
+                  decoration:
+                      const InputDecoration(labelText: 'Salvation testimony'),
+                  maxLines: 3),
+              const SizedBox(height: 12),
+              TextField(
+                  controller: _favoriteVerseController,
+                  decoration:
+                      const InputDecoration(labelText: 'Favorite Bible verse')),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _profileLanguage,
+                decoration: InputDecoration(
+                    labelText: AppStrings.of(language, 'preferred_language')),
+                items: [
+                  DropdownMenuItem(
+                      value: 'en',
+                      child:
+                          Text(AppStrings.of(AppLanguage.english, 'english'))),
+                  DropdownMenuItem(
+                      value: 'am',
+                      child:
+                          Text(AppStrings.of(AppLanguage.amharic, 'amharic'))),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(
+                        () => _profileLanguage = value ?? _profileLanguage),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _busy ? null : _save,
+                child: Text(AppStrings.of(language, 'save_profile')),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _changePassword,
+                icon: const Icon(Icons.lock_reset_rounded),
+                label: Text(en ? 'Change password' : 'የይለፍ ቃል ቀይር'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _ProfileGrid(title: en ? 'Spiritual life' : 'መንፈሳዊ ሕይወት', rows: [
+            ('Years in faith', '${identity['yearsInFaith'] ?? 0}'),
+            ('Baptism', '${identity['baptismStatus'] ?? 'not_set'}'),
+            ('Favorite verse', '${identity['favoriteVerse'] ?? ''}'),
+            ('Bible notes', '${bible['notes'] ?? 0}'),
+            ('Bookmarks', '${bible['bookmarks'] ?? 0}'),
+            ('Reading streak', '${bible['streak'] ?? 0}'),
+            ('Prayer requests', '${prayers['requests'] ?? 0}'),
+            ('Answered prayers', '${prayers['answered'] ?? 0}'),
+          ]),
+          const SizedBox(height: 16),
+          _SectionCard(
+            title: AppStrings.of(language, 'joined_churches'),
+            children: [
+              if (_memberships.isEmpty)
+                Text(AppStrings.of(language, 'no_memberships'))
+              else
+                ..._memberships.map((membership) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                          '${membership.churchName} • ${membership.city}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
+                    )),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Ministries and service' : 'አገልግሎቶች እና አገልግሎት',
+              icon: Icons.volunteer_activism_rounded,
+              items: items('ministries'),
+              titleOf: (x) => '${x['name'] ?? ''}',
+              subtitleOf: (x) =>
+                  '${x['role'] ?? ''} • ${x['status'] ?? ''} • ${x['serviceHours'] ?? 0}h'),
+          const SizedBox(height: 16),
+          _ProfileGrid(
+              title: en ? 'Community and relationship' : 'ማህበረሰብ እና ግንኙነት',
+              rows: [
+                ('Groups', '${community['groups'] ?? 0}'),
+                ('Discussions', '${community['discussions'] ?? 0}'),
+                (
+                  'Relationship',
+                  '${relationship['activationMode'] ?? 'hidden'}'
+                ),
+                ('Connections', '${relationship['connections'] ?? 0}'),
+                (
+                  'Church verified',
+                  '${relationship['churchVerified'] == true}'
+                ),
+                (
+                  'Pastor recommended',
+                  '${relationship['pastorRecommended'] == true}'
+                ),
+              ]),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Posts and testimonies' : 'ፖስቶች እና ምስክርነቶች',
+              icon: Icons.dynamic_feed_rounded,
+              items: items('posts'),
+              titleOf: (x) => '${x['postType'] ?? 'post'}',
+              subtitleOf: (x) => '${x['body'] ?? ''}'),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Event history' : 'የዝግጅት ታሪክ',
+              icon: Icons.event_available_rounded,
+              items: items('events'),
+              titleOf: (x) => '${x['title'] ?? ''}',
+              subtitleOf: (x) =>
+                  '${x['status'] ?? ''} • ${x['checkedInAt'] ?? x['startsAt'] ?? ''}'),
+          const SizedBox(height: 16),
+          _ProfileGrid(
+              title: en ? 'Volunteer profile' : 'የበፈቃድ አገልግሎት መገለጫ',
+              rows: [
+                ('Ministry hours', '${volunteer['ministryHours'] ?? 0}'),
+                ('Event roles', '${volunteer['eventVolunteerRoles'] ?? 0}'),
+                (
+                  'Ministry roles',
+                  '${volunteer['ministryVolunteerRoles'] ?? 0}'
+                ),
+              ]),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Achievements and badges' : 'ሽልማቶች እና ባጆች',
+              icon: Icons.workspace_premium_rounded,
+              items: items('achievements'),
+              titleOf: (x) => '${x['title'] ?? x['badge'] ?? ''}',
+              subtitleOf: (x) => '${x['earnedAt'] ?? ''}'),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Notes and saved library' : 'ማስታወሻዎች እና የተቀመጡ ምንጮች',
+              icon: Icons.bookmark_rounded,
+              items: [...items('notes'), ...items('saved')],
+              titleOf: (x) => '${x['title'] ?? x['contentType'] ?? ''}',
+              subtitleOf: (x) =>
+                  '${x['body'] ?? x['url'] ?? x['createdAt'] ?? ''}'),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Mentorship' : 'ምክር',
+              icon: Icons.psychology_rounded,
+              items: items('mentorship'),
+              titleOf: (x) => '${x['mentorName'] ?? ''}',
+              subtitleOf: (x) =>
+                  '${x['status'] ?? ''} • ${x['ministry'] ?? ''}'),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Verification center' : 'የማረጋገጫ ማዕከል',
+              icon: Icons.verified_user_rounded,
+              items: items('verifications'),
+              titleOf: (x) => '${x['type'] ?? ''}',
+              subtitleOf: (x) => '${x['status'] ?? ''}'),
+          const SizedBox(height: 16),
+          _ProfileList(
+              title: en ? 'Notification history' : 'የማሳወቂያ ታሪክ',
+              icon: Icons.notifications_rounded,
+              items: items('notifications'),
+              titleOf: (x) => '${x['title'] ?? ''}',
+              subtitleOf: (x) => '${x['body'] ?? ''}'),
+          const SizedBox(height: 16),
+          _ProfileGrid(title: en ? 'Personal analytics' : 'የግል ትንታኔ', rows: [
+            ('Profile views', '${analytics['profileViews'] ?? 0}'),
+            ('Engagement', '${analytics['engagement'] ?? 0}'),
+            ('Followers', '${analytics['followers'] ?? 0}'),
+            ('Events attended', '${analytics['eventsAttended'] ?? 0}'),
+          ]),
+          const SizedBox(height: 16),
+          Text(AppStrings.of(language, 'current_session')),
+          Text(_profile?.phoneNumber ?? '',
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileGrid extends StatelessWidget {
+  const _ProfileGrid({required this.title, required this.rows});
+  final String title;
+  final List<(String, String)> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: title,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final row in rows)
+              Container(
+                width: 150,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.parchment.withValues(alpha: .72),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0x1412372A)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(row.$1,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 6),
+                    Text(row.$2, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileList extends StatelessWidget {
+  const _ProfileList(
+      {required this.title,
+      required this.icon,
+      required this.items,
+      required this.titleOf,
+      required this.subtitleOf});
+  final String title;
+  final IconData icon;
+  final List<Map<String, dynamic>> items;
+  final String Function(Map<String, dynamic>) titleOf;
+  final String Function(Map<String, dynamic>) subtitleOf;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: title,
+      children: items.isEmpty
+          ? [const Text('No records yet.')]
+          : [
+              for (final item in items.take(5))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ListTileRow(
+                      icon: icon,
+                      title: titleOf(item),
+                      subtitle: subtitleOf(item)),
+                ),
+            ],
+    );
+  }
+}
+
+class ChurchMembershipManagementScreen extends StatefulWidget {
+  const ChurchMembershipManagementScreen({
+    super.key,
+    required this.language,
+    required this.apiClient,
+    required this.session,
+    required this.onDataChanged,
+  });
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<ChurchMembershipManagementScreen> createState() =>
+      _ChurchMembershipManagementScreenState();
+}
+
+class _ChurchMembershipManagementScreenState
+    extends State<ChurchMembershipManagementScreen> {
+  late Future<List<ChurchMembershipItem>> _membershipsFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _membershipsFuture = _load();
+  }
+
+  Future<List<ChurchMembershipItem>> _load() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      return const <ChurchMembershipItem>[];
+    }
+    return widget.apiClient.fetchMyChurchMemberships(token);
+  }
+
+  Future<void> _refresh() async {
+    final future = _load();
+    setState(() {
+      _membershipsFuture = future;
+    });
+    await future;
+  }
+
+  Future<void> _leaveChurch(ChurchMembershipItem membership) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'login_required');
+      });
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+    });
+    try {
+      await widget.apiClient
+          .leaveChurch(token: token, churchId: membership.churchId);
+      await widget.onDataChanged();
+      await _refresh();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = AppStrings.of(widget.language, 'church_removed');
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar:
+          AppBar(title: Text(AppStrings.of(language, 'membership_management'))),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            _SectionHeader(
+              title: AppStrings.of(language, 'membership_management'),
+              subtitle: AppStrings.of(language, 'joined_churches'),
+            ),
+            const SizedBox(height: 16),
+            FutureBuilder<List<ChurchMembershipItem>>(
+              future: _membershipsFuture,
+              builder: (context, snapshot) {
+                final memberships =
+                    snapshot.data ?? const <ChurchMembershipItem>[];
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    memberships.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                if (memberships.isEmpty) {
+                  return _EmptyState(
+                      message: AppStrings.of(language, 'no_memberships'));
+                }
+                return Column(
+                  children: [
+                    for (final membership in memberships) ...[
+                      _ListTileRow(
+                        icon: Icons.church_rounded,
+                        title: membership.churchName,
+                        subtitle:
+                            '${membership.city} • ${membership.role} • ${membership.verified ? (AppStrings.of(language, 'verified')) : (AppStrings.of(language, 'pending'))}',
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ChurchDetailScreen(
+                                language: language,
+                                apiClient: widget.apiClient,
+                                church: ChurchItem(
+                                  id: membership.churchId,
+                                  name: membership.churchName,
+                                  city: membership.city,
+                                  verified: membership.verified,
+                                ),
+                                session: widget.session,
+                                onDataChanged: widget.onDataChanged,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                  '${AppStrings.of(language, 'member_since')}: ${membership.joinedAt.length >= 10 ? membership.joinedAt.substring(0, 10) : membership.joinedAt}'),
+                            ),
+                            TextButton(
+                              onPressed:
+                                  _busy ? null : () => _leaveChurch(membership),
+                              child:
+                                  Text(AppStrings.of(language, 'leave_church')),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+            if (_status.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PostDetailScreen extends StatefulWidget {
+  const PostDetailScreen({
+    super.key,
+    required this.language,
+    required this.item,
+    required this.apiClient,
+    required this.session,
+    required this.onReport,
+    required this.onDataChanged,
+  });
+
+  final AppLanguage language;
+  final FeedItem item;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onReport;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<PostDetailScreen> createState() => _PostDetailScreenState();
+}
+
+class _PostDetailScreenState extends State<PostDetailScreen> {
+  final TextEditingController _commentController = TextEditingController();
+  final Map<String, TextEditingController> _replyControllers = {};
+  int? _selectedPollOption;
+  late FeedItem _post;
+  late Future<List<PostCommentItem>> _commentsFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _post = widget.item;
+    _commentsFuture = _loadComments();
+  }
+
+  @override
+  void didUpdateWidget(covariant PostDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.id != widget.item.id ||
+        oldWidget.session?.token != widget.session?.token) {
+      _post = widget.item;
+      _commentsFuture = _loadComments();
+    }
+  }
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    for (final controller in _replyControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _replyControllerFor(String commentId) {
+    return _replyControllers.putIfAbsent(
+        commentId, () => TextEditingController());
+  }
+
+  Future<List<PostCommentItem>> _loadComments() async {
+    return widget.apiClient.fetchPostComments(_post.id);
+  }
+
+  Future<void> _refreshComments() async {
+    final future = _loadComments();
+    setState(() {
+      _commentsFuture = future;
+    });
+    await future;
+  }
+
+  Future<void> _runAction(Future<void> Function() action,
+      {String? successMessage}) async {
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await action();
+      await widget.onDataChanged();
+      await _refreshComments();
+      if (mounted && successMessage != null) {
+        setState(() => _status = successMessage);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _toggleLike() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final liked = _post.likedByMe;
+    await _runAction(() async {
+      if (liked) {
+        await widget.apiClient.unlikePost(token: token, postId: _post.id);
+      } else {
+        await widget.apiClient.likePost(token: token, postId: _post.id);
+      }
+      setState(() {
+        _post = _post.copyWith(
+          likedByMe: !liked,
+          likeCount: liked
+              ? (_post.likeCount > 0 ? _post.likeCount - 1 : 0)
+              : _post.likeCount + 1,
+        );
+      });
+    },
+        successMessage: liked
+            ? AppStrings.of(widget.language, 'unlike_success')
+            : AppStrings.of(widget.language, 'like_success'));
+  }
+
+  Future<void> _share() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.sharePost(token: token, postId: _post.id);
+      setState(() {
+        _post = _post.copyWith(shareCount: _post.shareCount + 1);
+      });
+    }, successMessage: AppStrings.of(widget.language, 'share_success'));
+  }
+
+  Future<void> _react(String reaction) async {
+    final token = widget.session?.token;
+    if (token == null) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.reactToPost(token, _post.id, reaction);
+    }, successMessage: 'Reaction sent.');
+  }
+
+  Future<void> _repost() async {
+    final token = widget.session?.token;
+    if (token == null) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.repostPost(token, _post.id,
+          'Shared with my community: ${_post.body}', widget.language.code);
+    }, successMessage: 'Reposted to your community.');
+  }
+
+  Future<void> _comment() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final body = _commentController.text.trim();
+    if (body.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'message_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient
+          .createPostComment(token: token, postId: _post.id, body: body);
+      _commentController.clear();
+      setState(() {
+        _post = _post.copyWith(commentCount: _post.commentCount + 1);
+      });
+    }, successMessage: AppStrings.of(widget.language, 'comment_success'));
+  }
+
+  Future<void> _replyToComment(PostCommentItem comment) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final controller = _replyControllerFor(comment.id);
+    final body = controller.text.trim();
+    if (body.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'message_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.replyToComment(token, _post.id, comment.id, body);
+      controller.clear();
+    }, successMessage: 'Reply posted.');
+  }
+
+  Future<void> _votePoll(int optionIndex) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.votePostPoll(token, _post.id, optionIndex);
+      setState(() => _selectedPollOption = optionIndex);
+    }, successMessage: 'Poll vote saved.');
+  }
+
+  Future<void> _followAuthor() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    if (_post.authorId.isEmpty || widget.session?.user.id == _post.authorId) {
+      return;
+    }
+    await _runAction(
+        () => widget.apiClient.followUser(token: token, userId: _post.authorId),
+        successMessage: AppStrings.of(widget.language, 'follow_success'));
+  }
+
+  Widget _socialStat(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16),
+          const SizedBox(width: 6),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(
+          title: Text(AppStrings.of(language, 'post_details'),
+              maxLines: 1, overflow: TextOverflow.ellipsis)),
+      body: FutureBuilder<List<PostCommentItem>>(
+        future: _commentsFuture,
+        builder: (context, snapshot) {
+          final comments = snapshot.data ?? const <PostCommentItem>[];
+          return ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Theme.of(context).colorScheme.primaryContainer,
+                      Theme.of(context).colorScheme.secondaryContainer,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 22,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.surface,
+                          child: Icon(Icons.auto_awesome_rounded,
+                              color: Theme.of(context).colorScheme.primary),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(_post.author,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                      Theme.of(context).textTheme.titleLarge),
+                              const SizedBox(height: 2),
+                              Text(
+                                _post.createdAt.isEmpty
+                                    ? _post.language.toUpperCase()
+                                    : '${_shortDate(_post.createdAt)} • ${_post.language.toUpperCase()}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_post.language == 'am')
+                          const Icon(Icons.translate_rounded),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Text(_post.body,
+                        style: Theme.of(context).textTheme.bodyLarge),
+                    if (_post.hashtags.isNotEmpty ||
+                        _post.mentions.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final tag in _post.hashtags)
+                            Chip(
+                                label: Text(tag,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                          for (final mention in _post.mentions)
+                            Chip(
+                                label: Text(mention,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis)),
+                        ],
+                      ),
+                    ],
+                    if (_post.postType == 'poll' &&
+                        _post.pollOptions.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        _post.pollQuestion.isEmpty
+                            ? 'Poll'
+                            : _post.pollQuestion,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (var index = 0;
+                              index < _post.pollOptions.length;
+                              index++)
+                            ChoiceChip(
+                              label: Text(_post.pollOptions[index]),
+                              selected: _selectedPollOption == index,
+                              onSelected:
+                                  _busy ? null : (_) => _votePoll(index),
+                            ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        _socialStat(
+                            Icons.favorite_rounded, '${_post.likeCount}'),
+                        _socialStat(Icons.mode_comment_outlined,
+                            '${_post.commentCount}'),
+                        _socialStat(
+                            Icons.ios_share_rounded, '${_post.shareCount}'),
+                        _socialStat(
+                            Icons.verified_rounded,
+                            _post.likedByMe
+                                ? AppStrings.of(language, 'liked')
+                                : AppStrings.of(language, 'not_liked')),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(children: [
+                          for (final reaction in const [
+                            "🙏",
+                            "❤️",
+                            "🔥",
+                            "🙌",
+                            "💡"
+                          ])
+                            Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ActionChip(
+                                    label: Text(reaction,
+                                        style: const TextStyle(fontSize: 20)),
+                                    onPressed:
+                                        _busy ? null : () => _react(reaction))),
+                        ])),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _busy ? null : _toggleLike,
+                          icon: Icon(_post.likedByMe
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded),
+                          label: Text(_post.likedByMe
+                              ? AppStrings.of(language, 'unlike_post')
+                              : AppStrings.of(language, 'like_post')),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: _busy ? null : _share,
+                          icon: const Icon(Icons.ios_share_rounded),
+                          label: Text(AppStrings.of(language, 'share_post')),
+                        ),
+                        FilledButton.tonalIcon(
+                            onPressed: _busy ? null : _repost,
+                            icon: const Icon(Icons.repeat_rounded),
+                            label: const Text("Repost")),
+                        if (_post.authorId.isNotEmpty &&
+                            widget.session?.user.id != _post.authorId)
+                          FilledButton.tonalIcon(
+                            onPressed: _busy ? null : _followAuthor,
+                            icon: const Icon(Icons.person_add_alt_rounded),
+                            label:
+                                Text(AppStrings.of(language, 'follow_author')),
+                          ),
+                        FilledButton.tonalIcon(
+                          onPressed: _busy
+                              ? null
+                              : () async {
+                                  await widget.onReport();
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                          icon: const Icon(Icons.report_rounded),
+                          label: Text(AppStrings.of(language, 'report_post')),
+                        ),
+                      ],
+                    ),
+                    if (_status.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(_status,
+                          maxLines: 3, overflow: TextOverflow.ellipsis),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title: AppStrings.of(language, 'write_comment'),
+                children: [
+                  TextField(
+                    controller: _commentController,
+                    decoration: InputDecoration(
+                        labelText: AppStrings.of(language, 'message_body')),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _busy ? null : _comment,
+                    child: Text(AppStrings.of(language, 'comment_post')),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _SectionCard(
+                title:
+                    '${AppStrings.of(language, 'post_comments')} (${comments.length})',
+                children: snapshot.connectionState == ConnectionState.waiting &&
+                        comments.isEmpty
+                    ? const [
+                        Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: Center(child: CircularProgressIndicator()))
+                      ]
+                    : comments.isEmpty
+                        ? [Text(AppStrings.of(language, 'no_comments_yet'))]
+                        : [
+                            for (final comment in comments)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(14),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _MiniCard(
+                                          icon: Icons.forum_rounded,
+                                          title: comment.authorName,
+                                          body: comment.body,
+                                          trailing: Text(
+                                            comment.createdAt.isEmpty
+                                                ? ''
+                                                : _shortDate(comment.createdAt),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        TextField(
+                                          controller:
+                                              _replyControllerFor(comment.id),
+                                          decoration: const InputDecoration(
+                                            labelText: 'Reply',
+                                            isDense: true,
+                                          ),
+                                          minLines: 1,
+                                          maxLines: 2,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: FilledButton.tonalIcon(
+                                            onPressed: _busy
+                                                ? null
+                                                : () =>
+                                                    _replyToComment(comment),
+                                            icon:
+                                                const Icon(Icons.reply_rounded),
+                                            label: const Text('Reply'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class ChatScreen extends StatefulWidget {
+  const ChatScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _messageController = TextEditingController();
+  late Future<List<ChatMessageItem>> _messagesFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _messagesFuture = _load();
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  Future<List<ChatMessageItem>> _load() async {
+    return widget.apiClient.fetchChatMessages();
+  }
+
+  Future<void> _refresh() async {
+    final future = _load();
+    setState(() {
+      _messagesFuture = future;
+    });
+    await future;
+  }
+
+  Future<void> _send() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'login_required');
+      });
+      return;
+    }
+    final body = _messageController.text.trim();
+    if (body.isEmpty) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'message_required');
+      });
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+    });
+    try {
+      await widget.apiClient.sendChatMessage(token: token, body: body);
+      _messageController.clear();
+      await _refresh();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = AppStrings.of(widget.language, 'message_sent');
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'chat'))),
+      body: FutureBuilder<ModuleStatusItem>(
+        future: widget.apiClient.fetchChatStatus(),
+        builder: (context, statusSnapshot) {
+          return FutureBuilder<List<ChatMessageItem>>(
+            future: _messagesFuture,
+            builder: (context, messagesSnapshot) {
+              final messages =
+                  messagesSnapshot.data ?? const <ChatMessageItem>[];
+              return RefreshIndicator(
+                onRefresh: _refresh,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    _SectionCard(
+                      title: AppStrings.of(language, 'chat'),
+                      children: [
+                        Text(AppStrings.of(language, 'chat_body'),
+                            maxLines: 3, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 12),
+                        Text(
+                            '${AppStrings.of(language, 'chat_status')}: ${statusSnapshot.data == null ? '...' : '${statusSnapshot.data!.module} • ${statusSnapshot.data!.ready ? AppStrings.of(language, 'ready') : AppStrings.of(language, 'not_ready')}'}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 12),
+                        Text(
+                            '${AppStrings.of(language, 'chat_room')}: general'),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      title: AppStrings.of(language, 'send_message'),
+                      children: [
+                        TextField(
+                          controller: _messageController,
+                          decoration: InputDecoration(
+                              labelText:
+                                  AppStrings.of(language, 'message_body')),
+                          maxLines: 3,
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: _busy ? null : _send,
+                          child: Text(AppStrings.of(language, 'send_message')),
+                        ),
+                        if (_status.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(_status,
+                              maxLines: 3, overflow: TextOverflow.ellipsis),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      title: AppStrings.of(language, 'messages'),
+                      children: messages.isEmpty
+                          ? [Text(AppStrings.of(language, 'no_messages_yet'))]
+                          : [
+                              for (final message in messages)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: _ListTileRow(
+                                    icon: Icons.chat_bubble_rounded,
+                                    title: message.authorFullName,
+                                    subtitle:
+                                        '${message.body}\n${_shortDate(message.createdAt)}',
+                                  ),
+                                ),
+                            ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class ReportingScreen extends StatefulWidget {
+  const ReportingScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session,
+      required this.onDataChanged});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<ReportingScreen> createState() => _ReportingScreenState();
+}
+
+class _ReportingScreenState extends State<ReportingScreen> {
+  final TextEditingController _targetTypeController =
+      TextEditingController(text: 'post');
+  final TextEditingController _targetIdController = TextEditingController();
+  final TextEditingController _reasonController = TextEditingController();
+  bool _busy = false;
+  String _status = '';
+  late Future<List<ReportItem>> _reportsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _reportsFuture = Future.value(const <ReportItem>[]);
+  }
+
+  @override
+  void dispose() {
+    _targetTypeController.dispose();
+    _targetIdController.dispose();
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshReports() async {
+    final future = Future.value(const <ReportItem>[]);
+    setState(() {
+      _reportsFuture = future;
+    });
+    await future;
+  }
+
+  Future<void> _submit() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'login_required');
+      });
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+    });
+    try {
+      await widget.apiClient.createReport(
+        token: token,
+        targetType: _targetTypeController.text,
+        targetId: _targetIdController.text,
+        reason: _reasonController.text,
+      );
+      await _refreshReports();
+      await widget.onDataChanged();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = AppStrings.of(widget.language, 'report_success');
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _setStatus(String reportId, String status) async {
+    setState(() {
+      _busy = true;
+    });
+    try {
+      await widget.apiClient.updateReportStatus(
+          token: widget.session?.token ?? '',
+          reportId: reportId,
+          status: status);
+      await _refreshReports();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = status == 'resolved'
+            ? AppStrings.of(widget.language, 'report_resolved')
+            : status == 'closed'
+                ? AppStrings.of(widget.language, 'report_closed')
+                : AppStrings.of(widget.language, 'report_open');
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'reporting'))),
+      body: FutureBuilder<ModuleStatusItem>(
+        future: widget.apiClient.fetchModerationStatus(),
+        builder: (context, statusSnapshot) {
+          return FutureBuilder<List<ReportItem>>(
+            future: _reportsFuture,
+            builder: (context, reportsSnapshot) {
+              final reports = reportsSnapshot.data ?? const <ReportItem>[];
+              return ListView(
+                padding: const EdgeInsets.all(20),
+                children: [
+                  _SectionCard(
+                    title: AppStrings.of(language, 'report_content'),
+                    children: [
+                      TextField(
+                        controller: _targetTypeController,
+                        decoration: InputDecoration(
+                            labelText: AppStrings.of(language, 'target_type')),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _targetIdController,
+                        decoration: InputDecoration(
+                            labelText: AppStrings.of(language, 'target_id')),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _reasonController,
+                        decoration: InputDecoration(
+                            labelText: AppStrings.of(language, 'reason')),
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: _busy ? null : _submit,
+                        child: Text(AppStrings.of(language, 'submit_report')),
+                      ),
+                      if (_status.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(_status,
+                            maxLines: 3, overflow: TextOverflow.ellipsis),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: AppStrings.of(language, 'safety_first'),
+                    children: [
+                      Text(AppStrings.of(language, 'safety_body'),
+                          maxLines: 3, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 8),
+                      Text(
+                          '${AppStrings.of(language, 'moderation_status')}: ${statusSnapshot.data == null ? '...' : '${statusSnapshot.data!.module} • ${statusSnapshot.data!.ready ? AppStrings.of(language, 'ready') : AppStrings.of(language, 'not_ready')}'}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: AppStrings.of(language, 'report_details'),
+                    children: reports.isEmpty
+                        ? [Text(AppStrings.of(language, 'no_request_yet'))]
+                        : [
+                            for (final report in reports)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                            '${report.targetType} • ${report.targetId}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                            '${report.status} • ${report.reason}',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis),
+                                        const SizedBox(height: 12),
+                                        Wrap(
+                                          spacing: 8,
+                                          children: [
+                                            TextButton(
+                                              onPressed: _busy
+                                                  ? null
+                                                  : () => _setStatus(
+                                                      report.id, 'open'),
+                                              child: Text(AppStrings.of(
+                                                  language, 'report_open')),
+                                            ),
+                                            TextButton(
+                                              onPressed: _busy
+                                                  ? null
+                                                  : () => _setStatus(
+                                                      report.id, 'resolved'),
+                                              child: Text(AppStrings.of(
+                                                  language, 'resolve_report')),
+                                            ),
+                                            TextButton(
+                                              onPressed: _busy
+                                                  ? null
+                                                  : () => _setStatus(
+                                                      report.id, 'closed'),
+                                              child: Text(AppStrings.of(
+                                                  language, 'close_report')),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class PrayerWallScreen extends StatefulWidget {
+  const PrayerWallScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+
+  @override
+  State<PrayerWallScreen> createState() => _PrayerWallScreenState();
+}
+
+class _PrayerWallScreenState extends State<PrayerWallScreen> {
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _bodyController = TextEditingController();
+  late Future<List<PrayerRequestItem>> _requestsFuture;
+  bool _busy = false;
+  bool _anonymous = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _requestsFuture = widget.apiClient.fetchPrayerRequests();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _bodyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final future = widget.apiClient.fetchPrayerRequests();
+    setState(() {
+      _requestsFuture = future;
+    });
+    await future;
+  }
+
+  Future<void> _share() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() {
+        _status = AppStrings.of(widget.language, 'login_required');
+      });
+      return;
+    }
+    setState(() {
+      _busy = true;
+    });
+    try {
+      await widget.apiClient.createPrayerRequest(
+        token: token,
+        title: _titleController.text,
+        body: _bodyController.text,
+        anonymous: _anonymous,
+      );
+      _titleController.clear();
+      _bodyController.clear();
+      await _refresh();
+      if (!mounted) return;
+      setState(() {
+        _status = AppStrings.of(widget.language, 'prayer_requested');
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _status = error.toString().replaceFirst('HttpException: ', '');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _prayed(PrayerRequestItem request) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await widget.apiClient.markPrayerPrayed(token, request.id);
+    if (!mounted) return;
+    setState(() => _status = 'Your prayer commitment was recorded.');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'prayer_wall'))),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            _SectionHeader(
+              title: AppStrings.of(language, 'prayer_wall'),
+              subtitle: AppStrings.of(language, 'prayer'),
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'share_prayer'),
+              children: [
+                TextField(
+                    controller: _titleController,
+                    decoration: InputDecoration(
+                        labelText: AppStrings.of(language, 'prayer_title'))),
+                const SizedBox(height: 12),
+                TextField(
+                    controller: _bodyController,
+                    decoration: InputDecoration(
+                        labelText: AppStrings.of(language, 'prayer_body')),
+                    maxLines: 4),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _anonymous,
+                  onChanged: _busy
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _anonymous = value ?? false;
+                          });
+                        },
+                  title: Text(AppStrings.of(language, 'anonymous_prayer')),
+                  subtitle:
+                      Text(AppStrings.of(language, 'anonymous_prayer_hint')),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    FilledButton(
+                        onPressed: _busy ? null : _share,
+                        child: Text(AppStrings.of(language, 'share_prayer'))),
+                    OutlinedButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PrayerChainsScreen(
+                                language: language,
+                                apiClient: widget.apiClient,
+                                session: widget.session),
+                          ),
+                        );
+                      },
+                      child:
+                          Text(AppStrings.of(language, 'open_prayer_chains')),
+                    ),
+                  ],
+                ),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+                ],
+              ],
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'prayer_requests'),
+              children: [
+                FutureBuilder<List<PrayerRequestItem>>(
+                  future: _requestsFuture,
+                  builder: (context, snapshot) {
+                    final requests =
+                        snapshot.data ?? const <PrayerRequestItem>[];
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        requests.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (requests.isEmpty) {
+                      return Text(AppStrings.of(language, 'no_prayer_requests'),
+                          maxLines: 3, overflow: TextOverflow.ellipsis);
+                    }
+                    return Column(
+                      children: [
+                        for (final request in requests)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _ListTileRow(
+                              icon: request.anonymous
+                                  ? Icons.lock_rounded
+                                  : Icons.volunteer_activism_rounded,
+                              title: request.title,
+                              subtitle:
+                                  '${request.requesterName} • ${request.status} • ${request.body} • Tap to mark I prayed',
+                              onTap: _busy ? null : () => _prayed(request),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MinistriesScreen extends StatefulWidget {
+  const MinistriesScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session,
+      required this.onDataChanged});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<MinistriesScreen> createState() => _MinistriesScreenState();
+}
+
+class _MinistriesScreenState extends State<MinistriesScreen> {
+  late Future<List<MinistryItem>> _ministriesFuture;
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+  bool _groupByChurch = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _ministriesFuture =
+        widget.apiClient.fetchMinistries(token: widget.session?.token);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final future =
+        widget.apiClient.fetchMinistries(token: widget.session?.token);
+    setState(() {
+      _ministriesFuture = future;
+    });
+    await future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'ministries'))),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: FutureBuilder<List<MinistryItem>>(
+          future: _ministriesFuture,
+          builder: (context, snapshot) {
+            final ministries = snapshot.data ?? const <MinistryItem>[];
+            final normalizedQuery = _query.toLowerCase();
+            final filtered = _query.isEmpty
+                ? ministries
+                : ministries
+                    .where((ministry) =>
+                        ministry.name.toLowerCase().contains(normalizedQuery) ||
+                        ministry.department
+                            .toLowerCase()
+                            .contains(normalizedQuery) ||
+                        ministry.churchName
+                            .toLowerCase()
+                            .contains(normalizedQuery) ||
+                        ministry.ministryType
+                            .toLowerCase()
+                            .contains(normalizedQuery))
+                    .toList();
+            final grouped = _groupMinistries(filtered, _groupByChurch);
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: [
+                _SectionHeader(
+                    title: AppStrings.of(language, 'ministries'),
+                    subtitle: AppStrings.of(language, 'ministry_directory')),
+                const SizedBox(height: 16),
+                _SearchField(
+                  controller: _searchController,
+                  labelText: AppStrings.of(language, 'search'),
+                  hintText: AppStrings.of(language, 'ministry_search_hint'),
+                  onChanged: (value) => setState(() => _query = value.trim()),
+                  onClear: _query.isEmpty
+                      ? null
+                      : () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                ),
+                const SizedBox(height: 12),
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(
+                      value: true,
+                      icon: const Icon(Icons.church_rounded),
+                      label: Text(language == AppLanguage.english
+                          ? 'By church'
+                          : 'በቤተ ክርስቲያን'),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      icon: const Icon(Icons.category_rounded),
+                      label: Text(language == AppLanguage.english
+                          ? 'By category'
+                          : 'በምድብ'),
+                    ),
+                  ],
+                  selected: {_groupByChurch},
+                  onSelectionChanged: (selection) =>
+                      setState(() => _groupByChurch = selection.first),
+                ),
+                const SizedBox(height: 16),
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    ministries.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (filtered.isEmpty)
+                  _EmptyState(
+                      message: _query.isEmpty
+                          ? AppStrings.of(language, 'no_ministries_available')
+                          : AppStrings.of(language, 'no_search_results'))
+                else
+                  for (final group in grouped.entries) ...[
+                    _MinistryGroupHeader(
+                      title: group.key,
+                      count: group.value.length,
+                      icon: _groupByChurch
+                          ? Icons.church_rounded
+                          : Icons.category_rounded,
+                    ),
+                    const SizedBox(height: 8),
+                    ...group.value.map((ministry) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _MinistryDirectoryCard(
+                            ministry: ministry,
+                            language: language,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => MinistryDetailScreen(
+                                  language: language,
+                                  apiClient: widget.apiClient,
+                                  ministry: ministry,
+                                  session: widget.session,
+                                  onDataChanged: widget.onDataChanged,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )),
+                    const SizedBox(height: 8),
+                  ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Map<String, List<MinistryItem>> _groupMinistries(
+      List<MinistryItem> ministries, bool byChurch) {
+    final groups = <String, List<MinistryItem>>{};
+    for (final ministry in ministries) {
+      final key = byChurch
+          ? (ministry.churchName.trim().isEmpty
+              ? 'Independent ministries'
+              : ministry.churchName.trim())
+          : (ministry.department.trim().isEmpty
+              ? ministry.ministryType.trim().isEmpty
+                  ? 'General'
+                  : ministry.ministryType.trim()
+              : ministry.department.trim());
+      groups.putIfAbsent(key, () => <MinistryItem>[]).add(ministry);
+    }
+    final entries = groups.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+    return {for (final entry in entries) entry.key: entry.value};
+  }
+}
+
+class _MinistryGroupHeader extends StatelessWidget {
+  const _MinistryGroupHeader(
+      {required this.title, required this.count, required this.icon});
+
+  final String title;
+  final int count;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: .18),
+        ),
+      ),
+      child: Row(children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w900)),
+        ),
+        Text('$count', style: Theme.of(context).textTheme.labelLarge),
+      ]),
+    );
+  }
+}
+
+class _MinistryDirectoryCard extends StatelessWidget {
+  const _MinistryDirectoryCard(
+      {required this.ministry, required this.language, required this.onTap});
+
+  final MinistryItem ministry;
+  final AppLanguage language;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final churchName =
+        ministry.churchName.isEmpty ? 'Church ministry' : ministry.churchName;
+    final category = ministry.department.isEmpty
+        ? ministry.ministryType
+        : ministry.department;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                    colors: [Color(0xFFB85C38), Color(0xFFE3A82B)]),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.diversity_3_rounded, color: Colors.white),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(ministry.name,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 4),
+                  Text('$category • $churchName',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (ministry.branchName.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(ministry.branchName,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                  const SizedBox(height: 5),
+                  Text(ministry.description,
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Text('${ministry.memberCount} members',
+                          style: const TextStyle(
+                              color: AppTheme.evergreen,
+                              fontWeight: FontWeight.w700)),
+                      Text('${ministry.followerCount} followers',
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      if (ministry.followedByMe)
+                        const Icon(Icons.notifications_active_rounded,
+                            size: 16, color: AppTheme.evergreen),
+                      Text('Lead: ${ministry.leadName}',
+                          style: const TextStyle(
+                              color: AppTheme.evergreen,
+                              fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ])),
+            const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class MinistryDetailScreen extends StatefulWidget {
+  const MinistryDetailScreen({
+    super.key,
+    required this.language,
+    required this.apiClient,
+    required this.ministry,
+    required this.session,
+    required this.onDataChanged,
+  });
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final MinistryItem ministry;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<MinistryDetailScreen> createState() => _MinistryDetailScreenState();
+}
+
+class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
+  final TextEditingController _taskTitleController = TextEditingController();
+  final TextEditingController _chatBodyController = TextEditingController();
+  late Future<List<dynamic>> _detailFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _detailFuture = _loadDetail();
+  }
+
+  @override
+  void didUpdateWidget(covariant MinistryDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ministry.id != widget.ministry.id ||
+        oldWidget.session?.token != widget.session?.token) {
+      _refresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    _taskTitleController.dispose();
+    _chatBodyController.dispose();
+    super.dispose();
+  }
+
+  Future<List<dynamic>> _loadDetail() async {
+    final token = widget.session?.token;
+    return Future.wait<dynamic>([
+      widget.apiClient.fetchMinistryProfile(widget.ministry.id, token: token),
+      widget.apiClient.fetchMinistryMembers(widget.ministry.id),
+      widget.apiClient.fetchMinistryTasks(widget.ministry.id),
+      widget.apiClient.fetchMinistryResources(widget.ministry.id),
+      widget.apiClient.fetchMinistryChats(widget.ministry.id),
+      widget.apiClient.fetchMinistryAttendance(widget.ministry.id),
+      token == null
+          ? Future.value(const <UserMinistryMembershipItem>[])
+          : widget.apiClient.fetchMyMinistryMemberships(token),
+    ]);
+  }
+
+  Future<void> _refresh() async {
+    final future = _loadDetail();
+    setState(() {
+      _detailFuture = future;
+    });
+    await future;
+  }
+
+  Future<void> _runAction(Future<void> Function() action,
+      {required String successMessage}) async {
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await action();
+      await _refresh();
+      await widget.onDataChanged();
+      if (mounted) {
+        setState(() => _status = successMessage);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _joinOrLeave(bool joined) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    if (joined) {
+      await _runAction(
+          () => widget.apiClient
+              .leaveMinistry(token: token, ministryId: widget.ministry.id),
+          successMessage: AppStrings.of(widget.language, 'leave_ministry'));
+    } else {
+      await _runAction(
+          () => widget.apiClient
+              .joinMinistry(token: token, ministryId: widget.ministry.id),
+          successMessage: AppStrings.of(widget.language, 'join_success'));
+    }
+  }
+
+  Future<void> _toggleMinistryFollow(bool followed) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+      () => followed
+          ? widget.apiClient
+              .unfollowMinistry(token: token, ministryId: widget.ministry.id)
+          : widget.apiClient
+              .followMinistry(token: token, ministryId: widget.ministry.id),
+      successMessage: followed
+          ? AppStrings.of(widget.language, 'unfollow_ministry')
+          : AppStrings.of(widget.language, 'ministry_followed'),
+    );
+  }
+
+  Future<void> _createTask() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+      () => widget.apiClient.createMinistryTask(
+        token: token,
+        ministryId: widget.ministry.id,
+        title: _taskTitleController.text,
+      ),
+      successMessage: AppStrings.of(widget.language, 'task_created'),
+    );
+    _taskTitleController.clear();
+  }
+
+  Future<void> _markAttendance() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(
+      () => widget.apiClient.markMinistryAttendance(
+        token: token,
+        ministryId: widget.ministry.id,
+      ),
+      successMessage: AppStrings.of(widget.language, 'attendance_marked'),
+    );
+  }
+
+  String _ministryFieldValue(Map<String, dynamic> item, String key) {
+    final aliases = <String, List<String>>{
+      'startsAt': ['startsAt', 'starts_at'],
+      'startTime': ['startTime', 'start_time'],
+      'endTime': ['endTime', 'end_time'],
+      'dayOfWeek': ['dayOfWeek', 'day_of_week'],
+      'resourceUrl': ['resourceUrl', 'resource_url', 'url'],
+      'neededCount': ['neededCount', 'needed_count'],
+      'sessionDate': ['sessionDate', 'session_date'],
+      'checkinCode': ['checkinCode', 'checkin_code'],
+    };
+    for (final candidate in aliases[key] ?? [key]) {
+      final value = item[candidate];
+      if (value != null) return value.toString();
+    }
+    return '';
+  }
+
+  String _ministryItemTitle(Map<String, dynamic> item) =>
+      item['title']?.toString().isNotEmpty == true
+          ? item['title'].toString()
+          : item['body']?.toString().isNotEmpty == true
+              ? item['body'].toString()
+              : 'Untitled';
+
+  List<(String, String)> _ministryFields(String section) {
+    return switch (section) {
+      'announcements' => [('title', 'Title'), ('body', 'Message')],
+      'events' => [
+          ('title', 'Title'),
+          ('location', 'Location'),
+          ('startsAt', 'Start time'),
+          ('description', 'Description')
+        ],
+      'schedules' => [
+          ('title', 'Title'),
+          ('dayOfWeek', 'Day'),
+          ('startTime', 'Start'),
+          ('endTime', 'End'),
+          ('location', 'Location')
+        ],
+      'resources' => [
+          ('title', 'Title'),
+          ('resourceUrl', 'URL'),
+          ('description', 'Description')
+        ],
+      'volunteer-opportunities' => [
+          ('title', 'Title'),
+          ('description', 'Description'),
+          ('neededCount', 'Needed count')
+        ],
+      'tasks' => [('title', 'Title'), ('description', 'Description')],
+      'attendance-sessions' => [
+          ('title', 'Title'),
+          ('sessionDate', 'Date'),
+          ('checkinCode', 'Check-in code')
+        ],
+      _ => [('body', 'Body')],
+    };
+  }
+
+  Future<void> _editMinistryContent(
+      String section, Map<String, dynamic> item) async {
+    final token = widget.session?.token;
+    final itemId = item['id']?.toString() ?? '';
+    if (token == null || token.isEmpty || itemId.isEmpty) return;
+    final fields = _ministryFields(section);
+    final controllers = {
+      for (final field in fields)
+        field.$1:
+            TextEditingController(text: _ministryFieldValue(item, field.$1))
+    };
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit ${section.replaceAll('-', ' ')}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: fields
+                .map((field) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: TextField(
+                        controller: controllers[field.$1],
+                        decoration: InputDecoration(labelText: field.$2),
+                        maxLines:
+                            field.$1 == 'description' || field.$1 == 'body'
+                                ? 3
+                                : 1,
+                      ),
+                    ))
+                .toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _runAction(
+      () => widget.apiClient.updateMinistryContent(
+        token,
+        widget.ministry.id,
+        section,
+        itemId,
+        {
+          for (final entry in controllers.entries)
+            entry.key: entry.value.text.trim()
+        },
+      ),
+      successMessage: '${section.replaceAll('-', ' ')} updated.',
+    );
+  }
+
+  Future<void> _deleteMinistryContent(
+      String section, Map<String, dynamic> item) async {
+    final token = widget.session?.token;
+    final itemId = item['id']?.toString() ?? '';
+    if (token == null || token.isEmpty || itemId.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${section.replaceAll('-', ' ')}?'),
+        content: Text(_ministryItemTitle(item),
+            maxLines: 3, overflow: TextOverflow.ellipsis),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton.tonal(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _runAction(
+      () => widget.apiClient.deleteMinistryContent(
+        token,
+        widget.ministry.id,
+        section,
+        itemId,
+      ),
+      successMessage: '${section.replaceAll('-', ' ')} deleted.',
+    );
+  }
+
+  Widget _managedMinistryContent(Map<String, dynamic> profile) {
+    final specs = <String, (String, IconData)>{
+      'announcements': ('Announcements', Icons.campaign_rounded),
+      'schedules': ('Schedules', Icons.schedule_rounded),
+      'events': ('Events', Icons.event_rounded),
+      'posts': ('Posts', Icons.dynamic_feed_rounded),
+      'resources': ('Resources', Icons.folder_rounded),
+      'volunteerOpportunities': (
+        'Volunteer needs',
+        Icons.volunteer_activism_rounded
+      ),
+      'tasks': ('Tasks', Icons.task_alt_rounded),
+    };
+    final children = <Widget>[];
+    for (final entry in specs.entries) {
+      final routeSection = entry.key == 'volunteerOpportunities'
+          ? 'volunteer-opportunities'
+          : entry.key;
+      final items = (profile[entry.key] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      if (items.isEmpty) continue;
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 10, bottom: 4),
+        child: Text(entry.value.$1,
+            style: Theme.of(context).textTheme.titleMedium),
+      ));
+      children.addAll(items.take(6).map((item) => Card(
+            child: ListTile(
+              leading: Icon(entry.value.$2),
+              title: Text(_ministryItemTitle(item),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                item['description']?.toString() ??
+                    item['body']?.toString() ??
+                    '',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: Wrap(spacing: 2, children: [
+                IconButton(
+                  tooltip: 'Edit',
+                  onPressed: _busy
+                      ? null
+                      : () => _editMinistryContent(routeSection, item),
+                  icon: const Icon(Icons.edit_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Delete',
+                  onPressed: _busy
+                      ? null
+                      : () => _deleteMinistryContent(routeSection, item),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              ]),
+            ),
+          )));
+    }
+    if (children.isEmpty) return const Text('No managed ministry content yet.');
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: children);
+  }
+
+  Future<void> _openMinistryManager() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final actions = <String, (String, List<(String, String)>)>{
+      'announcements': (
+        'Create announcement',
+        [('title', 'Title'), ('body', 'Message')]
+      ),
+      'events': (
+        'Create event',
+        [
+          ('title', 'Title'),
+          ('location', 'Location'),
+          ('startsAt', 'Start time'),
+          ('description', 'Description')
+        ]
+      ),
+      'schedules': (
+        'Create schedule',
+        [
+          ('title', 'Title'),
+          ('dayOfWeek', 'Day'),
+          ('startTime', 'Start'),
+          ('endTime', 'End'),
+          ('location', 'Location')
+        ]
+      ),
+      'resources': (
+        'Upload resource',
+        [
+          ('title', 'Title'),
+          ('resourceUrl', 'URL'),
+          ('description', 'Description')
+        ]
+      ),
+      'volunteer-opportunities': (
+        'Open volunteer need',
+        [
+          ('title', 'Title'),
+          ('description', 'Description'),
+          ('neededCount', 'Needed count')
+        ]
+      ),
+      'attendance-sessions': (
+        'Create attendance session',
+        [
+          ('title', 'Title'),
+          ('sessionDate', 'Date'),
+          ('checkinCode', 'Check-in code')
+        ]
+      ),
+      'posts': ('Publish ministry post', [('body', 'Post body')]),
+    };
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Ministry leader dashboard',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 10),
+                for (final entry in actions.entries)
+                  ListTile(
+                    leading: const Icon(Icons.add_circle_outline_rounded),
+                    title: Text(entry.value.$1),
+                    onTap: () => Navigator.pop(context, entry.key),
+                  ),
+              ]),
+        ),
+      ),
+    );
+    if (selected == null) return;
+    final action = actions[selected]!;
+    final controllers = {
+      for (final field in action.$2) field.$1: TextEditingController()
+    };
+    if (selected == 'events') {
+      controllers['startsAt']!.text =
+          DateTime.now().add(const Duration(days: 7)).toIso8601String();
+    }
+    if (selected == 'attendance-sessions') {
+      controllers['sessionDate']!.text =
+          DateTime.now().toIso8601String().substring(0, 10);
+    }
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(action.$1),
+        content: SingleChildScrollView(
+          child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: action.$2
+                  .map((field) => TextField(
+                        controller: controllers[field.$1],
+                        decoration: InputDecoration(labelText: field.$2),
+                        maxLines:
+                            field.$1 == 'description' || field.$1 == 'body'
+                                ? 3
+                                : 1,
+                      ))
+                  .toList()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _runAction(
+      () => widget.apiClient
+          .createMinistryContent(token, widget.ministry.id, selected, {
+        for (final entry in controllers.entries)
+          entry.key: entry.value.text.trim(),
+      }),
+      successMessage: '${action.$1} completed.',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(
+          title: Text(widget.ministry.name,
+              maxLines: 1, overflow: TextOverflow.ellipsis)),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: FutureBuilder<List<dynamic>>(
+          future: _detailFuture,
+          builder: (context, snapshot) {
+            final profile = snapshot.data != null
+                ? snapshot.data![0] as Map<String, dynamic>
+                : <String, dynamic>{};
+            List<dynamic> profileList(String key) =>
+                profile[key] as List<dynamic>? ?? const <dynamic>[];
+            final canManage = profile['canManage'] == true;
+            final members = snapshot.data != null
+                ? snapshot.data![1] as List<MinistryMemberItem>
+                : const <MinistryMemberItem>[];
+            final tasks = snapshot.data != null
+                ? snapshot.data![2] as List<MinistryTaskItem>
+                : const <MinistryTaskItem>[];
+            final resources = snapshot.data != null
+                ? snapshot.data![3] as List<MinistryResourceItem>
+                : const <MinistryResourceItem>[];
+            final attendance = snapshot.data != null
+                ? snapshot.data![5] as List<MinistryAttendanceItem>
+                : const <MinistryAttendanceItem>[];
+            final memberships = snapshot.data != null
+                ? snapshot.data![6] as List<UserMinistryMembershipItem>
+                : const <UserMinistryMembershipItem>[];
+            final membership = profile['membership'] is Map
+                ? Map<String, dynamic>.from(profile['membership'] as Map)
+                : <String, dynamic>{};
+            final membershipStatus = membership['status']?.toString() ?? '';
+            final followedByMe = profile['followedByMe'] == true;
+            final followerCount = (profile['followerCount'] as num?)?.toInt() ??
+                widget.ministry.followerCount;
+            final joined = memberships.any((membership) =>
+                    membership.ministryId == widget.ministry.id) ||
+                membership.isNotEmpty;
+            final canParticipate = canManage ||
+                membershipStatus == 'active' ||
+                membershipStatus == 'approved';
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: [
+                _SectionCard(
+                  title: AppStrings.of(language, 'ministry_workspace'),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                            colors: [Color(0xFF7C3F25), Color(0xFFE3A82B)]),
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(widget.ministry.name,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall
+                                    ?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900)),
+                            const SizedBox(height: 6),
+                            Text(
+                                '${profile['churchName'] ?? widget.ministry.churchName} • ${profile['branchName'] ?? 'Main church'}',
+                                style: const TextStyle(color: Colors.white70)),
+                            const SizedBox(height: 8),
+                            Text(
+                                '${profile['memberCount'] ?? members.length} active members',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700)),
+                          ]),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(widget.ministry.description,
+                        maxLines: 3, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 8),
+                    Text(
+                        '${widget.ministry.department} • ${widget.ministry.leadName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                              '${AppStrings.of(language, 'member_count')}: ${profile['memberCount'] ?? members.length}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        FilledButton(
+                          onPressed: _busy ? null : () => _joinOrLeave(joined),
+                          child: Text(joined
+                              ? AppStrings.of(language, 'leave_ministry')
+                              : AppStrings.of(language, 'join_ministry')),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: widget.session == null || _busy
+                                ? null
+                                : () => _toggleMinistryFollow(followedByMe),
+                            icon: Icon(followedByMe
+                                ? Icons.notifications_active_rounded
+                                : Icons.notifications_none_rounded),
+                            label: Text(followedByMe
+                                ? AppStrings.of(language, 'unfollow_ministry')
+                                : AppStrings.of(language, 'follow_ministry')),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Chip(
+                          avatar:
+                              const Icon(Icons.people_alt_rounded, size: 18),
+                          label: Text('$followerCount'),
+                        ),
+                      ],
+                    ),
+                    if (canParticipate) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FilledButton.tonal(
+                          onPressed: _busy ? null : _markAttendance,
+                          child: Text(AppStrings.of(language, 'mark_attended')),
+                        ),
+                      ),
+                    ],
+                    if (_status.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(_status,
+                          maxLines: 3, overflow: TextOverflow.ellipsis),
+                    ],
+                    if (canManage) ...[
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _busy ? null : _openMinistryManager,
+                        icon: const Icon(Icons.dashboard_customize_rounded),
+                        label: const Text('Open leader dashboard'),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('Manage ministry content',
+                          style: Theme.of(context).textTheme.titleLarge),
+                      _managedMinistryContent(profile),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: 'Announcements and schedule',
+                  children: [
+                    ...profileList('announcements').take(3).map((raw) {
+                      final item = raw as Map<String, dynamic>;
+                      return _ListTileRow(
+                          icon: Icons.campaign_rounded,
+                          title: item['title']?.toString() ?? '',
+                          subtitle: item['body']?.toString() ?? '');
+                    }),
+                    ...profileList('schedules').take(3).map((raw) {
+                      final item = raw as Map<String, dynamic>;
+                      return _ListTileRow(
+                          icon: Icons.schedule_rounded,
+                          title: item['title']?.toString() ?? '',
+                          subtitle:
+                              '${item['day_of_week'] ?? ''} • ${item['start_time'] ?? ''} - ${item['end_time'] ?? ''}');
+                    }),
+                    if (profileList('announcements').isEmpty &&
+                        profileList('schedules').isEmpty)
+                      const Text('No announcements or schedules yet.'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: 'Events, posts and volunteer needs',
+                  children: [
+                    ...profileList('events').take(3).map((raw) {
+                      final item = raw as Map<String, dynamic>;
+                      return _ListTileRow(
+                          icon: Icons.event_rounded,
+                          title: item['title']?.toString() ?? '',
+                          subtitle:
+                              '${item['location'] ?? ''} • ${item['starts_at'] ?? ''}');
+                    }),
+                    ...profileList('posts').take(3).map((raw) {
+                      final item = raw as Map<String, dynamic>;
+                      return _ListTileRow(
+                          icon: Icons.dynamic_feed_rounded,
+                          title:
+                              item['authorName']?.toString() ?? 'Ministry post',
+                          subtitle: item['body']?.toString() ?? '');
+                    }),
+                    ...profileList('volunteerOpportunities').take(3).map((raw) {
+                      final item = raw as Map<String, dynamic>;
+                      return _ListTileRow(
+                          icon: Icons.volunteer_activism_rounded,
+                          title: item['title']?.toString() ?? '',
+                          subtitle:
+                              '${item['approvedCount'] ?? 0}/${item['needed_count'] ?? 1} volunteers approved');
+                    }),
+                    if (profileList('events').isEmpty &&
+                        profileList('posts').isEmpty &&
+                        profileList('volunteerOpportunities').isEmpty)
+                      const Text('No ministry activity yet.'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: AppStrings.of(language, 'ministry_members'),
+                  children: snapshot.connectionState ==
+                              ConnectionState.waiting &&
+                          members.isEmpty
+                      ? const [
+                          Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ]
+                      : members.isEmpty
+                          ? [
+                              Text(AppStrings.of(
+                                  language, 'no_ministry_members'))
+                            ]
+                          : [
+                              for (final member in members)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: _ListTileRow(
+                                    icon: Icons.person_rounded,
+                                    title: member.userFullName,
+                                    subtitle:
+                                        '${member.role} • ${member.joinedAt}',
+                                  ),
+                                ),
+                            ],
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: AppStrings.of(language, 'ministry_tasks'),
+                  children: [
+                    if (canManage) ...[
+                      TextField(
+                        controller: _taskTitleController,
+                        decoration: InputDecoration(
+                            labelText: AppStrings.of(language, 'task_title')),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: _busy ? null : _createTask,
+                        child: Text(AppStrings.of(language, 'add_task')),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        tasks.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (tasks.isEmpty)
+                      Text(AppStrings.of(language, 'no_ministry_tasks'))
+                    else
+                      ...tasks.map((task) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _ListTileRow(
+                              icon: task.status == 'open'
+                                  ? Icons.assignment_rounded
+                                  : Icons.assignment_turned_in_rounded,
+                              title: task.title,
+                              subtitle:
+                                  '${task.assigneeName ?? task.assigneeId ?? AppStrings.of(language, 'not_ready')} • ${task.status}',
+                            ),
+                          )),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: AppStrings.of(language, 'ministry_resources'),
+                  children: snapshot.connectionState ==
+                              ConnectionState.waiting &&
+                          resources.isEmpty
+                      ? const [
+                          Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ]
+                      : resources.isEmpty
+                          ? [
+                              Text(AppStrings.of(
+                                  language, 'no_ministry_resources'))
+                            ]
+                          : [
+                              for (final resource in resources)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: _ListTileRow(
+                                    icon: Icons.link_rounded,
+                                    title: resource.title,
+                                    subtitle: resource.url,
+                                  ),
+                                ),
+                            ],
+                ),
+                const SizedBox(height: 16),
+                LiveChatPanel(
+                  apiClient: widget.apiClient,
+                  session: widget.session,
+                  language: language,
+                  scopeType: 'ministry',
+                  scopeId: widget.ministry.id,
+                  title: AppStrings.of(language, 'ministry_chat'),
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: AppStrings.of(language, 'ministry_attendance'),
+                  children: snapshot.connectionState ==
+                              ConnectionState.waiting &&
+                          attendance.isEmpty
+                      ? const [
+                          Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ]
+                      : attendance.isEmpty
+                          ? [
+                              Text(AppStrings.of(
+                                  language, 'no_ministry_attendance'))
+                            ]
+                          : [
+                              for (final record in attendance)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: _ListTileRow(
+                                    icon: Icons.how_to_reg_rounded,
+                                    title: record.userName,
+                                    subtitle: record.attendedOn,
+                                  ),
+                                ),
+                            ],
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class MentorshipScreen extends StatefulWidget {
+  const MentorshipScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+
+  @override
+  State<MentorshipScreen> createState() => _MentorshipScreenState();
+}
+
+class _MentorshipScreenState extends State<MentorshipScreen> {
+  final TextEditingController _noteController = TextEditingController();
+  String? _selectedMentorId;
+  bool _busy = false;
+  String _status = '';
+  late Future<List<MentorItem>> _mentorsFuture;
+  late Future<List<MentorshipRequestItem>> _requestsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _mentorsFuture =
+        widget.apiClient.fetchMentors(token: widget.session?.token);
+    final token = widget.session?.token;
+    _requestsFuture = token == null
+        ? Future.value(const <MentorshipRequestItem>[])
+        : widget.apiClient.fetchMentorshipRequests(token);
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final token = widget.session?.token;
+    setState(() {
+      _mentorsFuture =
+          widget.apiClient.fetchMentors(token: widget.session?.token);
+      _requestsFuture = token == null
+          ? Future.value(const <MentorshipRequestItem>[])
+          : widget.apiClient.fetchMentorshipRequests(token);
+    });
+    await Future.wait([_mentorsFuture, _requestsFuture]);
+  }
+
+  Future<void> _followMentor(MentorItem mentor) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.followMentor(token: token, mentorId: mentor.id);
+      await _refresh();
+      if (mounted) {
+        setState(
+            () => _status = AppStrings.of(widget.language, 'followed_pastor'));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _unfollowMentor(MentorItem mentor) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.unfollowMentor(token: token, mentorId: mentor.id);
+      await _refresh();
+      if (mounted) {
+        setState(
+            () => _status = AppStrings.of(widget.language, 'unfollow_pastor'));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _request() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final mentorId = _selectedMentorId;
+    if (mentorId == null || mentorId.isEmpty) {
+      setState(() =>
+          _status = AppStrings.of(widget.language, 'no_mentors_available'));
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.createMentorshipRequest(
+          token: token, mentorId: mentorId, note: _noteController.text);
+      _noteController.clear();
+      await _refresh();
+      if (mounted) {
+        setState(() =>
+            _status = AppStrings.of(widget.language, 'request_mentorship'));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'mentorship'))),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            _SectionHeader(
+                title: AppStrings.of(language, 'mentorship'),
+                subtitle: AppStrings.of(language, 'mentor_directory')),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'request_mentorship'),
+              children: [
+                FutureBuilder<List<MentorItem>>(
+                  future: _mentorsFuture,
+                  builder: (context, snapshot) {
+                    final mentors = snapshot.data ?? const <MentorItem>[];
+                    if (_selectedMentorId == null && mentors.isNotEmpty) {
+                      _selectedMentorId ??= mentors.first.id;
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedMentorId,
+                          decoration: InputDecoration(
+                              labelText:
+                                  AppStrings.of(language, 'mentor_directory')),
+                          items: mentors
+                              .map((mentor) => DropdownMenuItem(
+                                  value: mentor.id,
+                                  child: Text(
+                                      '${mentor.fullName} • ${mentor.ministry}')))
+                              .toList(),
+                          onChanged: _busy
+                              ? null
+                              : (value) =>
+                                  setState(() => _selectedMentorId = value),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _noteController,
+                          decoration: InputDecoration(
+                              labelText:
+                                  AppStrings.of(language, 'mentorship_note')),
+                          maxLines: 3,
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                            onPressed: _busy ? null : _request,
+                            child: Text(
+                                AppStrings.of(language, 'request_mentorship'))),
+                      ],
+                    );
+                  },
+                ),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+                ],
+              ],
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'mentor_directory'),
+              children: [
+                FutureBuilder<List<MentorItem>>(
+                  future: _mentorsFuture,
+                  builder: (context, snapshot) {
+                    final mentors = snapshot.data ?? const <MentorItem>[];
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        mentors.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (mentors.isEmpty) {
+                      return Text(
+                          AppStrings.of(language, 'no_mentors_available'));
+                    }
+                    return Column(
+                      children: [
+                        for (final mentor in mentors)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _MentorCard(
+                              mentor: mentor,
+                              language: language,
+                              selected: _selectedMentorId == mentor.id,
+                              busy: _busy,
+                              onSelect: () =>
+                                  setState(() => _selectedMentorId = mentor.id),
+                              onFollow:
+                                  _busy ? null : () => _followMentor(mentor),
+                              onUnfollow:
+                                  _busy ? null : () => _unfollowMentor(mentor),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'payment_history'),
+              children: [
+                FutureBuilder<List<MentorshipRequestItem>>(
+                  future: _requestsFuture,
+                  builder: (context, snapshot) {
+                    final requests =
+                        snapshot.data ?? const <MentorshipRequestItem>[];
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        requests.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (requests.isEmpty) {
+                      return Text(AppStrings.of(language, 'no_request_yet'));
+                    }
+                    return Column(
+                      children: [
+                        for (final request in requests)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _ListTileRow(
+                              icon: Icons.school_rounded,
+                              title: request.mentorName,
+                              subtitle: '${request.status} • ${request.note}',
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MentorCard extends StatelessWidget {
+  const _MentorCard({
+    required this.mentor,
+    required this.language,
+    required this.selected,
+    required this.busy,
+    required this.onSelect,
+    required this.onFollow,
+    required this.onUnfollow,
+  });
+
+  final MentorItem mentor;
+  final AppLanguage language;
+  final bool selected;
+  final bool busy;
+  final VoidCallback onSelect;
+  final VoidCallback? onFollow;
+  final VoidCallback? onUnfollow;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppStrings.of;
+    final accent =
+        mentor.verified ? const Color(0xFF2E7D32) : const Color(0xFF455A64);
+    return Card(
+      elevation: selected ? 3 : 1,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: accent.withValues(alpha: 0.12),
+                  child: Icon(
+                      mentor.verified
+                          ? Icons.verified_rounded
+                          : Icons.school_rounded,
+                      color: accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(mentor.fullName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 4),
+                      Text('${mentor.ministry} • ${mentor.churchName}',
+                          maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                if (selected) ...[
+                  const SizedBox(width: 8),
+                  Chip(label: Text(t(language, 'ready'))),
+                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+                '${mentor.languages} • ${mentor.followedByMe ? t(language, 'verified') : t(language, 'pending')}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                    onPressed: busy ? null : onSelect,
+                    child: Text(t(language, 'select_church'))),
+                if (mentor.followedByMe)
+                  OutlinedButton(
+                      onPressed: busy ? null : onUnfollow,
+                      child: Text(t(language, 'unfollow_pastor')))
+                else
+                  FilledButton(
+                      onPressed: busy ? null : onFollow,
+                      child: Text(t(language, 'follow_pastor'))),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class StoriesScreen extends StatefulWidget {
+  const StoriesScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session,
+      required this.onDataChanged});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<StoriesScreen> createState() => _StoriesScreenState();
+}
+
+class _StoriesScreenState extends State<StoriesScreen> {
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _bodyController = TextEditingController();
+  late Future<List<StoryItem>> _storiesFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _storiesFuture = widget.apiClient.fetchStories();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _bodyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final future = widget.apiClient.fetchStories();
+    setState(() {
+      _storiesFuture = future;
+    });
+    await future;
+  }
+
+  Future<void> _share() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.createStory(
+        token: token,
+        title: _titleController.text,
+        body: _bodyController.text,
+        language: widget.language.code,
+      );
+      _titleController.clear();
+      _bodyController.clear();
+      await _refresh();
+      await widget.onDataChanged();
+      if (mounted) {
+        setState(() => _status = AppStrings.of(widget.language, 'share_story'));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _reply(StoryItem story) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final controller = TextEditingController();
+    final reply = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Reply to ${story.title}'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Wrap(spacing: 8, children: [
+            for (final reaction in const ["🙏", "❤️", "🔥", "🙌", "😊"])
+              ActionChip(
+                  label: Text(reaction),
+                  onPressed: () => Navigator.pop(context, reaction))
+          ]),
+          const SizedBox(height: 12),
+          TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: "Write a reply")),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: const Text('Send')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (reply == null || reply.isEmpty) return;
+    await widget.apiClient.replyToStory(token, story.id, reply);
+    if (mounted) setState(() => _status = 'Story reply sent.');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'stories'))),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            _SectionHeader(
+                title: AppStrings.of(language, 'stories'),
+                subtitle: AppStrings.of(language, 'testimony_stream')),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'share_story'),
+              children: [
+                TextField(
+                    controller: _titleController,
+                    decoration: InputDecoration(
+                        labelText: AppStrings.of(language, 'story_title'))),
+                const SizedBox(height: 12),
+                TextField(
+                    controller: _bodyController,
+                    decoration: InputDecoration(
+                        labelText: AppStrings.of(language, 'story_body')),
+                    maxLines: 4),
+                const SizedBox(height: 12),
+                FilledButton(
+                    onPressed: _busy ? null : _share,
+                    child: Text(AppStrings.of(language, 'share_story'))),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+                ],
+              ],
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'testimony_stream'),
+              children: [
+                FutureBuilder<List<StoryItem>>(
+                  future: _storiesFuture,
+                  builder: (context, snapshot) {
+                    final stories = snapshot.data ?? const <StoryItem>[];
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        stories.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (stories.isEmpty) {
+                      return Text(AppStrings.of(language, 'no_stories_yet'));
+                    }
+                    return Column(
+                      children: [
+                        for (final story in stories)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _ListTileRow(
+                              icon: story.language == 'am'
+                                  ? Icons.translate_rounded
+                                  : Icons.auto_stories_rounded,
+                              title: story.title,
+                              subtitle:
+                                  '${story.authorName} • ${story.body} • Tap to reply',
+                              onTap: _busy ? null : () => _reply(story),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CourtshipScreen extends StatefulWidget {
+  const CourtshipScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session,
+      required this.onDataChanged});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<CourtshipScreen> createState() => _CourtshipScreenState();
+}
+
+class _CourtshipScreenState extends State<CourtshipScreen> {
+  late Future<List<CourtshipProfileItem>> _profilesFuture;
+  late Future<CourtshipProfileItem?> _meFuture;
+  late Future<List<CourtshipInterestItem>> _interestsFuture;
+  late Future<Map<String, dynamic>> _relationshipFuture;
+
+  final TextEditingController _churchNameController = TextEditingController();
+  final TextEditingController _cityController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _interestsController = TextEditingController();
+  final TextEditingController _faithStatementController =
+      TextEditingController();
+  final TextEditingController _ministryInvolvementController =
+      TextEditingController();
+  final TextEditingController _lifeGoalsController = TextEditingController();
+  final TextEditingController _marriageVisionController =
+      TextEditingController();
+  final TextEditingController _noteController = TextEditingController();
+
+  bool _visible = true;
+  String _relationshipIntent = 'serious';
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _profilesFuture = widget.apiClient.fetchCourtshipProfiles();
+    _refreshAccount();
+  }
+
+  @override
+  void didUpdateWidget(covariant CourtshipScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session?.token != widget.session?.token) {
+      _refreshAccount();
+    }
+  }
+
+  @override
+  void dispose() {
+    _churchNameController.dispose();
+    _cityController.dispose();
+    _bioController.dispose();
+    _interestsController.dispose();
+    _faithStatementController.dispose();
+    _ministryInvolvementController.dispose();
+    _lifeGoalsController.dispose();
+    _marriageVisionController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshAccount() async {
+    final token = widget.session?.token;
+    final profilesFuture = widget.apiClient.fetchCourtshipProfiles();
+    final meFuture = token == null
+        ? Future.value(null)
+        : widget.apiClient.fetchCourtshipMe(token);
+    final interestsFuture = token == null
+        ? Future.value(const <CourtshipInterestItem>[])
+        : widget.apiClient.fetchCourtshipInterests(token);
+    final relationshipFuture = token == null
+        ? Future.value(const <String, dynamic>{})
+        : widget.apiClient.fetchRelationshipHome(token);
+    setState(() {
+      _profilesFuture = profilesFuture;
+      _meFuture = meFuture;
+      _interestsFuture = interestsFuture;
+      _relationshipFuture = relationshipFuture;
+    });
+    await profilesFuture;
+    await meFuture;
+    await interestsFuture;
+    await relationshipFuture;
+  }
+
+  Future<void> _saveProfile() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.saveRelationshipProfile(token, {
+        'churchName': _churchNameController.text,
+        'city': _cityController.text,
+        'bio': _bioController.text,
+        'interests': _interestsController.text,
+        'faithStatement': _faithStatementController.text,
+        'ministryInvolvement': _ministryInvolvementController.text,
+        'lifeGoals': _lifeGoalsController.text,
+        'marriageVision': _marriageVisionController.text,
+        'relationshipGoal': _relationshipIntent,
+        'activationMode': _relationshipIntent == 'friendship'
+            ? 'friendship_only'
+            : _relationshipIntent == 'prayerful'
+                ? 'fellowship_friendship'
+                : 'marriage_oriented',
+        'visible': _visible,
+        'visibility': _visible ? 'relationship_mode_only' : 'hidden',
+        'marriageTimeline': 'In prayerful timing',
+        'devotionalHabits': 'Bible, prayer and church fellowship',
+      });
+      await _refreshAccount();
+      await widget.onDataChanged();
+      setState(() => _status = AppStrings.of(widget.language, 'success'));
+    });
+  }
+
+  Future<void> _sendInterest(CourtshipProfileItem profile) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      await widget.apiClient.expressRelationshipInterest(
+          token, profile.userId, _noteController.text);
+      _noteController.clear();
+      await _refreshAccount();
+      await widget.onDataChanged();
+      setState(() => _status = AppStrings.of(widget.language, 'interest_sent'));
+    });
+  }
+
+  Future<void> _updateInterest(
+      CourtshipInterestItem item, String status) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    await _runAction(() async {
+      if (status == 'accepted') {
+        await widget.apiClient.acceptRelationshipInterest(token, item.id);
+      } else {
+        await widget.apiClient.rejectRelationshipInterest(token, item.id);
+      }
+      await _refreshAccount();
+      await widget.onDataChanged();
+      setState(
+          () => _status = AppStrings.of(widget.language, 'interest_updated'));
+    });
+  }
+
+  Future<void> _openProfileDetail(CourtshipProfileItem profile) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CourtshipProfileDetailScreen(
+          language: widget.language,
+          profile: profile,
+          noteController: _noteController,
+          onSendInterest: () => _sendInterest(profile),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runAction(Future<void> Function() action) async {
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (error) {
+      setState(
+          () => _status = error.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return FutureBuilder<List<CourtshipProfileItem>>(
+      future: _profilesFuture,
+      builder: (context, profilesSnapshot) {
+        return FutureBuilder<CourtshipProfileItem?>(
+          future: _meFuture,
+          builder: (context, meSnapshot) {
+            final me = meSnapshot.data;
+            if (me != null && _churchNameController.text.isEmpty) {
+              _churchNameController.text = me.churchName;
+              _cityController.text = me.city;
+              _bioController.text = me.bio;
+              _interestsController.text = me.interests;
+              _faithStatementController.text = me.faithStatement;
+              _ministryInvolvementController.text = me.ministryInvolvement;
+              _lifeGoalsController.text = me.lifeGoals;
+              _marriageVisionController.text = me.marriageVision;
+              _relationshipIntent = me.relationshipIntent;
+              _visible = me.visible;
+            }
+            return FutureBuilder<List<CourtshipInterestItem>>(
+              future: _interestsFuture,
+              builder: (context, interestsSnapshot) {
+                final profiles =
+                    profilesSnapshot.data ?? const <CourtshipProfileItem>[];
+                final interests =
+                    interestsSnapshot.data ?? const <CourtshipInterestItem>[];
+                final received = me == null
+                    ? const <CourtshipInterestItem>[]
+                    : interests
+                        .where((item) => item.receiverId == me.userId)
+                        .toList();
+                final sent = me == null
+                    ? const <CourtshipInterestItem>[]
+                    : interests
+                        .where((item) => item.senderId == me.userId)
+                        .toList();
+                return RefreshIndicator(
+                  onRefresh: _refreshAccount,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(20),
+                    children: [
+                      _SectionHeader(
+                        title: language == AppLanguage.english
+                            ? 'Relationship & Courtship'
+                            : 'ግንኙነት እና መተዋወቅ',
+                        subtitle: language == AppLanguage.english
+                            ? 'Christian friendship, intentional courtship, marriage preparation and accountability.'
+                            : 'ክርስቲያናዊ ወዳጅነት፣ በዓላማ የተመሠረተ መተዋወቅ፣ የጋብቻ ዝግጅት እና ተጠያቂነት።',
+                      ),
+                      const SizedBox(height: 16),
+                      FutureBuilder<Map<String, dynamic>>(
+                        future: _relationshipFuture,
+                        builder: (context, relationshipSnapshot) =>
+                            _RelationshipEcosystemPanel(
+                          data: relationshipSnapshot.data ??
+                              const <String, dynamic>{},
+                          language: language,
+                          token: widget.session?.token,
+                          apiClient: widget.apiClient,
+                          onChanged: _refreshAccount,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: language == AppLanguage.english
+                            ? 'Relationship activation and profile'
+                            : 'የግንኙነት ማንቃት እና መገለጫ',
+                        children: [
+                          Text(
+                              AppStrings.of(language, 'courtship_profile_body'),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _churchNameController,
+                              decoration: InputDecoration(
+                                  labelText:
+                                      AppStrings.of(language, 'church_name'))),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _cityController,
+                              decoration: InputDecoration(
+                                  labelText: AppStrings.of(language, 'city'))),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _bioController,
+                              decoration: InputDecoration(
+                                  labelText: AppStrings.of(language, 'bio')),
+                              maxLines: 3),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _interestsController,
+                              decoration: InputDecoration(
+                                  labelText: AppStrings.of(
+                                      language, 'interests_label')),
+                              maxLines: 2),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _faithStatementController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Faith statement'),
+                              maxLines: 3),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _ministryInvolvementController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Ministry involvement'),
+                              maxLines: 2),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _lifeGoalsController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Life goals'),
+                              maxLines: 3),
+                          const SizedBox(height: 12),
+                          TextField(
+                              controller: _marriageVisionController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Marriage and family vision'),
+                              maxLines: 3),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            initialValue: _relationshipIntent,
+                            decoration: InputDecoration(
+                                labelText: AppStrings.of(
+                                    language, 'relationship_intent')),
+                            items: [
+                              DropdownMenuItem(
+                                  value: 'serious',
+                                  child:
+                                      Text(AppStrings.of(language, 'serious'))),
+                              DropdownMenuItem(
+                                  value: 'friendship',
+                                  child: Text(
+                                      AppStrings.of(language, 'friendship'))),
+                              DropdownMenuItem(
+                                  value: 'prayerful',
+                                  child: Text(
+                                      AppStrings.of(language, 'prayerful'))),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _relationshipIntent = value);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          SwitchListTile.adaptive(
+                            contentPadding: EdgeInsets.zero,
+                            value: _visible,
+                            title: Text(
+                                AppStrings.of(language, 'visible_profile')),
+                            onChanged: (value) =>
+                                setState(() => _visible = value),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            onPressed: _busy ? null : _saveProfile,
+                            child:
+                                Text(AppStrings.of(language, 'save_profile')),
+                          ),
+                          if (me != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                                '${AppStrings.of(language, 'verified')}: ${me.verified ? AppStrings.of(language, 'ready') : AppStrings.of(language, 'pending')}'),
+                          ],
+                          if (_status.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(_status,
+                                maxLines: 3, overflow: TextOverflow.ellipsis),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: AppStrings.of(language, 'courtship_directory'),
+                        children: profilesSnapshot.connectionState ==
+                                    ConnectionState.waiting &&
+                                profiles.isEmpty
+                            ? const [
+                                Padding(
+                                  padding: EdgeInsets.only(top: 24),
+                                  child: Center(
+                                      child: CircularProgressIndicator()),
+                                ),
+                              ]
+                            : profiles.isEmpty
+                                ? [
+                                    Text(AppStrings.of(
+                                        language, 'no_courtship_profiles'))
+                                  ]
+                                : [
+                                    for (final profile in profiles)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 10),
+                                        child: _ListTileRow(
+                                          icon: profile.verified
+                                              ? Icons.verified_rounded
+                                              : Icons.favorite_border_rounded,
+                                          title: profile.fullName,
+                                          subtitle:
+                                              '${profile.churchName} • ${profile.city} • ${AppStrings.of(language, profile.relationshipIntent)}',
+                                          onTap: () =>
+                                              _openProfileDetail(profile),
+                                        ),
+                                      ),
+                                  ],
+                      ),
+                      const SizedBox(height: 16),
+                      _SectionCard(
+                        title: AppStrings.of(language, 'courtship_requests'),
+                        children: interestsSnapshot.connectionState ==
+                                    ConnectionState.waiting &&
+                                interests.isEmpty
+                            ? const [
+                                Padding(
+                                  padding: EdgeInsets.only(top: 24),
+                                  child: Center(
+                                      child: CircularProgressIndicator()),
+                                ),
+                              ]
+                            : interests.isEmpty
+                                ? [
+                                    Text(AppStrings.of(
+                                        language, 'no_courtship_interests'))
+                                  ]
+                                : [
+                                    if (received.isNotEmpty) ...[
+                                      Text(
+                                          AppStrings.of(
+                                              language, 'received_interests'),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis),
+                                      const SizedBox(height: 8),
+                                      for (final item in received)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 10),
+                                          child: _CourtshipInterestCard(
+                                            item: item,
+                                            language: language,
+                                            isReceiver:
+                                                me?.userId == item.receiverId,
+                                            onAccept: _busy
+                                                ? null
+                                                : () => _updateInterest(
+                                                    item, 'accepted'),
+                                            onDecline: _busy
+                                                ? null
+                                                : () => _updateInterest(
+                                                    item, 'declined'),
+                                          ),
+                                        ),
+                                    ],
+                                    if (sent.isNotEmpty) ...[
+                                      Text(
+                                          AppStrings.of(
+                                              language, 'sent_interests'),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis),
+                                      const SizedBox(height: 8),
+                                      for (final item in sent)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(bottom: 10),
+                                          child: _CourtshipInterestCard(
+                                            item: item,
+                                            language: language,
+                                            isReceiver: false,
+                                          ),
+                                        ),
+                                    ],
+                                  ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class CourtshipProfileDetailScreen extends StatelessWidget {
+  const CourtshipProfileDetailScreen(
+      {super.key,
+      required this.language,
+      required this.profile,
+      required this.noteController,
+      required this.onSendInterest});
+
+  final AppLanguage language;
+  final CourtshipProfileItem profile;
+  final TextEditingController noteController;
+  final Future<void> Function() onSendInterest;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'courtship_profile'))),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          _SectionHeader(
+              title: profile.fullName,
+              subtitle: '${profile.churchName} • ${profile.city}'),
+          const SizedBox(height: 16),
+          _SectionCard(
+            title: AppStrings.of(language, 'courtship_profile'),
+            children: [
+              Text(profile.bio, maxLines: 4, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 12),
+              Text(
+                  '${AppStrings.of(language, 'interests_label')}: ${profile.interests}',
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 8),
+              Text(
+                  '${AppStrings.of(language, 'relationship_intent')}: ${AppStrings.of(language, profile.relationshipIntent)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 8),
+              Text(
+                  '${AppStrings.of(language, 'verified')}: ${profile.verified ? AppStrings.of(language, 'ready') : AppStrings.of(language, 'pending')}'),
+              const SizedBox(height: 12),
+              TextField(
+                  controller: noteController,
+                  decoration: InputDecoration(
+                      labelText: AppStrings.of(language, 'courtship_note')),
+                  maxLines: 3),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () async {
+                  await onSendInterest();
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                child: Text(AppStrings.of(language, 'send_interest')),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RelationshipEcosystemPanel extends StatefulWidget {
+  const _RelationshipEcosystemPanel(
+      {required this.data,
+      required this.language,
+      required this.token,
+      required this.apiClient,
+      required this.onChanged});
+  final Map<String, dynamic> data;
+  final AppLanguage language;
+  final String? token;
+  final ApiClient apiClient;
+  final Future<void> Function() onChanged;
+
+  @override
+  State<_RelationshipEcosystemPanel> createState() =>
+      _RelationshipEcosystemPanelState();
+}
+
+class _RelationshipEcosystemPanelState
+    extends State<_RelationshipEcosystemPanel> {
+  bool _busy = false;
+  String _status = '';
+  bool get en => widget.language == AppLanguage.english;
+  List<Map<String, dynamic>> _items(String key) =>
+      (widget.data[key] as List<dynamic>? ?? const [])
+          .cast<Map<String, dynamic>>();
+  Map<String, dynamic> get _analytics =>
+      (widget.data['analytics'] as Map<String, dynamic>?) ?? const {};
+
+  Future<void> _run(
+      Future<dynamic> Function(String token) action, String success) async {
+    final token = widget.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await action(token);
+      await widget.onChanged();
+      if (mounted) setState(() => _status = success);
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final connections = _items('connections');
+    final discovery = _items('discovery');
+    final resources = _items('resources');
+    final events = _items('events');
+    final mentors = _items('mentors');
+    final firstConnection = connections.isEmpty ? null : connections.first;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _SectionCard(
+          title: en ? 'Relationship dashboard' : 'የግንኙነት ዳሽቦርድ',
+          children: [
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              _InfoChip(label: '${_analytics['profileViews'] ?? 0} views'),
+              _InfoChip(
+                  label: '${_analytics['receivedInterests'] ?? 0} received'),
+              _InfoChip(label: '${_analytics['sentInterests'] ?? 0} sent'),
+              _InfoChip(
+                  label: '${_analytics['acceptedInterests'] ?? 0} accepted'),
+              _InfoChip(label: '${_analytics['connections'] ?? 0} connections'),
+            ]),
+            if (_status.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(_status, maxLines: 2, overflow: TextOverflow.ellipsis)
+            ],
+          ]),
+      const SizedBox(height: 12),
+      _SectionCard(
+          title: en ? 'Compatibility discovery' : 'ተስማሚነት ፍለጋ',
+          children: discovery.isEmpty
+              ? [
+                  Text(en
+                      ? 'Create your relationship profile to see compatible believers.'
+                      : 'ተስማሚ አማኞችን ለማየት የግንኙነት መገለጫህን ፍጠር።')
+                ]
+              : [
+                  for (final item in discovery.take(4))
+                    Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _ListTileRow(
+                          icon: Icons.favorite_rounded,
+                          title:
+                              '${item['fullName'] ?? ''} • ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['overall'] ?? 70}%',
+                          subtitle:
+                              '${item['churchName'] ?? ''} • ${item['city'] ?? ''}\nFaith ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['faith'] ?? 70}% • Ministry ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['ministry'] ?? 70}% • Family ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['familyVision'] ?? 70}%',
+                        )),
+                ]),
+      const SizedBox(height: 12),
+      _SectionCard(
+          title: en ? 'Connections and shared journey' : 'ግንኙነቶች እና የጋራ ጉዞ',
+          children: connections.isEmpty
+              ? [
+                  Text(en
+                      ? 'Accepted introduction requests will open friendship/courtship connections here.'
+                      : 'የተቀበሉ መተዋወቂያ ጥያቄዎች እዚህ ይታያሉ።')
+                ]
+              : [
+                  for (final item in connections.take(3))
+                    Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _ListTileRow(
+                            icon: Icons.handshake_rounded,
+                            title: '${item['partnerName'] ?? ''}',
+                            subtitle:
+                                '${item['stage'] ?? 'friendship'} • ${item['status'] ?? 'active'}')),
+                  if (firstConnection != null)
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      FilledButton.tonal(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                  (t) => widget.apiClient
+                                      .updateRelationshipStage(
+                                          t,
+                                          '${firstConnection['id']}',
+                                          'courtship'),
+                                  en ? 'Stage updated.' : 'ደረጃው ተዘምኗል።'),
+                          child: Text(en ? 'Start courtship' : 'መተዋወቅ ጀምር')),
+                      OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                  (t) => widget.apiClient
+                                      .sendRelationshipMessage(
+                                          t,
+                                          '${firstConnection['id']}',
+                                          'Let us pray and walk wisely.',
+                                          verseReference: 'Proverbs 3:5-6'),
+                                  en ? 'Message sent.' : 'መልዕክት ተልኳል።'),
+                          child: Text(en ? 'Verse chat' : 'ቃል አጋራ')),
+                      OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                  (t) => widget.apiClient.addRelationshipPrayer(
+                                      t,
+                                      '${firstConnection['id']}',
+                                      'Pray for wisdom',
+                                      'Guide our friendship and decisions.'),
+                                  en ? 'Prayer added.' : 'ጸሎት ታክሏል።'),
+                          child: Text(en ? 'Shared prayer' : 'የጋራ ጸሎት')),
+                      OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                  (t) => widget.apiClient
+                                      .addRelationshipBiblePlan(
+                                          t,
+                                          '${firstConnection['id']}',
+                                          'Proverbs for Relationships',
+                                          'Proverbs 3'),
+                                  en
+                                      ? 'Bible plan started.'
+                                      : 'የመጽሐፍ ቅዱስ እቅድ ተጀመረ።'),
+                          child: Text(en ? 'Bible plan' : 'የቃል እቅድ')),
+                      OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                  (t) => widget.apiClient
+                                      .addRelationshipMilestone(
+                                          t,
+                                          '${firstConnection['id']}',
+                                          'Started Courtship',
+                                          'courtship'),
+                                  en ? 'Milestone added.' : 'ምዕራፍ ታክሏል።'),
+                          child: Text(en ? 'Milestone' : 'ምዕራፍ')),
+                      if (mentors.isNotEmpty)
+                        OutlinedButton(
+                            onPressed: _busy
+                                ? null
+                                : () => _run(
+                                    (t) => widget.apiClient
+                                        .inviteRelationshipMentor(
+                                            t,
+                                            '${firstConnection['id']}',
+                                            '${mentors.first['id']}'),
+                                    en ? 'Mentor invited.' : 'መካሪ ተጋብዟል።'),
+                            child: Text(en ? 'Invite mentor' : 'መካሪ ጋብዝ')),
+                      OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                  (t) => widget.apiClient
+                                      .reportRelationshipSafety(t,
+                                          relationshipId:
+                                              '${firstConnection['id']}',
+                                          reason: 'Safety review requested'),
+                                  en
+                                      ? 'Safety report sent.'
+                                      : 'የደህንነት ሪፖርት ተልኳል።'),
+                          child: Text(en ? 'Safety' : 'ደህንነት')),
+                    ]),
+                ]),
+      const SizedBox(height: 12),
+      _SectionCard(
+          title:
+              en ? 'Preparation resources and events' : 'የዝግጅት ምንጮች እና ዝግጅቶች',
+          children: [
+            for (final item in resources.take(3))
+              _ListTileRow(
+                  icon: Icons.menu_book_rounded,
+                  title: '${item['title'] ?? ''}',
+                  subtitle:
+                      '${item['category'] ?? ''} • ${item['description'] ?? ''}'),
+            for (final item in events.take(2))
+              _ListTileRow(
+                  icon: Icons.event_available_rounded,
+                  title: '${item['title'] ?? ''}',
+                  subtitle:
+                      '${item['location'] ?? ''} • ${item['startsAt'] ?? ''}'),
+          ]),
+    ]);
+  }
+}
+
+class _CourtshipInterestCard extends StatelessWidget {
+  const _CourtshipInterestCard(
+      {required this.item,
+      required this.language,
+      required this.isReceiver,
+      this.onAccept,
+      this.onDecline});
+
+  final CourtshipInterestItem item;
+  final AppLanguage language;
+  final bool isReceiver;
+  final VoidCallback? onAccept;
+  final VoidCallback? onDecline;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusLabel = item.status == 'accepted'
+        ? AppStrings.of(language, 'accepted')
+        : item.status == 'declined'
+            ? AppStrings.of(language, 'declined')
+            : AppStrings.of(language, 'pending');
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${item.senderName} → ${item.receiverName}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(item.note, maxLines: 3, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 8),
+            Text('${AppStrings.of(language, 'courtship_status')}: $statusLabel',
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            if (isReceiver && item.status == 'pending') ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  TextButton(
+                      onPressed: onDecline,
+                      child: Text(AppStrings.of(language, 'declined'))),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                      onPressed: onAccept,
+                      child: Text(AppStrings.of(language, 'accepted'))),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MarketplaceScreen extends StatefulWidget {
+  const MarketplaceScreen({
+    super.key,
+    required this.language,
+    required this.apiClient,
+    required this.session,
+  });
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+
+  @override
+  State<MarketplaceScreen> createState() => _MarketplaceScreenState();
+}
+
+class _MarketplaceScreenState extends State<MarketplaceScreen> {
+  final TextEditingController _queryController = TextEditingController();
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _priceController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _imageUrlController = TextEditingController();
+  late Future<List<MarketplaceListingItem>> _listingsFuture;
+  late Future<Map<String, dynamic>> _dashboardFuture;
+  String _category = 'all';
+  String _postCategory = 'Books';
+  String _condition = 'used_good';
+  String _query = '';
+  bool _busy = false;
+  String _status = '';
+
+  bool get _en => widget.language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
+
+  @override
+  void initState() {
+    super.initState();
+    _phoneController.text = widget.session?.user.phoneNumber ?? '';
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _priceController.dispose();
+    _locationController.dispose();
+    _phoneController.dispose();
+    _imageUrlController.dispose();
+    super.dispose();
+  }
+
+  void _reload() {
+    _listingsFuture = widget.apiClient.fetchMarketplaceListings();
+    final token = widget.session?.token;
+    _dashboardFuture = token == null || token.isEmpty
+        ? Future.value(const <String, dynamic>{})
+        : widget.apiClient.fetchJourneyDashboard(token);
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _reload();
+    });
+    await Future.wait([_listingsFuture, _dashboardFuture]);
+  }
+
+  Future<void> _createListing() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final title = _titleController.text.trim();
+    final description = _descriptionController.text.trim();
+    final phone = _phoneController.text.trim();
+    final price = double.tryParse(_priceController.text.trim()) ?? -1;
+    if (title.isEmpty || description.isEmpty || phone.isEmpty || price < 0) {
+      setState(() => _status = _t(
+          'Add title, description, phone number and a valid price.',
+          'ርዕስ፣ መግለጫ፣ ስልክ ቁጥር እና ትክክለኛ ዋጋ ያስገቡ።'));
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await widget.apiClient.createMarketplaceListing(
+        token: token,
+        title: title,
+        category: _postCategory,
+        description: description,
+        priceCents: (price * 100).round(),
+        condition: _condition,
+        location: _locationController.text.trim(),
+        phoneNumber: phone,
+        imageUrl: _imageUrlController.text.trim(),
+      );
+      _titleController.clear();
+      _descriptionController.clear();
+      _priceController.clear();
+      _locationController.clear();
+      _imageUrlController.clear();
+      await _refresh();
+      if (!mounted) return;
+      setState(() =>
+          _status = _t('Product posted to marketplace.', 'ምርቱ ወደ ገበያ ተለጥፏል።'));
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _order(MarketplaceListingItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      final order =
+          await widget.apiClient.orderMarketplaceListing(token, item.id);
+      await _refresh();
+      if (!mounted) return;
+      setState(() => _status = _t('Saved order. Receipt ${order.receiptNumber}',
+          'ትዕዛዙ ተቀመጠ። ደረሰኝ ${order.receiptNumber}'));
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _messageSeller(MarketplaceListingItem item) async {
+    if (widget.session == null || widget.session!.token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    if (item.sellerId.isEmpty || item.sellerId == widget.session?.user.id) {
+      setState(() => _status = _t(
+          'This seller can be contacted by phone.', 'ይህን ሻጭ በስልክ መገናኘት ይቻላል።'));
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: LiveChatPanel(
+          apiClient: widget.apiClient,
+          session: widget.session,
+          language: widget.language,
+          scopeType: 'marketplace_listing',
+          scopeId: item.id,
+          otherUserId: item.sellerId,
+          title:
+              _t('Chat with ${item.sellerName}', 'ከ${item.sellerName} ጋር ተወያይ'),
+          compact: true,
+        ),
+      ),
+    );
+  }
+
+  List<MarketplaceOrderItem> _orders(Map<String, dynamic> dashboard) {
+    return (dashboard['orders'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((item) =>
+            MarketplaceOrderItem.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = const [
+      'Books',
+      'Electronics',
+      'Clothing',
+      'Tickets',
+      'Worship Resources',
+      'Services',
+      'Other'
+    ];
+    return Scaffold(
+      appBar: AppBar(title: Text(_t('Marketplace', 'ገበያ'))),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: FutureBuilder<List<MarketplaceListingItem>>(
+          future: _listingsFuture,
+          builder: (context, listingsSnapshot) {
+            final listings =
+                listingsSnapshot.data ?? const <MarketplaceListingItem>[];
+            final filterCategories = [
+              'all',
+              ...{for (final item in listings) item.category}
+            ];
+            final visible = listings.where((item) {
+              final query = _query.toLowerCase();
+              return item.active &&
+                  (_category == 'all' || item.category == _category) &&
+                  (query.isEmpty ||
+                      item.title.toLowerCase().contains(query) ||
+                      item.sellerName.toLowerCase().contains(query) ||
+                      item.description.toLowerCase().contains(query) ||
+                      item.category.toLowerCase().contains(query));
+            }).toList();
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: [
+                _SectionHeader(
+                  title: _t('Believer marketplace', 'የአማኞች ገበያ'),
+                  subtitle: _t(
+                    'Post items, discover products from believers, call sellers, or start a chat.',
+                    'እቃዎችን ለጥፉ፣ ከአማኞች ምርቶችን ያግኙ፣ ለሻጮች ይደውሉ ወይም ውይይት ይጀምሩ።',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: _t('Sell something', 'ምርት ለጥፍ'),
+                  children: [
+                    if (widget.session == null)
+                      Text(AppStrings.of(widget.language, 'login_required'))
+                    else ...[
+                      TextField(
+                          controller: _titleController,
+                          decoration: const InputDecoration(
+                              labelText: 'Product title')),
+                      const SizedBox(height: 10),
+                      TextField(
+                          controller: _descriptionController,
+                          decoration: const InputDecoration(
+                              labelText: 'Full description'),
+                          minLines: 3,
+                          maxLines: 5),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        Expanded(
+                            child: TextField(
+                                controller: _priceController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                    labelText: 'Price ETB'))),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: DropdownButtonFormField<String>(
+                          initialValue: _postCategory,
+                          decoration:
+                              const InputDecoration(labelText: 'Category'),
+                          items: [
+                            for (final value in categories)
+                              DropdownMenuItem(value: value, child: Text(value))
+                          ],
+                          onChanged: (value) => setState(
+                              () => _postCategory = value ?? _postCategory),
+                        )),
+                      ]),
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        Expanded(
+                            child: DropdownButtonFormField<String>(
+                          initialValue: _condition,
+                          decoration:
+                              const InputDecoration(labelText: 'Condition'),
+                          items: const [
+                            DropdownMenuItem(value: 'new', child: Text('New')),
+                            DropdownMenuItem(
+                                value: 'used_good', child: Text('Used good')),
+                            DropdownMenuItem(
+                                value: 'used_fair', child: Text('Used fair')),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _condition = value ?? _condition),
+                        )),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: TextField(
+                                controller: _locationController,
+                                decoration: const InputDecoration(
+                                    labelText: 'Location'))),
+                      ]),
+                      const SizedBox(height: 10),
+                      TextField(
+                          controller: _phoneController,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                              labelText: 'Phone number for buyers')),
+                      const SizedBox(height: 10),
+                      TextField(
+                          controller: _imageUrlController,
+                          keyboardType: TextInputType.url,
+                          decoration:
+                              const InputDecoration(labelText: 'Image URL')),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                          onPressed: _busy ? null : _createListing,
+                          icon: const Icon(Icons.add_business_rounded),
+                          label: Text(_t('Post product', 'ምርት ለጥፍ'))),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: _t('Browse products', 'ምርቶችን ያስሱ'),
+                  children: [
+                    _SearchField(
+                      controller: _queryController,
+                      labelText: AppStrings.of(widget.language, 'search'),
+                      hintText: _t('Search products, sellers, descriptions',
+                          'ምርት፣ ሻጭ፣ መግለጫ ፈልግ'),
+                      onChanged: (value) =>
+                          setState(() => _query = value.trim()),
+                      onClear: _query.isEmpty
+                          ? null
+                          : () {
+                              _queryController.clear();
+                              setState(() => _query = '');
+                            },
+                    ),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(children: [
+                        for (final category in filterCategories) ...[
+                          ChoiceChip(
+                            label: Text(category == 'all'
+                                ? AppStrings.of(widget.language, 'all')
+                                : category),
+                            selected: _category == category,
+                            onSelected: (_) =>
+                                setState(() => _category = category),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                      ]),
+                    ),
+                    const SizedBox(height: 12),
+                    if (listingsSnapshot.connectionState ==
+                            ConnectionState.waiting &&
+                        listings.isEmpty)
+                      const Padding(
+                          padding: EdgeInsets.only(top: 24),
+                          child: Center(child: CircularProgressIndicator()))
+                    else if (visible.isEmpty)
+                      _EmptyState(
+                          message: AppStrings.of(
+                              widget.language, 'no_search_results'))
+                    else
+                      for (final item in visible)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _MarketplaceListingCard(
+                            item: item,
+                            busy: _busy,
+                            onOrder: () => _order(item),
+                            onMessage: () => _messageSeller(item),
+                            onCall: () => setState(() => _status = _t(
+                                'Call ${item.sellerName} at ${item.phoneNumber}.',
+                                'ለ${item.sellerName} በ${item.phoneNumber} ይደውሉ።')),
+                          ),
+                        ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                FutureBuilder<Map<String, dynamic>>(
+                  future: _dashboardFuture,
+                  builder: (context, dashboardSnapshot) {
+                    final orders = _orders(
+                        dashboardSnapshot.data ?? const <String, dynamic>{});
+                    return _SectionCard(
+                      title: _t(
+                          'My saved orders and receipts', 'የእኔ ትዕዛዞች እና ደረሰኞች'),
+                      children: [
+                        _MarketplacePipeline(en: _en),
+                        const SizedBox(height: 12),
+                        if (widget.session == null)
+                          Text(AppStrings.of(widget.language, 'login_required'))
+                        else if (dashboardSnapshot.connectionState ==
+                                ConnectionState.waiting &&
+                            orders.isEmpty)
+                          const Center(child: CircularProgressIndicator())
+                        else if (orders.isEmpty)
+                          Text(_t('No marketplace orders yet.',
+                              'እስካሁን የገበያ ትዕዛዝ የለም።'))
+                        else
+                          for (final order in orders.take(8))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _ListTileRow(
+                                icon: Icons.receipt_long_rounded,
+                                title: order.title.isEmpty
+                                    ? order.receiptNumber
+                                    : order.title,
+                                subtitle:
+                                    '${order.category} • ${order.status} • ${order.receiptNumber}',
+                              ),
+                            ),
+                      ],
+                    );
+                  },
+                ),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _MarketplaceListingCard extends StatelessWidget {
+  const _MarketplaceListingCard({
+    required this.item,
+    required this.busy,
+    required this.onOrder,
+    required this.onMessage,
+    required this.onCall,
+  });
+
+  final MarketplaceListingItem item;
+  final bool busy;
+  final VoidCallback onOrder;
+  final VoidCallback onMessage;
+  final VoidCallback onCall;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (item.imageUrl.isNotEmpty) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Image.network(item.imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                        color: colors.surfaceContainerHighest,
+                        child: const Center(
+                            child: Icon(Icons.image_not_supported_rounded)))),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            CircleAvatar(
+              backgroundColor: colors.tertiaryContainer,
+              foregroundColor: colors.onTertiaryContainer,
+              child: const Icon(Icons.storefront_rounded),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(item.title,
+                      style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 3),
+                  Text(
+                      '${item.sellerName} • ${item.category} • ${item.condition}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                  if (item.location.isNotEmpty)
+                    Text(item.location,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                ])),
+            Text('ETB ${item.price.toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.w900)),
+          ]),
+          const SizedBox(height: 10),
+          Text(item.description, maxLines: 4, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.tonalIcon(
+                onPressed: busy ? null : onOrder,
+                icon: const Icon(Icons.bookmark_add_rounded),
+                label: const Text('Save order')),
+            OutlinedButton.icon(
+                onPressed: busy ? null : onMessage,
+                icon: const Icon(Icons.chat_rounded),
+                label: const Text('Chat')),
+            if (item.phoneNumber.isNotEmpty)
+              OutlinedButton.icon(
+                  onPressed: busy ? null : onCall,
+                  icon: const Icon(Icons.call_rounded),
+                  label: Text(item.phoneNumber)),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+class _MarketplacePipeline extends StatelessWidget {
+  const _MarketplacePipeline({required this.en});
+
+  final bool en;
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = [
+      (Icons.add_business_rounded, en ? 'Post' : 'ለጥፍ'),
+      (Icons.search_rounded, en ? 'Discover' : 'ፈልግ'),
+      (Icons.chat_rounded, en ? 'Chat or call' : 'ተወያይ/ደውል'),
+      (Icons.receipt_long_rounded, en ? 'Receipt' : 'ደረሰኝ'),
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final step in steps)
+          Chip(
+            avatar: Icon(step.$1, size: 18),
+            label: Text(step.$2),
+          ),
+      ],
+    );
+  }
+}
+
+class PaymentsScreen extends StatefulWidget {
+  const PaymentsScreen(
+      {super.key,
+      required this.language,
+      required this.apiClient,
+      required this.session,
+      required this.onDataChanged});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final Future<void> Function() onDataChanged;
+
+  @override
+  State<PaymentsScreen> createState() => _PaymentsScreenState();
+}
+
+class _PaymentsScreenState extends State<PaymentsScreen> {
+  late Future<List<PaymentPlanItem>> _plansFuture;
+  late Future<List<PaymentHistoryItem>> _historyFuture;
+  bool _busy = false;
+  String _status = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _plansFuture = widget.apiClient.fetchPaymentPlans();
+    final token = widget.session?.token;
+    _historyFuture = token == null
+        ? Future.value(const <PaymentHistoryItem>[])
+        : widget.apiClient.fetchPaymentHistory(token);
+  }
+
+  Future<void> _refresh() async {
+    final token = widget.session?.token;
+    setState(() {
+      _plansFuture = widget.apiClient.fetchPaymentPlans();
+      _historyFuture = token == null
+          ? Future.value(const <PaymentHistoryItem>[])
+          : widget.apiClient.fetchPaymentHistory(token);
+    });
+    await Future.wait([_plansFuture, _historyFuture]);
+  }
+
+  Future<void> _support(String planId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.createPaymentRecord(token: token, planId: planId);
+      await _refresh();
+      await widget.onDataChanged();
+      if (mounted) {
+        setState(() =>
+            _status = AppStrings.of(widget.language, 'payment_requested'));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'payments'))),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            _SectionHeader(
+                title: AppStrings.of(language, 'payments'),
+                subtitle: AppStrings.of(language, 'support_now')),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'payment_plans'),
+              children: [
+                FutureBuilder<List<PaymentPlanItem>>(
+                  future: _plansFuture,
+                  builder: (context, snapshot) {
+                    final plans = snapshot.data ?? const <PaymentPlanItem>[];
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        plans.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (plans.isEmpty) {
+                      return Text(AppStrings.of(language, 'no_payment_plans'));
+                    }
+                    return Column(
+                      children: [
+                        for (final plan in plans)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _ListTileRow(
+                              icon: Icons.payments_rounded,
+                              title: plan.name,
+                              subtitle:
+                                  '${plan.amount} ${plan.currency} • ${plan.description}',
+                              onTap: _busy ? null : () => _support(plan.id),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
+                ],
+              ],
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
+              title: AppStrings.of(language, 'payment_history'),
+              children: [
+                FutureBuilder<List<PaymentHistoryItem>>(
+                  future: _historyFuture,
+                  builder: (context, snapshot) {
+                    final history =
+                        snapshot.data ?? const <PaymentHistoryItem>[];
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        history.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (history.isEmpty) {
+                      return Text(
+                          AppStrings.of(language, 'no_payment_history'));
+                    }
+                    return Column(
+                      children: [
+                        for (final item in history)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _ListTileRow(
+                              icon: Icons.receipt_long_rounded,
+                              title: item.planName ?? item.purpose,
+                              subtitle:
+                                  '${item.amount} ${item.currency} • ${item.status} • ${item.userName}',
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(27),
+        border: Border.all(color: colors.outline.withValues(alpha: .20)),
+        boxShadow: [
+          BoxShadow(
+              color: colors.shadow.withValues(alpha: .10),
+              blurRadius: 22,
+              offset: const Offset(0, 8))
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Container(
+                  width: 8,
+                  height: 28,
+                  decoration: BoxDecoration(
+                      color: colors.secondary,
+                      borderRadius: BorderRadius.circular(99))),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Text(title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge)),
+            ]),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ListModuleScreen extends StatelessWidget {
+  const _ListModuleScreen({
+    required this.title,
+    required this.subtitle,
+    required this.items,
+    this.header,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget? header;
+  final List<Widget> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        _SectionHeader(title: title, subtitle: subtitle),
+        if (header != null) ...[
+          const SizedBox(height: 16),
+          header!,
+        ],
+        const SizedBox(height: 16),
+        ...items,
+      ],
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        Text(subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium),
+      ],
+    );
+  }
+}
+
+class _ListTileRow extends StatelessWidget {
+  const _ListTileRow(
+      {required this.icon,
+      required this.title,
+      required this.subtitle,
+      this.onTap});
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .45),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: colors.outline.withValues(alpha: .18)),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        leading: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+                gradient:
+                    LinearGradient(colors: [colors.primary, colors.secondary]),
+                borderRadius: BorderRadius.circular(14)),
+            child: Icon(icon, color: Colors.white, size: 21)),
+        title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+        subtitle: Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis),
+        trailing: onTap == null
+            ? null
+            : Icon(Icons.arrow_outward_rounded,
+                size: 19, color: colors.secondary),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _VerseCard extends StatelessWidget {
+  const _VerseCard({required this.reference, required this.text});
+
+  final String reference;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(reference,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(text, maxLines: 4, overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SocialStat extends StatelessWidget {
+  const _SocialStat({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16),
+          const SizedBox(width: 6),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniCard extends StatelessWidget {
+  const _MiniCard(
+      {required this.icon,
+      required this.title,
+      required this.body,
+      this.trailing});
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+        subtitle: Text(body, maxLines: 2, overflow: TextOverflow.ellipsis),
+        trailing: trailing,
+      ),
+    );
+  }
+}
+
+class _SearchField extends StatelessWidget {
+  const _SearchField(
+      {required this.controller,
+      required this.labelText,
+      required this.hintText,
+      required this.onChanged,
+      this.onClear});
+
+  final TextEditingController controller;
+  final String labelText;
+  final String hintText;
+  final ValueChanged<String> onChanged;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        labelText: labelText,
+        hintText: hintText,
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: onClear == null
+            ? null
+            : IconButton(
+                onPressed: onClear,
+                icon: const Icon(Icons.clear_rounded),
+              ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Text(message, maxLines: 3, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+}

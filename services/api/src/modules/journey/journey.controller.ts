@@ -1,0 +1,44 @@
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+
+import { requireBearerToken } from '../../common/request-auth';
+import { JourneyService } from './journey.service';
+
+@ApiTags('believer-journey')
+@Controller('/journey')
+export class JourneyController {
+  constructor(private readonly service: JourneyService) {}
+
+  @Post('/otp/request') requestOtp(@Body() body: { phoneNumber?: string }) { return this.service.requestOtp(body.phoneNumber ?? ''); }
+  @Post('/otp/verify') verifyOtp(@Body() body: { phoneNumber?: string; code?: string }) { return this.service.verifyOtp(body.phoneNumber ?? '', body.code ?? ''); }
+
+  @ApiBearerAuth()
+  @Get('/dashboard') dashboard(@Headers('authorization') auth?: string) { return this.service.dashboard(requireBearerToken(auth)); }
+  @ApiBearerAuth()
+  @Post('/onboarding') onboard(@Headers('authorization') auth: string | undefined, @Body() body: any) { return this.service.onboard(requireBearerToken(auth), body); }
+  @ApiBearerAuth()
+  @Post('/posts/:id/save') savePost(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.savePost(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Post('/prayers/:id/prayed') pray(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.pray(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Post('/plans/:id/enroll') enrollPlan(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.enrollPlan(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Post('/plans/:id/checkin') checkinPlan(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.checkinPlan(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Post('/friends/:id/request') friend(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.friend(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Patch('/friends/requests/:id') updateFriend(@Headers('authorization') auth: string | undefined, @Param('id') id: string, @Body() body: { status?: string }) { return this.service.updateFriend(requireBearerToken(auth), id, body.status ?? ''); }
+  @ApiBearerAuth()
+  @Delete('/friends/requests/:id') withdrawFriend(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.withdrawFriend(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Post('/stories/:id/replies') replyStory(@Headers('authorization') auth: string | undefined, @Param('id') id: string, @Body() body: { body?: string }) { return this.service.replyStory(requireBearerToken(auth), id, body.body ?? ''); }
+  @Get('/marketplace') marketplace() { return this.service.listings(); }
+  @ApiBearerAuth()
+  @Post('/marketplace') createMarketplaceListing(@Headers('authorization') auth: string | undefined, @Body() body: any) { return this.service.createListing(requireBearerToken(auth), body); }
+  @ApiBearerAuth()
+  @Post('/courses/:id/enroll') enrollCourse(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.enrollCourse(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Post('/courses/:id/progress') progressCourse(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.progressCourse(requireBearerToken(auth), id); }
+  @ApiBearerAuth()
+  @Post('/marketplace/:id/order') order(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.order(requireBearerToken(auth), id); }
+}

@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.next/
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+.idea/
+.vscode/
+coverage/
+*.log
+**/local.properties
+**/*.iml
+**/GeneratedPluginRegistrant.java
+
+.logs/
+.run/
+
+# Vendored SDKs (Android/Flutter) — do not commit toolchains
+.sdk/
+
+# Merge-conflict leftovers
+*.orig

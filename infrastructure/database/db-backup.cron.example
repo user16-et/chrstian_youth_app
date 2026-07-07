@@ -1,0 +1,12 @@
+# Install on a backup runner with access to the primary Postgres endpoint.
+# Keep DATABASE_URL in a root-readable env file, not directly in this crontab.
+# Example /etc/christian-super-app/db-backup.env:
+# DATABASE_URL=postgresql://backup_user:strong-password@primary-db:5432/christian_super_app
+# BACKUP_DIR=/var/backups/christian-super-app
+# BACKUP_RETENTION_DAYS=14
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Daily logical backup at 02:15 UTC.
+15 2 * * * source /etc/christian-super-app/db-backup.env && cd /opt/christian-super-app && scripts/db-backup.sh >> /var/log/christian-super-app-db-backup.log 2>&1

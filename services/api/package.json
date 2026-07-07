@@ -1,0 +1,40 @@
+{
+  "name": "@christian-super-app/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "maintenance": "node scripts/maintenance.js",
+    "migrate": "node scripts/migrate.js",
+    "start": "node dist/main.js",
+    "start:prod": "npm run migrate && node dist/main.js",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "admin:create": "node scripts/create-admin.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1072.0",
+    "@aws-sdk/s3-request-presigner": "^3.1072.0",
+    "@christian-super-app/shared": "0.1.0",
+    "@nestjs/common": "^11.1.27",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/platform-express": "^11.1.27",
+    "@nestjs/platform-socket.io": "^11.1.27",
+    "@nestjs/swagger": "^11.4.4",
+    "@nestjs/websockets": "^11.1.27",
+    "bullmq": "^5.65.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "ioredis": "^5.11.1",
+    "meilisearch": "^0.49.0",
+    "next": "^16.2.9",
+    "pg": "^8.13.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.20.0",
+    "typescript": "^5.6.0"
+  }
+}

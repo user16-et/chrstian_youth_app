@@ -1,0 +1,193 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - log_statement=none
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+    environment:
+      POSTGRES_DB: christian_super_app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d christian_super_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  pgbouncer-primary:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/christian_super_app
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 50
+      RESERVE_POOL_SIZE: 10
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pgbouncer-replica:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/christian_super_app
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 50
+      RESERVE_POOL_SIZE: 10
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6433:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.10
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: dev-master-key
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILI_HOST_PORT:-7700}:7700"
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "${MINIO_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "sleep 3 &&
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb -p local/christian-super-app-media &&
+      mc anonymous set download local/christian-super-app-media"
+
+  clamav:
+    image: clamav/clamav:stable
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 2 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+    volumes:
+      - clamav_data:/var/lib/clamav
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer-primary:5432/christian_super_app
+      DATABASE_READ_URL: postgresql://postgres:postgres@pgbouncer-replica:5432/christian_super_app
+      REDIS_URL: redis://redis:6379
+      MEDIA_STORAGE_PROVIDER: minio
+      MEDIA_BUCKET: christian-super-app-media
+      MEDIA_REGION: us-east-1
+      MEDIA_ENDPOINT: http://minio:9000
+      MEDIA_PUBLIC_BASE_URL: http://127.0.0.1:9000/christian-super-app-media
+      MEDIA_ACCESS_KEY_ID: minioadmin
+      MEDIA_SECRET_ACCESS_KEY: minioadmin
+      MEDIA_FORCE_PATH_STYLE: "true"
+      SEARCH_PROVIDER: meilisearch
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: dev-master-key
+      SEARCH_INDEX_NAME: global_search
+      VIRUS_SCAN_PROVIDER: clamav
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer-primary:
+        condition: service_started
+      pgbouncer-replica:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@pgbouncer-primary:5432/christian_super_app
+      REDIS_URL: redis://redis:6379
+      WORKER_CONCURRENCY: 5
+      POSTGRES_POOL_MAX: 5
+      SEARCH_PROVIDER: meilisearch
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: dev-master-key
+      SEARCH_INDEX_NAME: global_search
+      MEDIA_REGION: us-east-1
+      MEDIA_ENDPOINT: http://minio:9000
+      MEDIA_ACCESS_KEY_ID: minioadmin
+      MEDIA_SECRET_ACCESS_KEY: minioadmin
+      MEDIA_FORCE_PATH_STYLE: "true"
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer-primary:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  minio_data:
+  meili_data:
+  clamav_data:

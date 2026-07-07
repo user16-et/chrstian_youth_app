@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rm *)",
+      "Bash(echo \"exit $?\")",
+      "Bash(git add *)",
+      "Bash(git config *)",
+      "Bash(git commit -q -m 'Initial commit: Christian Youth Super App monorepo baseline *)"
+    ]
+  }
+}
