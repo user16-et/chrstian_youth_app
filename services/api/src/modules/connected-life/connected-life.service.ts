@@ -35,6 +35,9 @@ export class ConnectedLifeService {
   async startConversation(token:string,otherId:string,kind:string) {
     const actor=await this.actor(token); if(actor.id===otherId) throw new BadRequestException('cannot_message_self');
     if(!(await this.users.getById(otherId))) throw new NotFoundException('user_not_found');
+    // Teen safety: adults and minors may not open private 1:1 conversations.
+    const [me,them]=await Promise.all([this.users.getMinorStatus(actor.id),this.users.getMinorStatus(otherId)]);
+    if(me.isTeen!==them.isTeen) throw new ForbiddenException('adult_minor_direct_message_restricted');
     return this.life.startConversation(actor.id,otherId,kind||'direct');
   }
 

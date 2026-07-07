@@ -337,9 +337,11 @@ export class ConnectedLifeRepository {
       [fundId,userId,amount,`GIVE-${randomUUID().slice(0,10).toUpperCase()}`]).then((result) => result.rows[0]);
   }
   teen(userId: string, input: any) {
-    return this.pool.query(`INSERT INTO user_profiles(user_id,is_teen,guardian_name,guardian_approved) VALUES($1,$2,$3,$4)
-      ON CONFLICT(user_id) DO UPDATE SET is_teen=$2,guardian_name=$3,guardian_approved=$4,updated_at=now() RETURNING *`,
-      [userId,input.isTeen===true,input.guardianName||'',input.guardianApproved===true]).then((result) => result.rows[0]);
+    return this.pool.query(`INSERT INTO user_profiles(user_id,is_teen,guardian_name,guardian_phone,guardian_approved,guardian_consent_at)
+      VALUES($1,$2,$3,$4,$5,CASE WHEN $5 THEN now() ELSE NULL END)
+      ON CONFLICT(user_id) DO UPDATE SET is_teen=$2,guardian_name=$3,guardian_phone=$4,guardian_approved=$5,
+        guardian_consent_at=CASE WHEN $5 THEN COALESCE(user_profiles.guardian_consent_at, now()) ELSE NULL END,updated_at=now() RETURNING *`,
+      [userId,input.isTeen===true,input.guardianName||'',input.guardianPhone||'',input.guardianApproved===true]).then((result) => result.rows[0]);
   }
   announcement(actorId: string, churchId: string, input: any) {
     return this.pool.query(`INSERT INTO church_announcements(church_id,author_id,title,body)

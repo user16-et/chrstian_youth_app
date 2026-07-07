@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { AuthorizationService } from '../../common/authorization.service';
 import { ContentRepository } from '../../common/content.repository';
@@ -464,8 +464,16 @@ export class EngagementService {
     return this.contentRepository.getCourtshipProfile(actor.id);
   }
 
+  // Courtship is an adults-only feature; minors may not participate.
+  private async assertAdult(userId: string) {
+    if ((await this.userRepository.getMinorStatus(userId)).isTeen) {
+      throw new ForbiddenException('courtship_adults_only');
+    }
+  }
+
   async upsertCourtshipProfile(token: string, input: UpsertCourtshipProfileDto) {
     const actor = await this.requireActor(token);
+    await this.assertAdult(actor.id);
     return this.contentRepository.upsertCourtshipProfile({
       userId: actor.id,
       churchName: input.churchName,
@@ -488,6 +496,7 @@ export class EngagementService {
 
   async createCourtshipInterest(token: string, input: CreateCourtshipInterestDto) {
     const actor = await this.requireActor(token);
+    await this.assertAdult(actor.id);
     if (input.receiverId === actor.id) {
       throw new BadRequestException('cannot_request_self');
     }

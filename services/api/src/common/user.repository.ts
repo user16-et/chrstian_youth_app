@@ -314,6 +314,17 @@ export class UserRepository implements OnModuleInit {
     return result.rows[0]?.ok === true;
   }
 
+  /** Minor-account safety status for a user, from their profile. */
+  async getMinorStatus(userId: string): Promise<{ isTeen: boolean; guardianApproved: boolean }> {
+    const result = await this.pool.query(
+      `SELECT COALESCE(is_teen,false) AS is_teen, COALESCE(guardian_approved,false) AS guardian_approved
+       FROM user_profiles WHERE user_id=$1 LIMIT 1`,
+      [userId],
+    );
+    const row = result.rows[0];
+    return { isTeen: row?.is_teen === true, guardianApproved: row?.guardian_approved === true };
+  }
+
   async listUsers(input?: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated?: false }): Promise<UserDirectoryRecord[]>;
   async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated: true }): Promise<{ items: UserDirectoryRecord[]; total: number; limit: number; offset: number }>;
   async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated?: boolean } = {}) {

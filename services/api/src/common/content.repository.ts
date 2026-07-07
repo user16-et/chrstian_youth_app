@@ -2357,7 +2357,8 @@ export class ContentRepository implements OnModuleInit {
       `SELECT c.user_id, u.full_name, c.church_name, c.city, c.bio, c.interests, c.faith_statement, c.ministry_involvement, c.life_goals, c.marriage_vision, c.relationship_intent, c.verified, c.visible, c.created_at
        FROM courtship_profiles c
        JOIN users u ON u.id = c.user_id
-       WHERE c.visible = true
+       LEFT JOIN user_profiles p ON p.user_id = c.user_id
+       WHERE c.visible = true AND COALESCE(p.is_teen, false) = false
        ORDER BY c.verified DESC, c.created_at DESC`,
     );
     return result.rows.map((row) => this.mapCourtshipProfileView(row));
