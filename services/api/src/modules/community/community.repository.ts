@@ -48,7 +48,10 @@ export class CommunityRepository {
         EXISTS(SELECT 1 FROM community_discussion_saves s WHERE s.discussion_id=d.id AND s.user_id=$1) AS "savedByMe",
         EXISTS(SELECT 1 FROM community_discussion_upvotes v WHERE v.discussion_id=d.id AND v.user_id=$1) AS "upvotedByMe"
         FROM community_discussions d JOIN users u ON u.id=d.author_id LEFT JOIN groups g ON g.id=d.group_id
-        WHERE d.status<>'removed' ORDER BY d.created_at DESC LIMIT 30`, [userId]),
+        WHERE d.status<>'removed'
+          AND (d.group_id IS NULL OR g.visibility='public'
+               OR EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.group_id=d.group_id AND gm.user_id=$1 AND gm.status IN ('active','approved')))
+        ORDER BY d.created_at DESC LIMIT 30`, [userId]),
       this.db.query(`SELECT pr.id,pr.title,pr.body AS description,'public' AS visibility,pr.status,pr.created_at AS "createdAt",
         CASE WHEN pr.anonymous THEN 'Anonymous believer' ELSE u.full_name END AS "authorName",
         (SELECT count(*)::int FROM prayer_commitments pc WHERE pc.prayer_request_id=pr.id) AS "prayedCount",
@@ -98,27 +101,49 @@ export class CommunityRepository {
 
   async joinGroup(userId: string, groupId: string) {
     const group = await this.one('SELECT type,visibility FROM groups WHERE id=$1', [groupId]);
-    const status = group?.type === 'private' || group?.visibility === 'private' ? 'requested' : 'active';
+    // Private and secret groups require approval; only public groups auto-join.
+    const restricted = ['private', 'secret'].includes(String(group?.type)) || ['private', 'secret'].includes(String(group?.visibility));
+    const status = restricted ? 'requested' : 'active';
     return this.one(`INSERT INTO group_memberships(group_id,user_id,role,status) VALUES($1,$2,'member',$3)
       ON CONFLICT(group_id,user_id) DO UPDATE SET status=CASE WHEN group_memberships.status IN ('active','approved') THEN group_memberships.status ELSE EXCLUDED.status END
       RETURNING *`, [groupId, userId, status]);
+  }
+
+  isGroupAdmin(userId: string, groupId: string) {
+    return this.db.query(`SELECT 1 FROM group_memberships WHERE group_id=$1 AND user_id=$2 AND status IN ('active','approved') AND role IN ('admin','moderator','leader')`, [groupId, userId])
+      .then((r) => (r.rowCount ?? 0) > 0);
   }
 
   groupRequests(groupId: string) {
     return this.db.query(`SELECT gm.id,gm.role,gm.status,u.id AS "userId",u.full_name AS name FROM group_memberships gm JOIN users u ON u.id=gm.user_id WHERE gm.group_id=$1 AND gm.status='requested' ORDER BY gm.joined_at`, [groupId]).then((r) => r.rows);
   }
 
+  // Approve only when the actor is an admin of the same group.
   approveGroupMember(userId: string, membershipId: string) {
-    return this.one(`UPDATE group_memberships SET status='active',approved_by=$2,approved_at=now() WHERE id=$1 RETURNING *`, [membershipId, userId]);
+    return this.one(`UPDATE group_memberships target SET status='active',approved_by=$2,approved_at=now()
+      FROM group_memberships mgr
+      WHERE target.id=$1 AND mgr.group_id=target.group_id AND mgr.user_id=$2
+        AND mgr.role IN ('admin','moderator','leader') AND mgr.status IN ('active','approved')
+      RETURNING target.*`, [membershipId, userId]);
   }
 
+  // Group-scoped discussions require membership of that group.
   createDiscussion(userId: string, input: Record<string, unknown>) {
-    return this.one(`INSERT INTO community_discussions(author_id,group_id,title,body,category) VALUES($1,$2,$3,$4,$5) RETURNING *`, [userId, input.groupId ?? null, input.title, input.body, input.category ?? 'general']);
+    return this.one(`INSERT INTO community_discussions(author_id,group_id,title,body,category)
+      SELECT $1,$2::uuid,$3,$4,$5
+      WHERE $2::uuid IS NULL OR EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.group_id=$2::uuid AND gm.user_id=$1 AND gm.status IN ('active','approved'))
+      RETURNING *`, [userId, input.groupId ?? null, input.title, input.body, input.category ?? 'general']);
   }
 
   async replyDiscussion(userId: string, discussionId: string, body: string) {
-    const reply = await this.one(`INSERT INTO community_discussion_replies(discussion_id,author_id,body) VALUES($1,$2,$3) RETURNING *`, [discussionId, userId, body]);
-    await this.db.query('UPDATE community_discussions SET reply_count=reply_count+1 WHERE id=$1', [discussionId]);
+    const reply = await this.one(`INSERT INTO community_discussion_replies(discussion_id,author_id,body)
+      SELECT $1::uuid,$2,$3
+      FROM community_discussions d LEFT JOIN groups g ON g.id=d.group_id
+      WHERE d.id=$1::uuid AND d.status<>'removed'
+        AND (d.group_id IS NULL OR g.visibility='public'
+             OR EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.group_id=d.group_id AND gm.user_id=$2 AND gm.status IN ('active','approved')))
+      RETURNING *`, [discussionId, userId, body]);
+    if (reply) await this.db.query('UPDATE community_discussions SET reply_count=reply_count+1 WHERE id=$1', [discussionId]);
     return reply;
   }
 
@@ -136,11 +161,24 @@ export class CommunityRepository {
     return this.one(`INSERT INTO prayer_partner_requests(requester_id,preferred_gender,city,interests) VALUES($1,$2,$3,$4) RETURNING *`, [userId, input.preferredGender ?? 'any', input.city ?? '', input.interests ?? []]);
   }
 
+  // Match only an open request, and never your own. Returns null otherwise.
   matchPrayerPartner(userId: string, requestId: string) {
-    return this.one(`INSERT INTO prayer_partner_matches(request_id,partner_id) VALUES($1,$2) ON CONFLICT(request_id,partner_id) DO UPDATE SET status='requested' RETURNING *`, [requestId, userId]);
+    return this.one(`INSERT INTO prayer_partner_matches(request_id,partner_id)
+      SELECT $1::uuid,$2 FROM prayer_partner_requests r WHERE r.id=$1::uuid AND r.status='open' AND r.requester_id<>$2
+      ON CONFLICT(request_id,partner_id) DO UPDATE SET status='requested'
+      RETURNING *`, [requestId, userId]);
   }
 
+  // Register only for an existing event that is not over capacity (an existing
+  // registrant may re-confirm). Returns null when full or missing.
   registerEvent(userId: string, eventId: string) {
-    return this.one('INSERT INTO community_event_registrations(event_id,user_id) VALUES($1,$2) ON CONFLICT(event_id,user_id) DO UPDATE SET status=EXCLUDED.status RETURNING *', [eventId, userId]);
+    return this.one(`INSERT INTO community_event_registrations(event_id,user_id)
+      SELECT ce.id,$2::uuid FROM community_events ce
+      WHERE ce.id=$1::uuid
+        AND (ce.capacity=0
+             OR EXISTS(SELECT 1 FROM community_event_registrations r WHERE r.event_id=$1::uuid AND r.user_id=$2::uuid)
+             OR (SELECT count(*) FROM community_event_registrations r WHERE r.event_id=$1::uuid) < ce.capacity)
+      ON CONFLICT(event_id,user_id) DO UPDATE SET user_id=EXCLUDED.user_id
+      RETURNING *`, [eventId, userId]);
   }
 }
