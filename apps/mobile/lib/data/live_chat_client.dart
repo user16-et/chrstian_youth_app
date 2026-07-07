@@ -131,7 +131,10 @@ class LiveChatClient {
     StreamController<Map<String, dynamic>> controller,
     dynamic data,
   ) {
-    if (data is Map<String, dynamic>) controller.add(data);
-    if (data is Map) controller.add(Map<String, dynamic>.from(data));
+    if (data is Map<String, dynamic>) {
+      controller.add(data);
+    } else if (data is Map) {
+      controller.add(Map<String, dynamic>.from(data));
+    }
   }
 }
