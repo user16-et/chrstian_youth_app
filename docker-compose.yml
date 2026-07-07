@@ -172,6 +172,13 @@ services:
       MEDIA_FORCE_PATH_STYLE: "true"
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
+      SMS_PROVIDER: ${SMS_PROVIDER:-disabled}
+      SMS_APP_NAME: ${SMS_APP_NAME:-Christian Youth}
+      AFROMESSAGE_BASE_URL: ${AFROMESSAGE_BASE_URL:-https://api.afromessage.com/api}
+      AFROMESSAGE_TOKEN: ${AFROMESSAGE_TOKEN:-}
+      AFROMESSAGE_FROM: ${AFROMESSAGE_FROM:-}
+      AFROMESSAGE_SENDER: ${AFROMESSAGE_SENDER:-}
+      AFROMESSAGE_CALLBACK: ${AFROMESSAGE_CALLBACK:-}
     depends_on:
       postgres:
         condition: service_healthy

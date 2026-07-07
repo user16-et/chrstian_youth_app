@@ -18,6 +18,14 @@ export interface WorkerConfig {
   clamavHost: string;
   clamavPort: number;
   clamavTimeoutMs: number;
+  smsProvider: 'disabled' | 'afromessage';
+  smsAppName: string;
+  smsTimeoutMs: number;
+  afroMessageBaseUrl: string;
+  afroMessageToken: string | null;
+  afroMessageFrom: string | null;
+  afroMessageSender: string | null;
+  afroMessageCallback: string | null;
 }
 
 export function loadWorkerConfig(): WorkerConfig {
@@ -41,7 +49,26 @@ export function loadWorkerConfig(): WorkerConfig {
     clamavHost: process.env.CLAMAV_HOST?.trim() || 'clamav',
     clamavPort: int('CLAMAV_PORT', 3310, 1, 65535),
     clamavTimeoutMs: int('CLAMAV_TIMEOUT_MS', 120_000, 1_000, 10 * 60 * 1000),
+    smsProvider: parseSmsProvider(process.env.SMS_PROVIDER ?? 'disabled'),
+    smsAppName: process.env.SMS_APP_NAME?.trim() || 'Christian Youth',
+    smsTimeoutMs: int('SMS_TIMEOUT_MS', 15_000, 1_000, 60_000),
+    afroMessageBaseUrl: (optional('AFROMESSAGE_BASE_URL') || 'https://api.afromessage.com/api').replace(/\/+$/, ''),
+    afroMessageToken: optional('AFROMESSAGE_TOKEN'),
+    afroMessageFrom: optional('AFROMESSAGE_FROM'),
+    afroMessageSender: optional('AFROMESSAGE_SENDER'),
+    afroMessageCallback: optional('AFROMESSAGE_CALLBACK'),
   };
+}
+
+function parseSmsProvider(value: string): 'disabled' | 'afromessage' {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'afromessage') {
+    if (!secretValue('AFROMESSAGE_TOKEN')) {
+      throw new Error('AFROMESSAGE_TOKEN is required when SMS_PROVIDER=afromessage');
+    }
+    return 'afromessage';
+  }
+  return 'disabled';
 }
 
 function optional(name: string) {

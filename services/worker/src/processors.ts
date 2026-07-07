@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import { QUEUE_NAMES, type QueueName, type SearchIndexingJob } from '@christian-super-app/shared';
 import type { WorkerConfig } from './config';
 import { SearchIndexer } from './search-indexer';
+import { SmsSender } from './sms-sender';
 import { VirusScanner } from './virus-scanner';
 
 type ProcessorMap = Record<QueueName, (job: Job) => Promise<void>>;
@@ -11,6 +12,7 @@ type ProcessorMap = Record<QueueName, (job: Job) => Promise<void>>;
 export function createProcessors(db: Pool, config: WorkerConfig): ProcessorMap {
   const searchIndexer = new SearchIndexer(db, config);
   const virusScanner = new VirusScanner(db, config);
+  const smsSender = new SmsSender(config);
   return {
     [QUEUE_NAMES.pushNotifications]: async (job) => {
       const data = job.data as { userId: string; title: string; body: string; targetType?: string; targetId?: string; notificationId?: string; deliveryId?: string; deviceToken?: string; priority?: string };
@@ -29,8 +31,9 @@ export function createProcessors(db: Pool, config: WorkerConfig): ProcessorMap {
       const data = job.data as { phoneNumber: string; code: string; expiresAt: string; deliveryId?: string };
       if ('deliveryId' in data && data.deliveryId) await markDeliveryProcessing(db, String(data.deliveryId));
       try {
-        console.log(JSON.stringify({ level: 'info', event: 'sms_otp_requested', phoneNumber: data.phoneNumber, expiresAt: data.expiresAt }));
-        if ('deliveryId' in data && data.deliveryId) await markDeliveryDelivered(db, String(data.deliveryId), `sms:${Date.now()}`);
+        const result = await smsSender.sendOtp({ phoneNumber: data.phoneNumber, code: data.code, expiresAt: data.expiresAt });
+        console.log(JSON.stringify({ level: 'info', event: 'sms_otp_sent', provider: result.provider, expiresAt: data.expiresAt }));
+        if ('deliveryId' in data && data.deliveryId) await markDeliveryDelivered(db, String(data.deliveryId), result.providerMessageId);
       } catch (error) {
         if ('deliveryId' in data && data.deliveryId) await markDeliveryRetry(db, String(data.deliveryId), error);
         throw error;

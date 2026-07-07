@@ -4,7 +4,7 @@ Audit date: 2026-06-13. `Working` means persisted API behavior plus a usable mob
 
 | Scenario | Status | Current evidence and gap |
 | --- | --- | --- |
-| Phone registration and OTP | Partial | Password registration and local demo OTP `123456` work. No SMS provider, resend throttling, attempt limits, or production OTP delivery. |
+| Phone registration and OTP | Partial | Registration works; production/staging use crypto-random codes delivered via AfroMessage SMS (`SMS_PROVIDER=afromessage`), dev keeps demo OTP `123456`. Verify attempt limits and canonical phone-number identity remain. See [SMS/OTP](sms-otp.md). |
 | Profile photo, city, occupation, status and interests | Partial | Journey onboarding persists a photo URL and profile fields. There is no binary image upload, crop, storage, or CDN. |
 | Select Mulu Wongel and join Youth/Media | Working | Onboarding creates a pending church membership and ministry memberships. Mulu Wongel, Youth and Media are seeded. |
 | Personalized home feed | Missing | Feed returns all posts. It is not ranked or scoped by church, ministry, friends, pastors, influencers, or follows. |
