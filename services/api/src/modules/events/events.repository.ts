@@ -95,24 +95,72 @@ export class EventsRepository {
     ]).then((event) => ({ ...event, createdBy: userId }));
   }
 
+  // Registers only when the event is open: not cancelled, before the deadline,
+  // and under capacity (an existing registrant may always update). Derives the
+  // status from the event's registration_type. Returns null when closed.
   async register(eventId: string, userId: string, input: Record<string, unknown> = {}) {
-    const event = await this.one('SELECT registration_type FROM events WHERE id=$1', [eventId]);
-    const status = event?.registration_type === 'approval' ? 'requested' : 'registered';
-    return this.one(`INSERT INTO event_registrations(event_id,user_id,status,ticket_code,qr_payload)
-      VALUES($1::uuid,$2::uuid,$3,'TKT-' || substr(md5($1::text || $2::text),1,10),'event:' || $1::text || ':user:' || $2::text)
+    const registration = await this.one(`INSERT INTO event_registrations(event_id,user_id,status,ticket_code,qr_payload)
+      SELECT e.id,$2::uuid,CASE WHEN e.registration_type='approval' THEN 'requested' ELSE 'registered' END,
+             'TKT-' || substr(md5($1::text || $2::text),1,10),'event:' || $1::text || ':user:' || $2::text
+      FROM events e
+      WHERE e.id=$1::uuid AND e.status<>'cancelled'
+        AND (e.registration_deadline IS NULL OR e.registration_deadline > now())
+        AND (e.capacity=0
+             OR EXISTS(SELECT 1 FROM event_registrations r WHERE r.event_id=$1::uuid AND r.user_id=$2::uuid)
+             OR (SELECT count(*) FROM event_registrations r WHERE r.event_id=$1::uuid AND r.status IN ('registered','checked_in','requested')) < e.capacity)
       ON CONFLICT(event_id,user_id) DO UPDATE SET status=CASE WHEN event_registrations.status='checked_in' THEN event_registrations.status ELSE EXCLUDED.status END
-      RETURNING id,event_id AS "eventId",user_id AS "userId",status,ticket_code AS "ticketCode",qr_payload AS "qrPayload",checked_in_at AS "checkedInAt",created_at AS "createdAt"`, [eventId, userId, status]).then((registration) => ({ ...registration, form: input }));
+      RETURNING id,event_id AS "eventId",user_id AS "userId",status,ticket_code AS "ticketCode",qr_payload AS "qrPayload",checked_in_at AS "checkedInAt",created_at AS "createdAt"`, [eventId, userId]);
+    return registration ? { ...registration, form: input } : null;
   }
 
   approveRegistration(registrationId: string, actorId: string) {
-    return this.one(`UPDATE event_registrations SET status='registered',approved_by=$2,approved_at=now() WHERE id=$1 RETURNING *`, [registrationId, actorId]);
+    return this.one(`UPDATE event_registrations SET status='registered',approved_by=$2,approved_at=now() WHERE id=$1 AND status<>'checked_in' RETURNING *`, [registrationId, actorId]);
   }
 
   checkIn(eventId: string, userId: string, method = 'qr') {
     return this.one(`INSERT INTO event_registrations(event_id,user_id,status,checked_in_at,ticket_code,qr_payload)
-      VALUES($1::uuid,$2::uuid,'checked_in',now(),'TKT-' || substr(md5($1::text || $2::text),1,10),'event:' || $1::text || ':user:' || $2::text)
-      ON CONFLICT(event_id,user_id) DO UPDATE SET status='checked_in',checked_in_at=now()
-      RETURNING id,event_id AS "eventId",user_id AS "userId",status,ticket_code AS "ticketCode",qr_payload AS "qrPayload",checked_in_at AS "checkedInAt",created_at AS "createdAt"`, [eventId, userId]).then((record) => ({ ...record, method }));
+      SELECT e.id,$2::uuid,'checked_in',now(),'TKT-' || substr(md5($1::text || $2::text),1,10),'event:' || $1::text || ':user:' || $2::text
+      FROM events e WHERE e.id=$1::uuid AND e.status<>'cancelled'
+      ON CONFLICT(event_id,user_id) DO UPDATE SET status='checked_in',checked_in_at=COALESCE(event_registrations.checked_in_at, now())
+      RETURNING id,event_id AS "eventId",user_id AS "userId",status,ticket_code AS "ticketCode",qr_payload AS "qrPayload",checked_in_at AS "checkedInAt",created_at AS "createdAt"`, [eventId, userId]).then((record) => (record ? { ...record, method } : null));
+  }
+
+  // May the user manage this event: a platform/moderation role, or a leader of
+  // the organizing church/ministry.
+  canManageEvent(userId: string, eventId: string) {
+    return this.db.query(`SELECT EXISTS(
+      SELECT 1 FROM users WHERE id=$1 AND role IN ('admin','platform_admin','super_admin','moderator')
+      UNION ALL
+      SELECT 1 FROM events e JOIN church_memberships cm ON cm.user_id=$1 AND cm.status IN ('active','approved')
+        AND cm.role IN ('pastor','church_admin','elder','branch_admin') AND (cm.church_id=e.organizer_id OR cm.church_id=e.church_id)
+       WHERE e.id=$2 AND e.organizer_type='church'
+      UNION ALL
+      SELECT 1 FROM events e JOIN ministry_memberships mm ON mm.user_id=$1 AND mm.ministry_id=e.organizer_id
+        AND mm.role IN ('leader','ministry_leader','coordinator','admin')
+       WHERE e.id=$2 AND e.organizer_type='ministry'
+    ) AS ok`, [userId, eventId]).then((r) => r.rows[0]?.ok === true);
+  }
+
+  // May the user create an event attributed to this organizer.
+  canOrganizeAs(userId: string, organizerType: string, organizerId: string | null) {
+    return this.db.query(`SELECT EXISTS(
+      SELECT 1 WHERE $2::text IN ('platform','community') OR $3::uuid IS NULL
+      UNION ALL SELECT 1 FROM users WHERE id=$1 AND role IN ('admin','platform_admin','super_admin','moderator')
+      UNION ALL SELECT 1 FROM church_memberships WHERE user_id=$1 AND church_id=$3::uuid AND status IN ('active','approved') AND role IN ('pastor','church_admin','elder','branch_admin') AND $2::text='church'
+      UNION ALL SELECT 1 FROM ministry_memberships WHERE user_id=$1 AND ministry_id=$3::uuid AND role IN ('leader','ministry_leader','coordinator','admin') AND $2::text='ministry'
+    ) AS ok`, [userId, organizerType, organizerId]).then((r) => r.rows[0]?.ok === true);
+  }
+
+  eventForRegistration(registrationId: string) {
+    return this.one('SELECT event_id AS "eventId" FROM event_registrations WHERE id=$1', [registrationId]).then((r) => (r?.eventId ? String(r.eventId) : null));
+  }
+
+  taskContext(taskId: string) {
+    return this.one('SELECT event_id AS "eventId", assigned_to AS "assignedTo", created_by AS "createdBy" FROM event_tasks WHERE id=$1', [taskId]);
+  }
+
+  isRegistered(eventId: string, userId: string) {
+    return this.db.query('SELECT 1 FROM event_registrations WHERE event_id=$1 AND user_id=$2', [eventId, userId]).then((r) => (r.rowCount ?? 0) > 0);
   }
 
   registrations(eventId: string) {

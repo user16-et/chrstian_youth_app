@@ -64,11 +64,12 @@ export class EventsController {
     return this.eventsService.checkIn(requireBearerToken(authorization), id, body);
   }
 
-  @ApiOperation({ summary: 'List event registrations' })
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List event registrations (event managers only)' })
   @ApiParam({ name: 'id' })
   @Get('/:id/registrations')
-  registrations(@Param('id') id: string) {
-    return this.eventsService.registrations(id);
+  registrations(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.eventsService.registrations(requireBearerToken(authorization), id);
   }
 
   @ApiBearerAuth()
