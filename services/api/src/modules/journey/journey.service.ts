@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomInt } from 'crypto';
 
+import { loadConfig } from '../../common/config';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
 import { JourneyRepository } from './journey.repository';
@@ -10,9 +12,19 @@ export class JourneyService {
 
   async requestOtp(phoneNumber: string) {
     if (!phoneNumber.trim()) throw new BadRequestException('phone_number_required');
-    const challenge = await this.journey.requestOtp(phoneNumber.trim());
+    const challenge = await this.journey.requestOtp(phoneNumber.trim(), this.generateOtpCode());
     void this.queues.smsOtp({ phoneNumber: challenge.phoneNumber, code: challenge.code, expiresAt: challenge.expiresAt });
     return { id: challenge.id, phoneNumber: challenge.phoneNumber, expiresAt: challenge.expiresAt };
+  }
+
+  // Production and staging must use an unguessable code. Non-production keeps a
+  // fixed code so local demos and demo:smoke stay reproducible without an SMS provider.
+  private generateOtpCode() {
+    const { nodeEnv } = loadConfig();
+    if (nodeEnv === 'production' || nodeEnv === 'staging') {
+      return String(randomInt(0, 1_000_000)).padStart(6, '0');
+    }
+    return '123456';
   }
 
   async verifyOtp(phoneNumber: string, code: string) {

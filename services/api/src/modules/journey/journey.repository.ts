@@ -27,9 +27,9 @@ export class JourneyRepository {
     return { profile: profile.rows[0] ?? null, plans: plans.rows, courses: courses.rows, badges: badges.rows, orders: orders.rows, friends: friends.rows, savedPostIds: savedPosts.rows.map((row) => row.post_id) };
   }
 
-  requestOtp(phoneNumber: string) {
+  requestOtp(phoneNumber: string, code: string) {
     return this.pool.query(`INSERT INTO otp_challenges (phone_number, code, expires_at)
-      VALUES ($1, '123456', now() + interval '10 minutes') RETURNING id, phone_number, code, expires_at`, [phoneNumber]).then((r) => ({ id: r.rows[0].id, phoneNumber: r.rows[0].phone_number, code: r.rows[0].code, expiresAt: r.rows[0].expires_at }));
+      VALUES ($1, $2, now() + interval '10 minutes') RETURNING id, phone_number, code, expires_at`, [phoneNumber, code]).then((r) => ({ id: r.rows[0].id, phoneNumber: r.rows[0].phone_number, code: r.rows[0].code, expiresAt: r.rows[0].expires_at }));
   }
 
   async verifyOtp(phoneNumber: string, code: string) {

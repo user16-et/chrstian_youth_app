@@ -44,7 +44,7 @@ export class ConnectedLifeRepository {
         this.pool.query(`SELECT u.id,u.full_name AS "fullName",COALESCE(p.city,'') AS city,COALESCE(p.occupation,'') AS occupation,
           COALESCE(fr.status,'') AS "friendStatus" FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id
           LEFT JOIN friend_requests fr ON (fr.sender_id=$1 AND fr.receiver_id=u.id) OR (fr.receiver_id=$1 AND fr.sender_id=u.id)
-          WHERE u.id<>$1 ORDER BY CASE WHEN p.city='Addis Ababa' THEN 0 ELSE 1 END,u.full_name`, [userId]),
+          WHERE u.id<>$1 ORDER BY CASE WHEN p.city='Addis Ababa' THEN 0 ELSE 1 END,u.full_name LIMIT 50`, [userId]),
         this.pool.query(`SELECT u.role,(SELECT count(*)::int FROM church_memberships WHERE status='pending') AS "pendingMemberships",
           (SELECT count(*)::int FROM reports WHERE status='open') AS "openReports" FROM users u WHERE u.id=$1`, [userId]),
       ]);
