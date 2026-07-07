@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'data/api_client.dart';
+import 'data/call_controller.dart';
 import 'features/home/home_shell.dart';
 import 'i18n/app_i18n.dart';
 import 'theme/app_theme.dart';
@@ -21,8 +22,16 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
     ),
   );
 
+  late final CallController _callController = CallController(apiClient: _apiClient);
+
   AppLanguage _language = AppLanguage.english;
   ThemeMode _themeMode = ThemeMode.system;
+
+  @override
+  void dispose() {
+    _callController.dispose();
+    super.dispose();
+  }
 
   void _setLanguage(AppLanguage language) {
     setState(() {
@@ -40,6 +49,9 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      navigatorKey: rootNavigatorKey,
+      builder: (context, child) =>
+          CallScope(controller: _callController, child: child ?? const SizedBox.shrink()),
       locale: _language.locale,
       supportedLocales: const [Locale('en'), Locale('am')],
       localizationsDelegates: const [
@@ -60,6 +72,7 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
         themeMode: _themeMode,
         onThemeModeChanged: _setThemeMode,
         apiClient: _apiClient,
+        callController: _callController,
       ),
     );
   }

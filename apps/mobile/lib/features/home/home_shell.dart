@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/call_controller.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 import '../modules/module_pages.dart';
@@ -19,6 +20,7 @@ class HomeShell extends StatefulWidget {
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.apiClient,
+    required this.callController,
   });
 
   final AppLanguage language;
@@ -26,6 +28,7 @@ class HomeShell extends StatefulWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final ApiClient apiClient;
+  final CallController callController;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -68,6 +71,7 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _session = session;
     });
+    unawaited(widget.callController.bind(session));
     _scheduleSessionRefresh(session);
     unawaited(_refreshDashboard());
   }

@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/call_client.dart';
+import '../../data/call_controller.dart';
 import '../../data/live_chat_client.dart';
 import '../../i18n/app_i18n.dart';
 
@@ -596,6 +598,59 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
     });
   }
 
+  Widget _buildTrailing() {
+    return Builder(builder: (context) {
+      final call = CallScope.maybeOf(context);
+      final canCall =
+          call != null && widget.session != null && _conversationId.isNotEmpty;
+      final isDirect = widget.scopeType == 'direct';
+      final calleeId = widget.otherUserId ?? (isDirect ? widget.scopeId : '');
+      final markUnread = IconButton(
+        tooltip: _t('Mark unread', 'እንዳልተነበበ ለይ'),
+        onPressed: _conversationId.isEmpty ? null : _markUnread,
+        icon: const Icon(Icons.mark_chat_unread_outlined),
+      );
+      if (!canCall) return markUnread;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isDirect && calleeId.isNotEmpty) ...[
+            IconButton(
+              tooltip: _t('Audio call', 'የድምፅ ጥሪ'),
+              icon: const Icon(Icons.call_rounded),
+              onPressed: () => call.startDirectCall(
+                conversationId: _conversationId,
+                calleeId: calleeId,
+                media: CallMedia.audio,
+                title: widget.title,
+              ),
+            ),
+            IconButton(
+              tooltip: _t('Video call', 'የቪዲዮ ጥሪ'),
+              icon: const Icon(Icons.videocam_rounded),
+              onPressed: () => call.startDirectCall(
+                conversationId: _conversationId,
+                calleeId: calleeId,
+                media: CallMedia.video,
+                title: widget.title,
+              ),
+            ),
+          ],
+          if (!isDirect && widget.scopeType == 'group')
+            IconButton(
+              tooltip: _t('Join audio room', 'የድምፅ ክፍል ተቀላቀል'),
+              icon: const Icon(Icons.groups_rounded),
+              onPressed: () => call.joinGroupAudio(
+                groupId: widget.scopeId,
+                title: widget.title,
+              ),
+            ),
+          markUnread,
+        ],
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = widget.session;
@@ -610,11 +665,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
     return _ChatShell(
       title: widget.title,
       compact: widget.compact,
-      trailing: IconButton(
-        tooltip: _t('Mark unread', 'እንዳልተነበበ ለይ'),
-        onPressed: _conversationId.isEmpty ? null : _markUnread,
-        icon: const Icon(Icons.mark_chat_unread_outlined),
-      ),
+      trailing: _buildTrailing(),
       child: FutureBuilder<void>(
         future: _loadFuture,
         builder: (context, snapshot) {
