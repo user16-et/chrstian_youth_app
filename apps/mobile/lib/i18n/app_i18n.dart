@@ -851,6 +851,13 @@ class AppStrings {
       'no_competitions': 'እስካሁን ውድድሮች የሉም።',
       'cancel': 'ይቅር',
       'no_payment_plans': 'የክፍያ እቅዶች የሉም።',
+      'community_pulse': 'የማህበረሰብ እንቅስቃሴ',
+      'mentors_count': 'አማካሪዎች',
+      'ministries_count': 'አገልግሎቶች',
+      'payments_count': 'ክፍያዎች',
+      'prayer_requests': 'የጸሎት ጥያቄዎች',
+      'stories_count': 'ታሪኮች',
+      'users_loaded': 'ተጠቃሚዎች',
     },
   };
 
