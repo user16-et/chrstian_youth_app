@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { requireBearerToken } from '../../common/request-auth';
 import { RelationshipService } from './relationship.service';
@@ -26,4 +26,17 @@ export class RelationshipController {
   @Post('/connections/:id/milestones') milestone(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() b: Record<string, unknown>) { return this.service.milestone(requireBearerToken(h), id, b ?? {}); }
   @Post('/connections/:id/mentors') mentor(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() b: Record<string, unknown>) { return this.service.mentor(requireBearerToken(h), id, b ?? {}); }
   @Post('/safety/report') report(@Headers('authorization') h: string | undefined, @Body() b: Record<string, unknown>) { return this.service.report(requireBearerToken(h), b ?? {}); }
+
+  // Profile photo gallery
+  @Post('/profile/photos') addPhoto(@Headers('authorization') h: string | undefined, @Body() b: Record<string, unknown>) { return this.service.addPhoto(requireBearerToken(h), b ?? {}); }
+  @Delete('/profile/photos/:id') deletePhoto(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.deletePhoto(requireBearerToken(h), id); }
+  // Personality prompts
+  @Put('/profile/prompts') setPrompts(@Headers('authorization') h: string | undefined, @Body() b: Record<string, unknown>) { return this.service.setPrompts(requireBearerToken(h), b ?? {}); }
+  // Stories (ephemeral, 24h)
+  @Get('/stories') storyFeed(@Headers('authorization') h?: string) { return this.service.storyFeed(requireBearerToken(h)); }
+  @Get('/stories/viewers') storyViewers(@Headers('authorization') h?: string) { return this.service.storyViewers(requireBearerToken(h)); }
+  @Post('/stories') createStory(@Headers('authorization') h: string | undefined, @Body() b: Record<string, unknown>) { return this.service.createStory(requireBearerToken(h), b ?? {}); }
+  @Delete('/stories/:id') deleteStory(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.deleteStory(requireBearerToken(h), id); }
+  @Post('/stories/:id/view') viewStory(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.viewStory(requireBearerToken(h), id); }
+  @Get('/profiles/:id/stories') profileStories(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.profileStories(requireBearerToken(h), id); }
 }

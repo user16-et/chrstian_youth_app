@@ -125,4 +125,69 @@ export class RelationshipService {
     if (!String(body.reason ?? '').trim()) throw new BadRequestException('report_reason_required');
     return this.relationships.report(user.id, body);
   }
+
+  // ---- Profile photo gallery ----
+  async addPhoto(token: string, input: Record<string, unknown>) {
+    const user = await this.adult(token);
+    const url = String(input.url ?? '').trim();
+    if (!url) throw new BadRequestException('photo_url_required');
+    const photo = await this.relationships.addPhoto(user.id, { url, caption: String(input.caption ?? '').trim() });
+    if (!photo) throw new BadRequestException('photo_limit_reached');
+    return photo;
+  }
+
+  async deletePhoto(token: string, photoId: string) {
+    const user = await this.adult(token);
+    const deleted = await this.relationships.deletePhoto(user.id, photoId);
+    if (!deleted) throw new NotFoundException('photo_not_found');
+    return { id: photoId, status: 'deleted' };
+  }
+
+  // ---- Personality prompts ----
+  async setPrompts(token: string, input: Record<string, unknown>) {
+    const user = await this.adult(token);
+    const raw = Array.isArray(input.prompts) ? input.prompts : [];
+    const prompts = raw
+      .map((p) => ({ prompt: String((p as Record<string, unknown>)?.prompt ?? '').trim(), answer: String((p as Record<string, unknown>)?.answer ?? '').trim() }))
+      .filter((p) => p.prompt && p.answer);
+    return this.relationships.setPrompts(user.id, prompts);
+  }
+
+  // ---- Stories ----
+  async createStory(token: string, input: Record<string, unknown>) {
+    const user = await this.adult(token);
+    const mediaUrl = String(input.mediaUrl ?? '').trim();
+    const caption = String(input.caption ?? '').trim();
+    if (!mediaUrl && !caption) throw new BadRequestException('story_media_or_caption_required');
+    return this.relationships.createStory(user.id, { mediaUrl, caption });
+  }
+
+  async deleteStory(token: string, storyId: string) {
+    const user = await this.adult(token);
+    const deleted = await this.relationships.deleteStory(user.id, storyId);
+    if (!deleted) throw new NotFoundException('story_not_found');
+    return { id: storyId, status: 'deleted' };
+  }
+
+  async storyFeed(token: string) {
+    const user = await this.adult(token);
+    return this.relationships.storyFeed(user.id);
+  }
+
+  async profileStories(token: string, profileUserId: string) {
+    const user = await this.adult(token);
+    return this.relationships.activeStoriesFor(profileUserId, user.id);
+  }
+
+  async viewStory(token: string, storyId: string) {
+    const user = await this.adult(token);
+    const viewed = await this.relationships.viewStory(storyId, user.id);
+    if (!viewed) throw new NotFoundException('story_not_available');
+    return { status: 'viewed' };
+  }
+
+  async storyViewers(token: string) {
+    const user = await this.adult(token);
+    return this.relationships.myStoryViewers(user.id);
+  }
 }

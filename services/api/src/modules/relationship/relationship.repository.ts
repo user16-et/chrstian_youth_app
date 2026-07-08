@@ -30,8 +30,92 @@ export class RelationshipRepository {
     return { me, discovery, interests, connections, resources, events, mentors, analytics };
   }
 
-  profile(userId: string) {
-    return this.one(this.profileSelect('c.user_id=$1'), [userId]);
+  async profile(userId: string) {
+    const base = await this.one(this.profileSelect('c.user_id=$1'), [userId]);
+    return base ? this.attachMedia(base, userId, userId) : null;
+  }
+
+  // Attaches the photo gallery, prompts, and active stories to a detailed profile.
+  private async attachMedia(profile: Record<string, unknown>, userId: string, viewerId: string) {
+    const [photos, prompts, stories] = await Promise.all([
+      this.db.query('SELECT id,url,caption,position FROM relationship_profile_photos WHERE user_id=$1 ORDER BY position,created_at', [userId]).then((r) => r.rows),
+      this.db.query('SELECT id,prompt,answer,position FROM relationship_profile_prompts WHERE user_id=$1 ORDER BY position,created_at', [userId]).then((r) => r.rows),
+      this.db.query(`SELECT s.id,s.media_url AS "mediaUrl",s.caption,s.created_at AS "createdAt",s.expires_at AS "expiresAt",
+          EXISTS(SELECT 1 FROM relationship_story_views v WHERE v.story_id=s.id AND v.viewer_id=$2) AS "viewedByMe"
+        FROM relationship_stories s WHERE s.user_id=$1 AND s.expires_at>now() ORDER BY s.created_at`, [userId, viewerId]).then((r) => r.rows),
+    ]);
+    return { ...profile, photos, prompts, stories };
+  }
+
+  // ---- Profile photo gallery ----
+  async addPhoto(userId: string, input: { url: string; caption?: string }) {
+    const count = await this.one('SELECT count(*)::int AS n FROM relationship_profile_photos WHERE user_id=$1', [userId]);
+    if (Number(count?.n ?? 0) >= 9) return null; // gallery capped at 9
+    return this.one(`INSERT INTO relationship_profile_photos(user_id,url,caption,position)
+      VALUES($1,$2,$3,COALESCE((SELECT max(position)+1 FROM relationship_profile_photos WHERE user_id=$1),0))
+      RETURNING id,url,caption,position`, [userId, input.url, input.caption ?? '']);
+  }
+  deletePhoto(userId: string, photoId: string) {
+    return this.one('DELETE FROM relationship_profile_photos WHERE id=$1 AND user_id=$2 RETURNING id', [photoId, userId]);
+  }
+
+  // ---- Personality prompts (replace-all, capped at 5) ----
+  async setPrompts(userId: string, prompts: Array<{ prompt: string; answer: string }>) {
+    await this.db.query('DELETE FROM relationship_profile_prompts WHERE user_id=$1', [userId]);
+    const capped = prompts.slice(0, 5);
+    for (let i = 0; i < capped.length; i++) {
+      await this.db.query('INSERT INTO relationship_profile_prompts(user_id,prompt,answer,position) VALUES($1,$2,$3,$4)', [userId, capped[i].prompt, capped[i].answer, i]);
+    }
+    return this.db.query('SELECT id,prompt,answer,position FROM relationship_profile_prompts WHERE user_id=$1 ORDER BY position', [userId]).then((r) => r.rows);
+  }
+
+  // ---- Stories (ephemeral, 24h) ----
+  createStory(userId: string, input: { mediaUrl?: string; caption?: string }) {
+    return this.one(`INSERT INTO relationship_stories(user_id,media_url,caption) VALUES($1,$2,$3)
+      RETURNING id,media_url AS "mediaUrl",caption,created_at AS "createdAt",expires_at AS "expiresAt"`, [userId, input.mediaUrl ?? '', input.caption ?? '']);
+  }
+  deleteStory(userId: string, storyId: string) {
+    return this.one('DELETE FROM relationship_stories WHERE id=$1 AND user_id=$2 RETURNING id', [storyId, userId]);
+  }
+  // A discovery ring of people with active stories the viewer may see (visible, adult profiles).
+  storyFeed(viewerId: string) {
+    return this.db.query(`SELECT s.user_id AS "userId", u.full_name AS "fullName",
+        (SELECT url FROM relationship_profile_photos WHERE user_id=s.user_id ORDER BY position LIMIT 1) AS "coverPhoto",
+        count(*)::int AS "storyCount",
+        bool_or(NOT EXISTS(SELECT 1 FROM relationship_story_views v WHERE v.story_id=s.id AND v.viewer_id=$1)) AS "hasUnseen",
+        max(s.created_at) AS "latestAt"
+      FROM relationship_stories s
+      JOIN users u ON u.id=s.user_id
+      JOIN courtship_profiles c ON c.user_id=s.user_id AND c.visible=true AND c.visibility<>'hidden'
+      WHERE s.expires_at>now() AND s.user_id<>$1
+        AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=s.user_id AND p.is_teen)
+      GROUP BY s.user_id, u.full_name ORDER BY "hasUnseen" DESC, "latestAt" DESC LIMIT 60`, [viewerId]).then((r) => r.rows);
+  }
+  activeStoriesFor(userId: string, viewerId: string) {
+    return this.db.query(`SELECT s.id,s.media_url AS "mediaUrl",s.caption,s.created_at AS "createdAt",s.expires_at AS "expiresAt",
+        EXISTS(SELECT 1 FROM relationship_story_views v WHERE v.story_id=s.id AND v.viewer_id=$2) AS "viewedByMe"
+      FROM relationship_stories s WHERE s.user_id=$1 AND s.expires_at>now() ORDER BY s.created_at`, [userId, viewerId]).then((r) => r.rows);
+  }
+  // Records a view only for an active story on a visible, adult profile (never your own).
+  viewStory(storyId: string, viewerId: string) {
+    return this.one(`INSERT INTO relationship_story_views(story_id,viewer_id)
+      SELECT s.id,$2 FROM relationship_stories s
+      JOIN courtship_profiles c ON c.user_id=s.user_id AND c.visible=true AND c.visibility<>'hidden'
+      WHERE s.id=$1 AND s.expires_at>now() AND s.user_id<>$2
+        AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=s.user_id AND p.is_teen)
+      ON CONFLICT(story_id,viewer_id) DO UPDATE SET viewed_at=now()
+      RETURNING story_id`, [storyId, viewerId]);
+  }
+  // Who has viewed my active stories — a direct "interested in you" signal.
+  myStoryViewers(userId: string) {
+    return this.db.query(`SELECT DISTINCT ON (v.viewer_id) v.viewer_id AS "viewerId", u.full_name AS "fullName", v.viewed_at AS "viewedAt",
+        (SELECT url FROM relationship_profile_photos WHERE user_id=v.viewer_id ORDER BY position LIMIT 1) AS "coverPhoto",
+        EXISTS(SELECT 1 FROM courtship_profiles c WHERE c.user_id=v.viewer_id AND c.visible=true AND c.visibility<>'hidden'
+               AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=v.viewer_id AND p.is_teen)) AS "hasProfile"
+      FROM relationship_story_views v
+      JOIN relationship_stories s ON s.id=v.story_id AND s.user_id=$1 AND s.expires_at>now()
+      JOIN users u ON u.id=v.viewer_id
+      ORDER BY v.viewer_id, v.viewed_at DESC`, [userId]).then((r) => r.rows);
   }
 
   async upsertProfile(userId: string, input: Record<string, unknown>) {
@@ -62,7 +146,7 @@ export class RelationshipRepository {
     if (!target) return null;
     await this.db.query(`INSERT INTO relationship_profile_views(viewer_id,viewed_user_id) VALUES($1,$2) ON CONFLICT(viewer_id,viewed_user_id) DO UPDATE SET viewed_at=now()`, [viewerId, viewedUserId]);
     await this.db.query('UPDATE courtship_profiles SET profile_views=profile_views+1 WHERE user_id=$1', [viewedUserId]);
-    return target;
+    return this.attachMedia(target, viewedUserId, viewerId);
   }
 
   // Only allow interest in a receiver who has a visible, adult profile. A
@@ -137,7 +221,11 @@ export class RelationshipRepository {
   private analytics(userId: string) { return this.one(`SELECT (SELECT profile_views FROM courtship_profiles WHERE user_id=$1) AS "profileViews",(SELECT count(*)::int FROM courtship_interests WHERE receiver_id=$1) AS "receivedInterests",(SELECT count(*)::int FROM courtship_interests WHERE sender_id=$1) AS "sentInterests",(SELECT count(*)::int FROM courtship_interests WHERE (sender_id=$1 OR receiver_id=$1) AND status='accepted') AS "acceptedInterests",(SELECT count(*)::int FROM relationship_connections WHERE user1_id=$1 OR user2_id=$1) AS connections`, [userId]); }
 
   private profileSelect(where: string) {
-    return `SELECT c.user_id AS "userId",u.full_name AS "fullName",c.church_name AS "churchName",c.city,c.bio,c.interests,c.faith_statement AS "faithStatement",c.ministry_involvement AS "ministryInvolvement",c.life_goals AS "lifeGoals",c.marriage_vision AS "marriageVision",c.relationship_intent AS "relationshipIntent",c.activation_mode AS "activationMode",c.age,c.gender,c.profession,c.education,c.branch,c.service_involvement AS "serviceInvolvement",c.years_in_faith AS "yearsInFaith",c.favorite_passages AS "favoritePassages",c.devotional_habits AS "devotionalHabits",c.marriage_timeline AS "marriageTimeline",c.children_preference AS "childrenPreference",c.relocation_preference AS "relocationPreference",c.denomination_preference AS "denominationPreference",c.hobbies,c.career_goals AS "careerGoals",c.family_goals AS "familyGoals",c.visibility,c.phone_verified AS "phoneVerified",c.church_verified AS "churchVerified",c.ministry_verified AS "ministryVerified",c.identity_verified AS "identityVerified",c.pastor_recommended AS "pastorRecommended",c.verified,c.visible,c.profile_views AS "profileViews",c.created_at AS "createdAt" FROM courtship_profiles c JOIN users u ON u.id=c.user_id WHERE ${where} ORDER BY c.verified DESC,c.updated_at DESC LIMIT 80`;
+    return `SELECT c.user_id AS "userId",u.full_name AS "fullName",c.church_name AS "churchName",c.city,c.bio,c.interests,c.faith_statement AS "faithStatement",c.ministry_involvement AS "ministryInvolvement",c.life_goals AS "lifeGoals",c.marriage_vision AS "marriageVision",c.relationship_intent AS "relationshipIntent",c.activation_mode AS "activationMode",c.age,c.gender,c.profession,c.education,c.branch,c.service_involvement AS "serviceInvolvement",c.years_in_faith AS "yearsInFaith",c.favorite_passages AS "favoritePassages",c.devotional_habits AS "devotionalHabits",c.marriage_timeline AS "marriageTimeline",c.children_preference AS "childrenPreference",c.relocation_preference AS "relocationPreference",c.denomination_preference AS "denominationPreference",c.hobbies,c.career_goals AS "careerGoals",c.family_goals AS "familyGoals",c.visibility,c.phone_verified AS "phoneVerified",c.church_verified AS "churchVerified",c.ministry_verified AS "ministryVerified",c.identity_verified AS "identityVerified",c.pastor_recommended AS "pastorRecommended",c.verified,c.visible,c.profile_views AS "profileViews",c.created_at AS "createdAt",
+      (SELECT url FROM relationship_profile_photos WHERE user_id=c.user_id ORDER BY position,created_at LIMIT 1) AS "coverPhoto",
+      (SELECT count(*)::int FROM relationship_profile_photos WHERE user_id=c.user_id) AS "photoCount",
+      EXISTS(SELECT 1 FROM relationship_stories s WHERE s.user_id=c.user_id AND s.expires_at>now()) AS "hasStory"
+      FROM courtship_profiles c JOIN users u ON u.id=c.user_id WHERE ${where} ORDER BY c.verified DESC,c.updated_at DESC LIMIT 80`;
   }
 
   private compatibility(me: any, other: any) {
