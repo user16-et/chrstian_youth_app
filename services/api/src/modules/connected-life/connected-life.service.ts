@@ -38,6 +38,8 @@ export class ConnectedLifeService {
     // Teen safety: adults and minors may not open private 1:1 conversations.
     const [me,them]=await Promise.all([this.users.getMinorStatus(actor.id),this.users.getMinorStatus(otherId)]);
     if(me.isTeen!==them.isTeen) throw new ForbiddenException('adult_minor_direct_message_restricted');
+    // Respect the recipient's message-privacy setting.
+    if(!(await this.life.canMessage(actor.id,otherId))) throw new ForbiddenException('messages_restricted');
     return this.life.startConversation(actor.id,otherId,kind||'direct');
   }
 

@@ -1284,6 +1284,7 @@ export class ContentRepository implements OnModuleInit {
        WHERE $1::uuid IS NOT NULL AND fe.user_id=$1 AND p.removed_at IS NULL AND ($2::text IS NULL OR p.language=$2)
          AND ($3::timestamptz IS NULL OR (fe.created_at, fe.id) < ($3::timestamptz, $4::uuid))
          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=p.author_id) OR (b.blocker_id=p.author_id AND b.blocked_id=$1))
+         AND NOT EXISTS (SELECT 1 FROM user_mutes m WHERE m.muter_id=$1 AND m.muted_id=p.author_id)
        ORDER BY fe.created_at DESC, fe.id DESC
        LIMIT $5`,
       values,
@@ -1311,6 +1312,7 @@ export class ContentRepository implements OnModuleInit {
        WHERE p.removed_at IS NULL AND ($1::text IS NULL OR p.language=$1)
          AND ($2::timestamptz IS NULL OR (p.created_at, p.id) < ($2::timestamptz, $3::uuid))
          AND ($5::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$5 AND b.blocked_id=p.author_id) OR (b.blocker_id=p.author_id AND b.blocked_id=$5)))
+         AND ($5::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_mutes m WHERE m.muter_id=$5 AND m.muted_id=p.author_id))
        ORDER BY p.created_at DESC, p.id DESC
        LIMIT $4`,
       [input.language ?? null, input.cursor?.createdAt ?? null, input.cursor?.id ?? null, input.limit + 1, input.viewerId ?? null],

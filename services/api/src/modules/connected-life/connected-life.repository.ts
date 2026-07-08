@@ -226,6 +226,22 @@ export class ConnectedLifeRepository {
       .then((result) => result.rowCount === 1);
   }
 
+  // Enforces the recipient's message-privacy setting: everyone, followers (the
+  // recipient must follow the sender), or nobody.
+  async canMessage(senderId: string, recipientId: string) {
+    const result = await this.pool.query(
+      `SELECT COALESCE(ps.message_privacy,'everyone') AS mode,
+              EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=$2 AND f.following_id=$1) AS recipient_follows_sender
+       FROM (SELECT 1) x LEFT JOIN privacy_settings ps ON ps.user_id=$2`,
+      [senderId, recipientId],
+    );
+    const row = result.rows[0];
+    const mode = String(row?.mode ?? 'everyone');
+    if (mode === 'nobody') return false;
+    if (mode === 'followers') return row?.recipient_follows_sender === true;
+    return true;
+  }
+
   private async scopeAccess(userId: string, input: { scopeType: ScopeType; scopeId: string; otherUserId?: string }) {
     if (input.scopeType === 'church') {
       const result = await this.pool.query(

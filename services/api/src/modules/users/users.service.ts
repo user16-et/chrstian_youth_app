@@ -27,6 +27,7 @@ export class UsersService {
       query: input.query,
       role: input.role,
       viewerId: actor?.id,
+      respectPrivacy: true,
       limit: Number.isFinite(input.limit) ? input.limit : 25,
       offset: Number.isFinite(input.offset) ? input.offset : 0,
     };

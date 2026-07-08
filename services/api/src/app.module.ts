@@ -27,6 +27,7 @@ import { SecurityModule } from './modules/security/security.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { StoriesModule } from './modules/stories/stories.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { StoriesModule } from './modules/stories/stories.module';
     AdminModule,
     CallsModule,
     StoriesModule,
+    SettingsModule,
   ],
   controllers: [HealthController, AppBootstrapController, MetricsController],
   providers: [AppStore],

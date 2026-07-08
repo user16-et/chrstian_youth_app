@@ -333,9 +333,9 @@ export class UserRepository implements OnModuleInit {
     return { isTeen: row?.is_teen === true, guardianApproved: row?.guardian_approved === true };
   }
 
-  async listUsers(input?: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated?: false }): Promise<UserDirectoryRecord[]>;
-  async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated: true }): Promise<{ items: UserDirectoryRecord[]; total: number; limit: number; offset: number }>;
-  async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; paginated?: boolean } = {}) {
+  async listUsers(input?: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; respectPrivacy?: boolean; paginated?: false }): Promise<UserDirectoryRecord[]>;
+  async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; respectPrivacy?: boolean; paginated: true }): Promise<{ items: UserDirectoryRecord[]; total: number; limit: number; offset: number }>;
+  async listUsers(input: { query?: string; role?: string; viewerId?: string; limit?: number; offset?: number; respectPrivacy?: boolean; paginated?: boolean } = {}) {
     const filters: string[] = [];
     const params: unknown[] = [];
     const query = input.query?.trim();
@@ -348,9 +348,18 @@ export class UserRepository implements OnModuleInit {
       params.push(role);
       filters.push(`u.role = $${params.length}`);
     }
+    let selfParam: number | null = null;
     if (input.viewerId) {
       params.push(input.viewerId);
-      filters.push(`u.id <> $${params.length}`);
+      selfParam = params.length;
+      filters.push(`u.id <> $${selfParam}`);
+    }
+    // Discoverability: users who opt out of discovery appear only to people who
+    // already follow them (never applied to admin listings).
+    if (input.respectPrivacy) {
+      filters.push(selfParam
+        ? `(COALESCE(ps.discoverable,true) OR EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=$${selfParam} AND f.following_id=u.id))`
+        : 'COALESCE(ps.discoverable,true)');
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     const limit = Math.min(Math.max(input.limit ?? 25, 1), 100);
@@ -368,6 +377,7 @@ export class UserRepository implements OnModuleInit {
               ($${viewerParam}::uuid IS NOT NULL AND fr.sender_id=$${viewerParam}) AS friend_requested_by_me
        FROM users u
        LEFT JOIN user_profiles up ON up.user_id=u.id
+       LEFT JOIN privacy_settings ps ON ps.user_id=u.id
        LEFT JOIN LATERAL (
          SELECT id,status,sender_id FROM friend_requests fr
          WHERE $${viewerParam}::uuid IS NOT NULL AND ((fr.sender_id=$${viewerParam} AND fr.receiver_id=u.id) OR (fr.receiver_id=$${viewerParam} AND fr.sender_id=u.id))
@@ -381,7 +391,7 @@ export class UserRepository implements OnModuleInit {
     const items = result.rows.map((row) => this.mapUserDirectoryRow(row));
     if (!input.paginated) return items;
     const countParams = params.slice(0, params.length - 3);
-    const total = await this.pool.query(`SELECT count(*)::int AS total FROM users u ${where}`, countParams);
+    const total = await this.pool.query(`SELECT count(*)::int AS total FROM users u LEFT JOIN privacy_settings ps ON ps.user_id=u.id ${where}`, countParams);
     return { items, total: Number(total.rows[0]?.total ?? items.length), limit, offset };
   }
 
@@ -401,6 +411,52 @@ export class UserRepository implements OnModuleInit {
       await client.query('UPDATE admin_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [userId]);
     });
     return { status: 'revoked' };
+  }
+
+  // Active sessions (devices) for the user, current one flagged.
+  async listSessions(userId: string, currentToken: string) {
+    const result = await this.pool.query(
+      `SELECT token, device_name AS "deviceName", ip_address AS "ipAddress",
+              created_at AS "createdAt", last_seen_at AS "lastSeenAt", (token=$2) AS "current"
+       FROM sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now()
+       ORDER BY (token=$2) DESC, last_seen_at DESC NULLS LAST, created_at DESC`,
+      [userId, currentToken],
+    );
+    // Never expose the raw token; identify a session by a short opaque id.
+    return result.rows.map((row) => ({
+      id: String(row.token).slice(0, 8),
+      deviceName: row.deviceName ?? '',
+      ipAddress: row.ipAddress ?? '',
+      createdAt: row.createdAt,
+      lastSeenAt: row.lastSeenAt,
+      current: row.current === true,
+    }));
+  }
+
+  async revokeSessionByShortId(userId: string, shortId: string) {
+    const result = await this.pool.query(
+      'UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND left(token::text,8)=$2 AND revoked_at IS NULL RETURNING token',
+      [userId, shortId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async revokeOtherSessions(userId: string, currentToken: string) {
+    await this.pool.query(
+      'UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND token<>$2 AND revoked_at IS NULL',
+      [userId, currentToken],
+    );
+    return { status: 'revoked_others' };
+  }
+
+  async listBlockedUsers(userId: string) {
+    const result = await this.pool.query(
+      `SELECT u.id, u.full_name AS "fullName", u.username, b.created_at AS "blockedAt"
+       FROM user_blocks b JOIN users u ON u.id=b.blocked_id
+       WHERE b.blocker_id=$1 ORDER BY b.created_at DESC`,
+      [userId],
+    );
+    return result.rows;
   }
 
   async followUser(actorId: string, targetId: string) {
