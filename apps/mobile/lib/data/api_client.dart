@@ -1782,6 +1782,37 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  // ---- Global feed stories (24h) ----
+  Future<List<Map<String, dynamic>>> fetchStoryRing(String token) async {
+    final response = await _getJson('/feed/stories', headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchUserStories(String token, String userId) async {
+    final response = await _getJson('/feed/stories/user/$userId', headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchStoryViewers(String token) async {
+    final response = await _getJson('/feed/stories/viewers', headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<dynamic> postStory(String token,
+      {String mediaUrl = '', String mediaType = 'text', String caption = '', String background = ''}) {
+    return _postJson('/feed/stories',
+        {'mediaUrl': mediaUrl, 'mediaType': mediaType, 'caption': caption, 'background': background},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> markStoryViewed(String token, String storyId) {
+    return _postJson('/feed/stories/$storyId/view', const {}, headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> deleteMyStory(String token, String storyId) {
+    return _deleteJson('/feed/stories/$storyId', headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<CourtshipProfileItem?> fetchCourtshipMe(String token) async {
     final response = await _getJson(
       '/courtship/me',

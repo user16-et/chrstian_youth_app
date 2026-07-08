@@ -11,6 +11,7 @@ import 'church_detail_page.dart';
 import 'live_chat_panel.dart';
 import 'prayer_growth_pages.dart';
 import 'relationship_social.dart';
+import 'stories_feed.dart';
 
 String _shortDate(String value) {
   if (value.isEmpty) return '';
@@ -438,6 +439,14 @@ class _FeedScreenState extends State<FeedScreen> {
                 subtitle: AppStrings.of(language, 'social_feed_subtitle'),
               ),
               const SizedBox(height: 16),
+              if ((widget.session?.token ?? '').isNotEmpty) ...[
+                StoriesRail(
+                  apiClient: widget.apiClient,
+                  token: widget.session!.token,
+                  language: language,
+                ),
+                const SizedBox(height: 16),
+              ],
               _SectionCard(
                 title: AppStrings.of(language, 'create_post'),
                 children: [
