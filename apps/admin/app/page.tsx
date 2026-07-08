@@ -224,6 +224,27 @@ export default function Page() {
     setBusy('');
   }
 
+  async function actOnReport(report: Report, action: 'remove_content' | 'suspend_user') {
+    const confirmText = action === 'suspend_user'
+      ? 'Suspend the reported user? They will be signed out and blocked from signing in.'
+      : 'Remove the reported content? It will stop appearing in feeds and threads.';
+    if (!window.confirm(confirmText)) return;
+    setBusy(`report:${report.id}`);
+    setNotice('');
+    const response = await fetch(`/api/admin/reports/${report.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action, status: 'resolved' }),
+    });
+    if (response.ok) {
+      setNotice(action === 'suspend_user' ? 'User suspended and report resolved.' : 'Content removed and report resolved.');
+      await loadDashboard(false);
+    } else {
+      setNotice(readError(await response.json().catch(() => null)));
+    }
+    setBusy('');
+  }
+
   async function reviewChurch(id: string, action: 'approve' | 'reject') {
     setBusy(`church:${id}`);
     setNotice('');
@@ -517,6 +538,10 @@ export default function Page() {
                     <span className={`status-chip ${report.status}`}>{report.status}</span>
                     <div className="row-actions">
                       <button onClick={() => updateReport(report.id, 'resolved')} disabled={busy === `report:${report.id}` || report.status === 'resolved'}>Resolve</button>
+                      {['post', 'comment', 'post_comment', 'discussion', 'community_discussion'].includes(report.targetType) && (
+                        <button className="danger" onClick={() => actOnReport(report, 'remove_content')} disabled={busy === `report:${report.id}`}>Remove content</button>
+                      )}
+                      <button className="danger" onClick={() => actOnReport(report, 'suspend_user')} disabled={busy === `report:${report.id}`}>Suspend user</button>
                       <button className="quiet" onClick={() => updateReport(report.id, 'closed')} disabled={busy === `report:${report.id}` || report.status === 'closed'}>Close</button>
                     </div>
                   </article>

@@ -1248,10 +1248,10 @@ export class ContentRepository implements OnModuleInit {
          FROM post_shares
          GROUP BY post_id
        ) s ON s.post_id = p.id
-       WHERE $1::uuid IS NULL OR NOT EXISTS (
+       WHERE p.removed_at IS NULL AND ($1::uuid IS NULL OR NOT EXISTS (
          SELECT 1 FROM user_blocks b WHERE
          (b.blocker_id=$1 AND b.blocked_id=p.author_id) OR (b.blocker_id=p.author_id AND b.blocked_id=$1)
-       )
+       ))
        ORDER BY relevance DESC, p.created_at DESC`,
       [viewerId ?? null],
     );
@@ -1273,7 +1273,7 @@ export class ContentRepository implements OnModuleInit {
        FROM feed_events fe
        JOIN posts p ON p.id=fe.source_id AND fe.source_type='post'
        JOIN users u ON u.id=p.author_id
-       WHERE $1::uuid IS NOT NULL AND fe.user_id=$1 AND ($2::text IS NULL OR p.language=$2)
+       WHERE $1::uuid IS NOT NULL AND fe.user_id=$1 AND p.removed_at IS NULL AND ($2::text IS NULL OR p.language=$2)
          AND ($3::timestamptz IS NULL OR (fe.created_at, fe.id) < ($3::timestamptz, $4::uuid))
          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=p.author_id) OR (b.blocker_id=p.author_id AND b.blocked_id=$1))
        ORDER BY fe.created_at DESC, fe.id DESC
@@ -1300,7 +1300,7 @@ export class ContentRepository implements OnModuleInit {
               CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$5) THEN true ELSE false END AS saved_by_me
        FROM posts p
        JOIN users u ON u.id=p.author_id
-       WHERE ($1::text IS NULL OR p.language=$1)
+       WHERE p.removed_at IS NULL AND ($1::text IS NULL OR p.language=$1)
          AND ($2::timestamptz IS NULL OR (p.created_at, p.id) < ($2::timestamptz, $3::uuid))
          AND ($5::uuid IS NULL OR NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$5 AND b.blocked_id=p.author_id) OR (b.blocker_id=p.author_id AND b.blocked_id=$5)))
        ORDER BY p.created_at DESC, p.id DESC
@@ -1344,7 +1344,7 @@ export class ContentRepository implements OnModuleInit {
          FROM post_shares
          GROUP BY post_id
        ) s ON s.post_id = p.id
-       WHERE p.id = $1
+       WHERE p.id = $1 AND p.removed_at IS NULL
        LIMIT 1`,
       [postId, viewerId ?? null],
     );
@@ -1376,7 +1376,7 @@ export class ContentRepository implements OnModuleInit {
       `SELECT c.id, c.post_id, c.author_id, u.full_name AS author_name, c.body, c.created_at
        FROM post_comments c
        JOIN users u ON u.id = c.author_id
-       WHERE c.post_id = $1
+       WHERE c.post_id = $1 AND c.removed_at IS NULL
        ORDER BY c.created_at ASC`,
       [postId],
     );
@@ -1457,6 +1457,44 @@ export class ContentRepository implements OnModuleInit {
       [reportId, status],
     );
     return result.rowCount === 0 ? null : this.mapReport(result.rows[0]);
+  }
+
+  getReport(reportId: string) {
+    return this.pool.query('SELECT id, target_type AS "targetType", target_id AS "targetId", status FROM reports WHERE id=$1 LIMIT 1', [reportId])
+      .then((r) => r.rows[0] ?? null);
+  }
+
+  // Records who resolved a report and what enforcement action was taken.
+  async resolveReport(reportId: string, actorId: string, status: string, action: string) {
+    const result = await this.pool.query(
+      `UPDATE reports SET status=$2, action=$4, resolved_by=$3,
+         resolved_at=CASE WHEN $2='open' THEN NULL ELSE now() END
+       WHERE id=$1 RETURNING id, reporter_id, target_type, target_id, reason, status, created_at`,
+      [reportId, status, actorId, action],
+    );
+    return result.rowCount === 0 ? null : this.mapReport(result.rows[0]);
+  }
+
+  // Soft-removes reported content so it stops appearing in feeds/threads.
+  async removeReportedContent(targetType: string, targetId: string, actorId: string) {
+    if (targetType === 'post') {
+      await this.pool.query('UPDATE posts SET removed_at=now(), removed_by=$2 WHERE id=$1 AND removed_at IS NULL', [targetId, actorId]);
+    } else if (targetType === 'comment' || targetType === 'post_comment') {
+      await this.pool.query('UPDATE post_comments SET removed_at=now() WHERE id=$1 AND removed_at IS NULL', [targetId]);
+    } else if (targetType === 'discussion' || targetType === 'community_discussion') {
+      await this.pool.query(`UPDATE community_discussions SET status='removed' WHERE id=$1`, [targetId]);
+    }
+  }
+
+  // Author of reported content, used to suspend the offender.
+  async contentAuthor(targetType: string, targetId: string): Promise<string | null> {
+    const table = targetType === 'post' ? 'posts'
+      : targetType === 'comment' || targetType === 'post_comment' ? 'post_comments'
+      : targetType === 'discussion' || targetType === 'community_discussion' ? 'community_discussions'
+      : null;
+    if (!table) return null;
+    const result = await this.pool.query(`SELECT author_id FROM ${table} WHERE id=$1 LIMIT 1`, [targetId]);
+    return result.rows[0]?.author_id ? String(result.rows[0].author_id) : null;
   }
 
   async createReport(input: { reporterId: string; targetType: string; targetId: string; reason: string }) {

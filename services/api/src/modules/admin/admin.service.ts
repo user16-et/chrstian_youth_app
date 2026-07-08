@@ -55,8 +55,8 @@ export class AdminService {
     const options = {
       query: input.query,
       role,
-      limit: Number.isFinite(input.limit) ? input.limit : 25,
-      offset: Number.isFinite(input.offset) ? input.offset : 0,
+      limit: Math.min(Math.max(Number.isFinite(input.limit) ? (input.limit as number) : 25, 1), 100),
+      offset: Math.max(Number.isFinite(input.offset) ? (input.offset as number) : 0, 0),
     };
     return input.paginated ? this.users.listUsers({ ...options, paginated: true }) : this.users.listUsers(options);
   }

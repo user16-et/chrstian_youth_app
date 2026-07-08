@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs
 import { requireBearerToken } from '../../common/request-auth';
 
 import { CreateReportDto } from './dto/create-report.dto';
+import { ReportActionDto } from './dto/report-action.dto';
 import { UpdateReportStatusDto } from './dto/update-report-status.dto';
 import { ModerationService } from './moderation.service';
 
@@ -29,6 +30,15 @@ export class ModerationController {
   @Patch('/reports/:id')
   updateReportStatus(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() body: UpdateReportStatusDto) {
     return this.moderationService.updateReportStatus(requireBearerToken(authorization), id, body.status);
+  }
+
+  @ApiBearerAuth()
+  @ApiParam({ name: 'id' })
+  @ApiBody({ type: ReportActionDto })
+  @ApiOperation({ summary: 'Resolve a report and optionally remove content or suspend the offender' })
+  @Post('/reports/:id/action')
+  actOnReport(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() body: ReportActionDto) {
+    return this.moderationService.actOnReport(requireBearerToken(authorization), id, body);
   }
 
   @ApiBody({ type: CreateReportDto })

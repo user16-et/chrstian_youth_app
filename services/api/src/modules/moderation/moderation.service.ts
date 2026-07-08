@@ -36,6 +36,35 @@ export class ModerationService {
     return updated;
   }
 
+  // Resolve a report and optionally enforce: remove the reported content
+  // and/or suspend the offender. All effects are audited.
+  async actOnReport(token: string, reportId: string, input: { action: 'dismiss' | 'resolve' | 'remove_content' | 'suspend_user'; status?: 'open' | 'resolved' | 'closed' }) {
+    const actor = await this.authorization.requireRoles(token, MODERATION_ROLES);
+    const report = await this.contentRepository.getReport(reportId);
+    if (!report) throw new NotFoundException('report_not_found');
+
+    let suspendedUserId: string | null = null;
+    if (input.action === 'remove_content') {
+      await this.contentRepository.removeReportedContent(report.targetType, report.targetId, actor.id);
+    } else if (input.action === 'suspend_user') {
+      suspendedUserId = report.targetType === 'user'
+        ? report.targetId
+        : await this.contentRepository.contentAuthor(report.targetType, report.targetId);
+      if (!suspendedUserId) throw new NotFoundException('report_target_user_not_found');
+      await this.userRepository.updateRole(suspendedUserId, 'suspended');
+      await this.userRepository.revokeAllSessions(suspendedUserId);
+    }
+
+    const status = input.status ?? (input.action === 'dismiss' ? 'closed' : 'resolved');
+    const updated = await this.contentRepository.resolveReport(reportId, actor.id, status, input.action);
+    await this.contentRepository.recordAudit(actor.id, `moderation_${input.action}`, 'report', reportId, {
+      status,
+      target: `${report.targetType}:${report.targetId}`,
+      ...(suspendedUserId ? { suspendedUserId } : {}),
+    });
+    return updated;
+  }
+
   async createReport(actorToken: string, input: { targetType: string; targetId: string; reason: string }) {
     const actor = await this.userRepository.authenticate(actorToken);
     if (!actor) {
