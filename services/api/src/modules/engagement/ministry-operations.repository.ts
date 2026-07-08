@@ -154,8 +154,16 @@ export class MinistryOperationsRepository {
     return member;
   }
 
+  // The assignee may complete their own task; a ministry manager may complete any.
+  // (Previously an unassigned task could be completed by any authenticated user.)
   async completeTask(userId: string, taskId: string) {
-    return this.one(`UPDATE ministry_tasks SET status='completed',completed_at=now() WHERE id=$1 AND (assignee_id IS NULL OR assignee_id=$2) RETURNING *`, [taskId, userId]);
+    return this.one(`UPDATE ministry_tasks t SET status='completed',completed_at=now()
+      WHERE t.id=$1 AND (
+        t.assignee_id=$2
+        OR EXISTS(SELECT 1 FROM ministry_memberships mm WHERE mm.ministry_id=t.ministry_id AND mm.user_id=$2 AND mm.status IN ('active','approved') AND mm.role IN ('leader','assistant_leader','coordinator'))
+        OR EXISTS(SELECT 1 FROM users u WHERE u.id=$2 AND u.role IN ('admin','platform_admin','super_admin'))
+        OR EXISTS(SELECT 1 FROM ministries m JOIN church_memberships cm ON cm.church_id=m.church_id WHERE m.id=t.ministry_id AND cm.user_id=$2 AND cm.status IN ('active','approved') AND cm.role IN ('pastor','church_admin','elder','branch_admin'))
+      ) RETURNING t.*`, [taskId, userId]);
   }
 
   async applyVolunteer(userId: string, opportunityId: string, note = '') {
