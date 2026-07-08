@@ -233,13 +233,16 @@ class PillarExplorer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final en = language == AppLanguage.english;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
       children: [
         Container(
           padding: const EdgeInsets.all(28),
           decoration: BoxDecoration(
-              color: const Color(0xFFE9DFCA),
+              // Cream parchment in light mode; a dark surface in dark mode so
+              // the theme-driven (light) text stays readable.
+              color: dark ? const Color(0xFF1B2A24) : const Color(0xFFE9DFCA),
               borderRadius: BorderRadius.circular(32)),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1125,6 +1128,7 @@ class _EventCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final event = data.events.isEmpty ? null : data.events.first;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
         color: Colors.transparent,
         child: InkWell(
@@ -1133,7 +1137,7 @@ class _EventCard extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(21),
               decoration: BoxDecoration(
-                  color: const Color(0xFFE9DFCA),
+                  color: dark ? const Color(0xFF1B2A24) : const Color(0xFFE9DFCA),
                   borderRadius: BorderRadius.circular(28)),
               child: Row(children: [
                 Container(
