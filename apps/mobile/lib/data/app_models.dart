@@ -271,6 +271,7 @@ class UserDirectoryItem {
     required this.language,
     required this.role,
     required this.createdAt,
+    this.profileImage = '',
     this.followedByMe = false,
     this.blockedByMe = false,
     this.blockedMe = false,
@@ -286,6 +287,7 @@ class UserDirectoryItem {
   final String language;
   final String role;
   final String createdAt;
+  final String profileImage;
   final bool followedByMe;
   final bool blockedByMe;
   final bool blockedMe;
@@ -302,6 +304,7 @@ class UserDirectoryItem {
       language: json['language'] as String? ?? 'en',
       role: json['role'] as String? ?? 'member',
       createdAt: json['createdAt'] as String? ?? '',
+      profileImage: json['profileImage'] as String? ?? '',
       followedByMe: json['followedByMe'] == true,
       blockedByMe: json['blockedByMe'] == true,
       blockedMe: json['blockedMe'] == true,

@@ -1634,26 +1634,74 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(user.fullName,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .titleMedium),
-                                              ),
-                                            ],
+                                          InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            onTap: () =>
+                                                _openUserProfile(user),
+                                            child: Row(
+                                              children: [
+                                                CircleAvatar(
+                                                  radius: 22,
+                                                  backgroundColor: Theme.of(
+                                                          context)
+                                                      .colorScheme
+                                                      .surfaceContainerHighest,
+                                                  backgroundImage: user
+                                                          .profileImage
+                                                          .isNotEmpty
+                                                      ? NetworkImage(
+                                                          user.profileImage)
+                                                      : null,
+                                                  child: user.profileImage
+                                                          .isEmpty
+                                                      ? Text(
+                                                          user.fullName
+                                                                  .isNotEmpty
+                                                              ? user.fullName[0]
+                                                                  .toUpperCase()
+                                                              : '?',
+                                                          style: Theme.of(
+                                                                  context)
+                                                              .textTheme
+                                                              .titleMedium)
+                                                      : null,
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(user.fullName,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: Theme.of(
+                                                                  context)
+                                                              .textTheme
+                                                              .titleMedium),
+                                                      if (user.username
+                                                          .isNotEmpty)
+                                                        Text(
+                                                            '@${user.username}',
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: Theme.of(
+                                                                    context)
+                                                                .textTheme
+                                                                .bodySmall),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const Icon(Icons
+                                                    .chevron_right_rounded),
+                                              ],
+                                            ),
                                           ),
-                                          if (user.username.isNotEmpty) ...[
-                                            const SizedBox(height: 4),
-                                            Text('@${user.username}',
-                                                maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis),
-                                          ],
                                           const SizedBox(height: 6),
                                           Text(
                                               '${user.phoneNumber} • ${user.role}',

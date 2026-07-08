@@ -25,6 +25,7 @@ export interface UserDirectoryRecord {
   language: 'en' | 'am';
   role: string;
   createdAt: string;
+  profileImage?: string;
   followedByMe?: boolean;
   blockedByMe?: boolean;
   blockedMe?: boolean;
@@ -358,6 +359,7 @@ export class UserRepository implements OnModuleInit {
     params.push(input.viewerId ?? null, limit, offset);
     const result = await this.pool.query(
       `SELECT u.id, u.full_name, u.phone_number, u.username, u.language, u.role, u.created_at,
+              COALESCE(NULLIF(u.profile_image,''), up.photo_url, '') AS profile_image,
               ($${viewerParam}::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$${viewerParam} AND uf.following_id=u.id)) AS followed_by_me,
               ($${viewerParam}::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_blocks ub WHERE ub.blocker_id=$${viewerParam} AND ub.blocked_id=u.id)) AS blocked_by_me,
               ($${viewerParam}::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_blocks ub WHERE ub.blocker_id=u.id AND ub.blocked_id=$${viewerParam})) AS blocked_me,
@@ -365,6 +367,7 @@ export class UserRepository implements OnModuleInit {
               fr.id AS friend_request_id,
               ($${viewerParam}::uuid IS NOT NULL AND fr.sender_id=$${viewerParam}) AS friend_requested_by_me
        FROM users u
+       LEFT JOIN user_profiles up ON up.user_id=u.id
        LEFT JOIN LATERAL (
          SELECT id,status,sender_id FROM friend_requests fr
          WHERE $${viewerParam}::uuid IS NOT NULL AND ((fr.sender_id=$${viewerParam} AND fr.receiver_id=u.id) OR (fr.receiver_id=$${viewerParam} AND fr.sender_id=u.id))
@@ -540,6 +543,7 @@ export class UserRepository implements OnModuleInit {
       language: row.language === 'am' ? 'am' : 'en',
       role: String(row.role ?? 'member'),
       createdAt: String(row.created_at),
+      profileImage: row.profile_image ? String(row.profile_image) : '',
       followedByMe: row.followed_by_me === true,
       blockedByMe: row.blocked_by_me === true,
       blockedMe: row.blocked_me === true,

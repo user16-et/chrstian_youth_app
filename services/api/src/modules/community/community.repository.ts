@@ -27,6 +27,7 @@ export class CommunityRepository {
         WHERE p.author_id IN (SELECT following_id FROM user_follows WHERE follower_id=$1) OR p.church_id IS NULL
         ORDER BY p.created_at DESC LIMIT 30`, [userId]),
       this.db.query(`SELECT u.id,u.full_name AS "fullName",COALESCE(up.city,'') AS city,COALESCE(up.occupation,'') AS occupation,
+        COALESCE(NULLIF(u.profile_image,''),up.photo_url,'') AS "profileImage",
         COALESCE(up.testimony,'') AS testimony,COALESCE(up.interests,'{}') AS interests,
         COALESCE(ch.name,'') AS church,COALESCE(fr.status,'') AS "friendStatus",
         EXISTS(SELECT 1 FROM user_follows WHERE follower_id=$1 AND following_id=u.id) AS "followedByMe"
