@@ -4,6 +4,8 @@ import { Pool, type PoolClient } from 'pg';
 import { loadConfig } from './config';
 import { postgresPoolConfig } from './postgres';
 
+const SESSION_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface UserRecord {
   id: string;
   fullName: string;
@@ -210,6 +212,11 @@ export class UserRepository implements OnModuleInit {
   async authenticate(token: string) {
     const normalized = token.trim();
     if (!normalized) {
+      return null;
+    }
+    // Session tokens are UUIDs. A malformed token is simply invalid — guard here
+    // so a bad token returns 401, not a 500 from casting it to the uuid column.
+    if (!SESSION_TOKEN_PATTERN.test(normalized)) {
       return null;
     }
 

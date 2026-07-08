@@ -148,9 +148,24 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
       _scrollToBottom();
     } catch (error) {
       if (!mounted) return;
-      setState(
-          () => _status = error.toString().replaceFirst('HttpException: ', ''));
+      setState(() => _status = _friendlyError(error));
     }
+  }
+
+  String _friendlyError(Object error) {
+    final message = error.toString().replaceFirst('HttpException: ', '');
+    if (message.contains('chat_scope_access_denied')) {
+      return _t('Join this group first to open its chat.',
+          'ውይይቱን ለመክፈት መጀመሪያ ይህን ቡድን ይቀላቀሉ።');
+    }
+    if (message.contains('conversation_access_denied')) {
+      return _t("You don't have access to this conversation.",
+          'ወደዚህ ውይይት መዳረሻ የለዎትም።');
+    }
+    if (message.contains('login_required') || message.contains('invalid_session')) {
+      return AppStrings.of(widget.language, 'login_required');
+    }
+    return message;
   }
 
   void _handleLiveMessage(Map<String, dynamic> event) {
