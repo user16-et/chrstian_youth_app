@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../modules/module_pages.dart';
 import '../modules/platform_pages.dart';
 import '../modules/prayer_growth_pages.dart';
+import '../modules/privacy_security_screen.dart';
 import 'believer_journey_screen.dart';
 import 'life_workspace_screen.dart';
 
@@ -274,6 +275,22 @@ class _AccountPortalState extends State<AccountPortal> {
               widget.onAuthChanged(null);
               setState(() => _status = _english ? 'Signed out.' : 'ወጥተዋል።');
             },
+          ),
+          const SizedBox(height: 14),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: Text(_english ? 'Privacy & Security' : 'ግላዊነት እና ደህንነት'),
+              subtitle: Text(_english
+                  ? 'Account privacy, devices, blocked & muted'
+                  : 'ግላዊነት፣ መሳሪያዎች፣ የታገዱና ጸጥ የተደረጉ'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _open(PrivacySecurityScreen(
+                apiClient: widget.apiClient,
+                token: session.token,
+                language: widget.language,
+              )),
+            ),
           ),
         ],
         if (_status.isNotEmpty) ...[

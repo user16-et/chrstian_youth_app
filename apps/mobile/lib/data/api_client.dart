@@ -1782,6 +1782,48 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  // ---- Privacy & security settings ----
+  Future<Map<String, dynamic>> fetchPrivacySettings(String token) async {
+    final response = await _getJson('/me/privacy', headers: {'Authorization': 'Bearer $token'});
+    return (response as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> updatePrivacySettings(String token, Map<String, dynamic> patch) async {
+    final response = await _patchJson('/me/privacy', patch, headers: {'Authorization': 'Bearer $token'});
+    return (response as Map).cast<String, dynamic>();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchSessions(String token) async {
+    final response = await _getJson('/me/sessions', headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<dynamic> revokeSession(String token, String sessionId) {
+    return _deleteJson('/me/sessions/$sessionId', headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> revokeOtherSessions(String token) {
+    return _postJson('/me/sessions/revoke-others', const {}, headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<List<Map<String, dynamic>>> fetchBlockedUsers(String token) async {
+    final response = await _getJson('/me/blocked', headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchMutedUsers(String token) async {
+    final response = await _getJson('/me/mutes', headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<dynamic> muteUser(String token, String userId) {
+    return _postJson('/me/mutes/$userId', const {}, headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> unmuteUser(String token, String userId) {
+    return _deleteJson('/me/mutes/$userId', headers: {'Authorization': 'Bearer $token'});
+  }
+
   // ---- Global feed stories (24h) ----
   Future<List<Map<String, dynamic>>> fetchStoryRing(String token) async {
     final response = await _getJson('/feed/stories', headers: {'Authorization': 'Bearer $token'});
