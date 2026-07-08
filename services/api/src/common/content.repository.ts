@@ -135,6 +135,7 @@ export interface GroupMembershipRecord {
   userId: string;
   role: string;
   joinedAt: string;
+  status?: string;
 }
 
 export interface GroupMembershipViewRecord {
@@ -1089,20 +1090,27 @@ export class ContentRepository implements OnModuleInit {
     return result.rows.map((row) => this.mapUserGroupMembershipView(row));
   }
 
-  async joinGroup(userId: string, groupId: string) {
-    const record: GroupMembershipRecord = {
+  async joinGroup(userId: string, groupId: string): Promise<GroupMembershipRecord> {
+    // Private and secret groups require approval; only public groups auto-join.
+    const group = await this.pool.query('SELECT type, visibility FROM groups WHERE id = $1', [groupId]);
+    const info = group.rows[0];
+    const restricted = ['private', 'secret'].includes(String(info?.type)) || ['private', 'secret'].includes(String(info?.visibility));
+    const status = restricted ? 'requested' : 'active';
+
+    const result = await this.pool.query(
+      `INSERT INTO group_memberships (group_id, user_id, role, status, joined_at) VALUES ($1, $2, 'member', $3, now())
+       ON CONFLICT (group_id, user_id) DO UPDATE SET status = CASE WHEN group_memberships.status IN ('active','approved') THEN group_memberships.status ELSE EXCLUDED.status END
+       RETURNING group_id, user_id, role, status, joined_at`,
+      [groupId, userId, status],
+    );
+    const saved = result.rows[0];
+    return {
       groupId,
       userId,
-      role: 'member',
-      joinedAt: new Date().toISOString(),
+      role: String(saved?.role ?? 'member'),
+      status: String(saved?.status ?? status),
+      joinedAt: saved?.joined_at ? new Date(saved.joined_at).toISOString() : new Date().toISOString(),
     };
-
-    await this.pool.query(
-      'INSERT INTO group_memberships (group_id, user_id, role, joined_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-      [record.groupId, record.userId, record.role, record.joinedAt],
-    );
-
-    return record;
   }
 
   async leaveGroup(userId: string, groupId: string) {
