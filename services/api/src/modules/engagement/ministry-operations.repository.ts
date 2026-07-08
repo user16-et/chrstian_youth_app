@@ -170,8 +170,14 @@ export class MinistryOperationsRepository {
     return this.one(`INSERT INTO ministry_volunteer_applications(opportunity_id,user_id,note) VALUES($1,$2,$3) ON CONFLICT(opportunity_id,user_id) DO UPDATE SET note=EXCLUDED.note,status='requested' RETURNING *`, [opportunityId, userId, note]);
   }
 
-  async reviewVolunteer(reviewerId: string, applicationId: string, approved: boolean) {
-    return this.one(`UPDATE ministry_volunteer_applications SET status=$2,approved_by=$3,approved_at=CASE WHEN $2='approved' THEN now() ELSE NULL END WHERE id=$1 RETURNING *`, [applicationId, approved ? 'approved' : 'rejected', reviewerId]);
+  // Scope the update to the application's own ministry so a manager of one
+  // ministry cannot review another ministry's applications by supplying their id.
+  async reviewVolunteer(reviewerId: string, ministryId: string, applicationId: string, approved: boolean) {
+    return this.one(`UPDATE ministry_volunteer_applications va
+      SET status=$2,approved_by=$3,approved_at=CASE WHEN $2='approved' THEN now() ELSE NULL END
+      FROM ministry_volunteer_opportunities vo
+      WHERE va.id=$1 AND vo.id=va.opportunity_id AND vo.ministry_id=$4
+      RETURNING va.*`, [applicationId, approved ? 'approved' : 'rejected', reviewerId, ministryId]);
   }
 
   async checkIn(userId: string, input: Record<string, unknown>) {

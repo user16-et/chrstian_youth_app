@@ -227,7 +227,7 @@ export class EngagementService {
   async reviewMinistryVolunteer(token: string, ministryId: string, applicationId: string, approved: boolean) {
     const actor = await this.requireActor(token);
     await this.ensureMinistryManager(actor.id, ministryId);
-    const item = await this.ministryOperationsRepository.reviewVolunteer(actor.id, applicationId, approved);
+    const item = await this.ministryOperationsRepository.reviewVolunteer(actor.id, ministryId, applicationId, approved);
     if (!item) throw new NotFoundException('volunteer_application_not_found');
     return item;
   }
