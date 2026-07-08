@@ -10,6 +10,7 @@ import '../../theme/app_theme.dart';
 import 'church_detail_page.dart';
 import 'live_chat_panel.dart';
 import 'prayer_growth_pages.dart';
+import 'relationship_social.dart';
 
 String _shortDate(String value) {
   if (value.isEmpty) return '';
@@ -7586,12 +7587,77 @@ class _RelationshipEcosystemPanelState
     extends State<_RelationshipEcosystemPanel> {
   bool _busy = false;
   String _status = '';
+  List<Map<String, dynamic>> _storyFeed = const [];
   bool get en => widget.language == AppLanguage.english;
   List<Map<String, dynamic>> _items(String key) =>
       (widget.data[key] as List<dynamic>? ?? const [])
           .cast<Map<String, dynamic>>();
   Map<String, dynamic> get _analytics =>
       (widget.data['analytics'] as Map<String, dynamic>?) ?? const {};
+  Map<String, dynamic> get _me =>
+      (widget.data['me'] as Map<String, dynamic>?) ?? const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStoryFeed();
+  }
+
+  Future<void> _loadStoryFeed() async {
+    final token = widget.token;
+    if (token == null || token.isEmpty) return;
+    try {
+      final feed = await widget.apiClient.fetchRelationshipStoryFeed(token);
+      if (mounted) setState(() => _storyFeed = feed);
+    } catch (_) {
+      // Story ring is non-critical; ignore load failures.
+    }
+  }
+
+  Future<void> _postStory() async {
+    final token = widget.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final input = await showAddMediaDialog(context,
+        language: widget.language,
+        title: en ? 'Post a story' : 'ታሪክ ይለጥፉ');
+    if (input == null) return;
+    await _run(
+        (t) => widget.apiClient.createRelationshipStory(t,
+            mediaUrl: input['url'] ?? '', caption: input['caption'] ?? ''),
+        en ? 'Story posted.' : 'ታሪክ ተለጥፏል።');
+    await _loadStoryFeed();
+  }
+
+  void _openStory(String userId, String fullName) {
+    final token = widget.token;
+    if (token == null || token.isEmpty) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+            builder: (_) => StoryViewerScreen(
+                apiClient: widget.apiClient,
+                token: token,
+                userId: userId,
+                fullName: fullName,
+                language: widget.language)))
+        .then((_) => _loadStoryFeed());
+  }
+
+  Future<void> _openProfile(String userId) async {
+    final token = widget.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final expressed = await showRelationshipProfileSheet(context,
+        apiClient: widget.apiClient, token: token, userId: userId, language: widget.language);
+    if (expressed) {
+      await widget.onChanged();
+      if (mounted) setState(() => _status = en ? 'Interest sent.' : 'ፍላጎት ተልኳል።');
+    }
+  }
 
   Future<void> _run(
       Future<dynamic> Function(String token) action, String success) async {
@@ -7629,6 +7695,18 @@ class _RelationshipEcosystemPanelState
     final firstConnection = connections.isEmpty ? null : connections.first;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _SectionCard(
+          title: en ? 'Stories' : 'ታሪኮች',
+          children: [
+            RelationshipStoryRing(
+              stories: _storyFeed,
+              language: widget.language,
+              myCoverPhoto: _me['coverPhoto']?.toString(),
+              onAddStory: _postStory,
+              onOpenStory: _openStory,
+            ),
+          ]),
+      const SizedBox(height: 12),
+      _SectionCard(
           title: en ? 'Relationship dashboard' : 'የግንኙነት ዳሽቦርድ',
           children: [
             Wrap(spacing: 8, runSpacing: 8, children: [
@@ -7640,8 +7718,21 @@ class _RelationshipEcosystemPanelState
                   label: '${_analytics['acceptedInterests'] ?? 0} accepted'),
               _InfoChip(label: '${_analytics['connections'] ?? 0} connections'),
             ]),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: (widget.token == null || widget.token!.isEmpty)
+                    ? null
+                    : () => showStoryViewersSheet(context,
+                        apiClient: widget.apiClient,
+                        token: widget.token!,
+                        language: widget.language),
+                icon: const Icon(Icons.visibility_outlined, size: 18),
+                label: Text(en ? 'Who viewed your story' : 'ታሪክዎን የተመለከቱ'),
+              ),
+            ),
             if (_status.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(_status, maxLines: 2, overflow: TextOverflow.ellipsis)
             ],
           ]),
@@ -7655,15 +7746,36 @@ class _RelationshipEcosystemPanelState
                       : 'ተስማሚ አማኞችን ለማየት የግንኙነት መገለጫህን ፍጠር።')
                 ]
               : [
-                  for (final item in discovery.take(4))
+                  for (final item in discovery.take(6))
                     Padding(
                         padding: const EdgeInsets.only(bottom: 10),
-                        child: _ListTileRow(
-                          icon: Icons.favorite_rounded,
-                          title:
-                              '${item['fullName'] ?? ''} • ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['overall'] ?? 70}%',
-                          subtitle:
-                              '${item['churchName'] ?? ''} • ${item['city'] ?? ''}\nFaith ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['faith'] ?? 70}% • Ministry ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['ministry'] ?? 70}% • Family ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['familyVision'] ?? 70}%',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: (item['userId'] ?? '').toString().isEmpty
+                              ? null
+                              : () => _openProfile('${item['userId']}'),
+                          child: Row(children: [
+                            CircleAvatar(
+                              radius: 24,
+                              backgroundImage: (item['coverPhoto']?.toString().isNotEmpty ?? false)
+                                  ? NetworkImage(item['coverPhoto'].toString())
+                                  : null,
+                              child: (item['coverPhoto']?.toString().isNotEmpty ?? false)
+                                  ? null
+                                  : const Icon(Icons.person_rounded),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _ListTileRow(
+                                icon: Icons.favorite_rounded,
+                                title:
+                                    '${item['fullName'] ?? ''} • ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['overall'] ?? 70}%',
+                                subtitle:
+                                    '${item['churchName'] ?? ''} • ${item['city'] ?? ''}\nFaith ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['faith'] ?? 70}% • Family ${((item['compatibility'] as Map<String, dynamic>?) ?? const {})['familyVision'] ?? 70}%',
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded),
+                          ]),
                         )),
                 ]),
       const SizedBox(height: 12),

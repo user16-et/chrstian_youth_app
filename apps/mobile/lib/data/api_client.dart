@@ -1732,6 +1732,56 @@ class ApiClient {
     });
   }
 
+  // ---- Relationship social profile (photos, prompts, stories) ----
+  Future<Map<String, dynamic>> viewRelationshipProfile(String token, String userId) async {
+    final response = await _getJson('/relationship/profiles/$userId',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as Map).cast<String, dynamic>();
+  }
+
+  Future<dynamic> addRelationshipPhoto(String token, String url, {String caption = ''}) {
+    return _postJson('/relationship/profile/photos', {'url': url, 'caption': caption},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> deleteRelationshipPhoto(String token, String photoId) {
+    return _deleteJson('/relationship/profile/photos/$photoId',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> setRelationshipPrompts(String token, List<Map<String, String>> prompts) {
+    return _putJson('/relationship/profile/prompts', {'prompts': prompts},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<List<Map<String, dynamic>>> fetchRelationshipStoryFeed(String token) async {
+    final response = await _getJson('/relationship/stories',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchRelationshipProfileStories(String token, String userId) async {
+    final response = await _getJson('/relationship/profiles/$userId/stories',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchRelationshipStoryViewers(String token) async {
+    final response = await _getJson('/relationship/stories/viewers',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<dynamic> createRelationshipStory(String token, {String mediaUrl = '', String caption = ''}) {
+    return _postJson('/relationship/stories', {'mediaUrl': mediaUrl, 'caption': caption},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> viewRelationshipStory(String token, String storyId) {
+    return _postJson('/relationship/stories/$storyId/view', const {},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<CourtshipProfileItem?> fetchCourtshipMe(String token) async {
     final response = await _getJson(
       '/courtship/me',
