@@ -54,10 +54,25 @@ export class RelationshipService {
     const receiverId = String(input.receiverId ?? '');
     if (!receiverId) throw new BadRequestException('receiver_required');
     if (receiverId === user.id) throw new BadRequestException('cannot_send_interest_to_self');
-    const row = await this.relationships.createInterest(user.id, { ...input, receiverId });
+    const superLike = input.super === true;
+    const row = await this.relationships.createInterest(user.id, { ...input, receiverId, super: superLike });
     if (!row) throw new NotFoundException('receiver_not_available');
     // If they already liked you, it's a match — both accepted, a connection opens.
     const connection = await this.relationships.matchIfMutual(user.id, receiverId);
+    if (!connection && superLike) {
+      // A super-like is visible: tell the recipient before they decide.
+      this.notify({
+        userId: receiverId,
+        actorId: user.id,
+        type: 'relationship_superlike',
+        title: 'Someone super-liked you 💙',
+        body: `${user.fullName} super-liked you. Take a look at their profile.`,
+        targetType: 'user',
+        targetId: user.id,
+        priority: 'high',
+        dedupeKey: `relationship_superlike:${user.id}:${receiverId}`,
+      });
+    }
     if (connection) {
       // Tell the other person — the actor sees the match dialog inline.
       this.notify({
@@ -73,6 +88,14 @@ export class RelationshipService {
       });
     }
     return { ...row, matched: connection != null, connection: connection ?? null };
+  }
+
+  async withdrawInterest(token: string, input: Record<string, unknown>) {
+    const user = await this.adult(token);
+    const receiverId = String(input.receiverId ?? '');
+    if (!receiverId) throw new BadRequestException('receiver_required');
+    const withdrawn = await this.relationships.withdrawInterest(user.id, receiverId);
+    return { withdrawn };
   }
 
   async accept(token: string, id: string) {

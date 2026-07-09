@@ -35,6 +35,7 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
   Offset _flyFrom = Offset.zero;
   Offset _flyTo = Offset.zero;
   VoidCallback? _onFlyDone;
+  final List<({Map<String, dynamic> card, bool liked})> _history = [];
 
   AppLanguage get lang => widget.language;
 
@@ -77,22 +78,55 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
     _animateTo(Offset(like ? width : -width, _drag.dy), onDone: () => _commit(like));
   }
 
-  void _commit(bool like) {
+  void _flingSuper() {
     if (_cards.isEmpty) return;
-    final card = _cards.first;
-    setState(() { _cards = _cards.sublist(1); _drag = Offset.zero; });
-    if (like) _like(card);
+    final height = MediaQuery.sizeOf(context).height + 200;
+    _animateTo(Offset(_drag.dx, -height), onDone: () => _commit(true, superLike: true));
   }
 
-  Future<void> _like(Map<String, dynamic> card) async {
+  void _commit(bool like, {bool superLike = false}) {
+    if (_cards.isEmpty) return;
+    final card = _cards.first;
+    setState(() {
+      _history.add((card: card, liked: like));
+      _cards = _cards.sublist(1);
+      _drag = Offset.zero;
+    });
+    if (like) _like(card, superLike: superLike);
+  }
+
+  Future<void> _like(Map<String, dynamic> card, {bool superLike = false}) async {
     final userId = card['userId']?.toString() ?? '';
     if (userId.isEmpty) return;
     try {
-      final res = await widget.apiClient.expressRelationshipInterest(widget.token, userId,
-          _tr(lang, 'I would value a respectful, prayerful introduction.', 'በአክብሮት እና በጸሎት መተዋወቅ እፈልጋለሁ።'));
+      final res = await widget.apiClient.expressRelationshipInterest(
+          widget.token,
+          userId,
+          superLike
+              ? _tr(lang, 'You caught my eye — I would love a prayerful introduction.',
+                  'ልቤን ማርከዋል — በጸሎት መተዋወቅ እወዳለሁ።')
+              : _tr(lang, 'I would value a respectful, prayerful introduction.', 'በአክብሮት እና በጸሎት መተዋወቅ እፈልጋለሁ።'),
+          superLike: superLike);
       if (res is Map && res['matched'] == true && mounted) _showMatch(card);
     } catch (_) {
       // A failed like shouldn't block swiping.
+    }
+  }
+
+  Future<void> _rewind() async {
+    if (_history.isEmpty || !_anim.isDismissed) return;
+    final last = _history.removeLast();
+    setState(() { _cards = [last.card, ..._cards]; _drag = Offset.zero; });
+    // Retract the pending like so it isn't left hanging; a match already made stays.
+    if (last.liked) {
+      final userId = last.card['userId']?.toString() ?? '';
+      if (userId.isNotEmpty) {
+        try {
+          await widget.apiClient.withdrawRelationshipInterest(widget.token, userId);
+        } catch (_) {
+          // Best effort — the card is already back on the deck.
+        }
+      }
     }
   }
 
@@ -110,7 +144,9 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
   }
 
   void _onPanEnd(DragEndDetails _) {
-    if (_drag.dx.abs() > 110) {
+    if (_drag.dy < -140 && _drag.dy.abs() > _drag.dx.abs()) {
+      _flingSuper();
+    } else if (_drag.dx.abs() > 110) {
       _fling(_drag.dx > 0);
     } else {
       _animateTo(Offset.zero);
@@ -216,8 +252,12 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
               ],
             ]),
           ),
-          if (!behind && swipe > 20) _stamp('LIKE', Colors.green, Alignment.topLeft, (swipe / 120).clamp(0, 1)),
-          if (!behind && swipe < -20) _stamp('NOPE', Colors.red, Alignment.topRight, (-swipe / 120).clamp(0, 1)),
+          if (!behind && _drag.dy < -40 && _drag.dy.abs() > swipe.abs())
+            _superStamp((-_drag.dy / 160).clamp(0, 1).toDouble())
+          else if (!behind && swipe > 20)
+            _stamp('LIKE', Colors.green, Alignment.topLeft, (swipe / 120).clamp(0, 1))
+          else if (!behind && swipe < -20)
+            _stamp('NOPE', Colors.red, Alignment.topRight, (-swipe / 120).clamp(0, 1)),
         ]),
       ),
     );
@@ -243,28 +283,55 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
         ),
       );
 
+  Widget _superStamp(double opacity) => Center(
+        child: Opacity(
+          opacity: opacity,
+          child: Transform.rotate(
+            angle: -0.2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(border: Border.all(color: const Color(0xFF29B6F6), width: 4), borderRadius: BorderRadius.circular(12)),
+              child: const Text('SUPER\nLIKE',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF29B6F6), fontSize: 30, fontWeight: FontWeight.w900, height: 1)),
+            ),
+          ),
+        ),
+      );
+
   Widget _controls(BuildContext context) {
+    const superBlue = Color(0xFF29B6F6);
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      _fab(Icons.close_rounded, Colors.red, 64, () => _fling(false)),
-      const SizedBox(width: 22),
-      _fab(Icons.info_outline_rounded, Theme.of(context).colorScheme.primary, 52, () async {
+      _fab(Icons.replay_rounded, Colors.amber.shade700, 48, _history.isEmpty ? null : _rewind, requiresCards: false),
+      const SizedBox(width: 14),
+      _fab(Icons.close_rounded, Colors.red, 60, () => _fling(false)),
+      const SizedBox(width: 14),
+      _fab(Icons.star_rounded, superBlue, 52, _flingSuper),
+      const SizedBox(width: 14),
+      _fab(Icons.favorite_rounded, Colors.green, 60, () => _fling(true)),
+      const SizedBox(width: 14),
+      _fab(Icons.info_outline_rounded, Theme.of(context).colorScheme.primary, 48, () async {
         if (_cards.isEmpty) return;
         await showRelationshipProfileSheet(context,
             apiClient: widget.apiClient, token: widget.token, userId: '${_cards.first['userId']}', language: lang);
       }),
-      const SizedBox(width: 22),
-      _fab(Icons.favorite_rounded, Colors.green, 64, () => _fling(true)),
     ]);
   }
 
-  Widget _fab(IconData icon, Color color, double size, VoidCallback onTap) => Material(
-        color: Theme.of(context).colorScheme.surface,
-        shape: const CircleBorder(),
-        elevation: 3,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: _cards.isEmpty ? null : onTap,
-          child: SizedBox(width: size, height: size, child: Icon(icon, color: color, size: size * 0.5)),
-        ),
-      );
+  Widget _fab(IconData icon, Color color, double size, VoidCallback? onTap, {bool requiresCards = true}) {
+    final active = onTap != null && (!requiresCards || _cards.isNotEmpty);
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: active ? onTap : null,
+        child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(icon, color: active ? color : Theme.of(context).colorScheme.outlineVariant, size: size * 0.5)),
+      ),
+    );
+  }
 }

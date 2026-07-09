@@ -152,17 +152,26 @@ export class RelationshipRepository {
   // Only allow interest in a receiver who has a visible, adult profile. A
   // previously declined interest is not resurrected to 'pending' (no pestering).
   createInterest(senderId: string, input: Record<string, unknown>) {
-    return this.one(`INSERT INTO courtship_interests(sender_id,receiver_id,note,status)
-      SELECT $1,$2::uuid,$3,'pending'
+    return this.one(`INSERT INTO courtship_interests(sender_id,receiver_id,note,status,super)
+      SELECT $1,$2::uuid,$3,'pending',$4
       WHERE EXISTS(
         SELECT 1 FROM courtship_profiles c
          WHERE c.user_id=$2::uuid AND c.visible=true AND c.visibility<>'hidden'
            AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=$2::uuid AND p.is_teen)
       )
       ON CONFLICT(sender_id,receiver_id) DO UPDATE SET note=EXCLUDED.note,
+        super=courtship_interests.super OR EXCLUDED.super,
         status=CASE WHEN courtship_interests.status='declined' THEN 'declined' ELSE 'pending' END,
         updated_at=now()
-      RETURNING *`, [senderId, input.receiverId, input.note ?? 'I would like a respectful introduction.']);
+      RETURNING *`, [senderId, input.receiverId, input.note ?? 'I would like a respectful introduction.', input.super === true]);
+  }
+
+  // Retract a still-pending outgoing like (used by "rewind"); accepted matches stay.
+  withdrawInterest(senderId: string, receiverId: string) {
+    return this.db.query(
+      `DELETE FROM courtship_interests WHERE sender_id=$1 AND receiver_id=$2 AND status='pending' RETURNING id`,
+      [senderId, receiverId],
+    ).then((r) => (r.rowCount ?? 0) > 0);
   }
 
   isMember(userId: string, relationshipId: string) {

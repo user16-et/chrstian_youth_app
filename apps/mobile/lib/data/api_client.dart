@@ -1653,9 +1653,16 @@ class ApiClient {
   }
 
   Future<dynamic> expressRelationshipInterest(
-      String token, String receiverId, String note) {
+      String token, String receiverId, String note,
+      {bool superLike = false}) {
+    return _postJson('/relationship/interests',
+        {'receiverId': receiverId, 'note': note, 'super': superLike},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> withdrawRelationshipInterest(String token, String receiverId) {
     return _postJson(
-        '/relationship/interests', {'receiverId': receiverId, 'note': note},
+        '/relationship/interests/withdraw', {'receiverId': receiverId},
         headers: {'Authorization': 'Bearer $token'});
   }
 
