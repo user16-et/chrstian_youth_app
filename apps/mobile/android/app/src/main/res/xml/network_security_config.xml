@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows the app to reach the API over plain HTTP (cleartext), which Android 9+
+  blocks by default in release builds. This is needed when the API is served
+  from a raw IP without TLS (e.g. http://196.188.x.x:3000).
+
+  This base-config permits cleartext to any host for simplicity. To tighten it,
+  replace the base-config with a domain-config scoped to your API host, e.g.:
+
+    <domain-config cleartextTrafficPermitted="true">
+      <domain includeSubdomains="true">196.188.0.10</domain>
+    </domain-config>
+
+  Once the API is behind HTTPS + a domain, you can remove this file and the
+  android:networkSecurityConfig line from AndroidManifest.xml.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -49,7 +49,9 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('/docs', app, document);
 
-  await app.listen(appConfig.port);
+  // Bind all interfaces (0.0.0.0) so the API is reachable from devices on the
+  // network / by public IP, not just localhost.
+  await app.listen(appConfig.port, '0.0.0.0');
 }
 
 void bootstrap();
