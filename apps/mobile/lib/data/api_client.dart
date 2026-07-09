@@ -1666,6 +1666,16 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  Future<dynamic> passRelationshipProfile(String token, String targetId) {
+    return _postJson('/relationship/passes', {'targetId': targetId},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> withdrawRelationshipPass(String token, String targetId) {
+    return _postJson('/relationship/passes/withdraw', {'targetId': targetId},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<dynamic> acceptRelationshipInterest(String token, String interestId) {
     return _patchJson('/relationship/interests/$interestId/accept', const {},
         headers: {'Authorization': 'Bearer $token'});

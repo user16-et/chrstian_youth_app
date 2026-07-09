@@ -134,8 +134,30 @@ export class RelationshipRepository {
       AND ($5 OR c.visibility<>'relationship_mode_only')
       AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=c.user_id AND p.is_teen)
       AND ($2::text='' OR lower(c.city)=lower($2)) AND ($3::text='' OR lower(c.gender)=lower($3))
-      AND ($4::text='' OR c.relationship_intent=$4 OR c.activation_mode=$4)`), [userId, filters.city ?? '', filters.gender ?? '', filters.goal ?? '', me !== null]);
+      AND ($4::text='' OR c.relationship_intent=$4 OR c.activation_mode=$4)
+      AND ($6::int IS NULL OR c.age IS NULL OR c.age>=$6) AND ($7::int IS NULL OR c.age IS NULL OR c.age<=$7)
+      AND ($8::text='' OR lower(c.denomination_preference)=lower($8))
+      AND NOT EXISTS(SELECT 1 FROM courtship_interests si WHERE si.sender_id=$1 AND si.receiver_id=c.user_id)
+      AND NOT EXISTS(SELECT 1 FROM relationship_connections rc WHERE (rc.user1_id=$1 AND rc.user2_id=c.user_id) OR (rc.user1_id=c.user_id AND rc.user2_id=$1))
+      AND NOT EXISTS(SELECT 1 FROM courtship_passes cp WHERE cp.user_id=$1 AND cp.target_id=c.user_id)
+      AND NOT EXISTS(SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id=$1 AND ub.blocked_id=c.user_id) OR (ub.blocker_id=c.user_id AND ub.blocked_id=$1))`),
+      [userId, filters.city ?? '', filters.gender ?? '', filters.goal ?? '', me !== null, intOrNull(filters.minAge), intOrNull(filters.maxAge), filters.denomination ?? '']);
     return rows.rows.map((profile) => ({ ...profile, compatibility: this.compatibility(me, profile) }));
+  }
+
+  passProfile(userId: string, targetId: string) {
+    return this.db.query(
+      `INSERT INTO courtship_passes(user_id,target_id) VALUES($1,$2::uuid)
+       ON CONFLICT(user_id,target_id) DO NOTHING`,
+      [userId, targetId],
+    ).then(() => ({ status: 'passed' as const }));
+  }
+
+  unpassProfile(userId: string, targetId: string) {
+    return this.db.query(
+      `DELETE FROM courtship_passes WHERE user_id=$1 AND target_id=$2::uuid RETURNING target_id`,
+      [userId, targetId],
+    ).then((r) => (r.rowCount ?? 0) > 0);
   }
 
   async viewProfile(viewerId: string, viewedUserId: string) {
@@ -357,4 +379,9 @@ export class RelationshipRepository {
     const location = me.city && me.city === other.city ? 94 : 68;
     return { faith, ministry, lifeGoals, familyVision, location, overall: Math.round((faith + ministry + lifeGoals + familyVision + location) / 5) };
   }
+}
+
+function intOrNull(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) ? Math.trunc(n) : null;
 }

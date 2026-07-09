@@ -92,7 +92,21 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
       _cards = _cards.sublist(1);
       _drag = Offset.zero;
     });
-    if (like) _like(card, superLike: superLike);
+    if (like) {
+      _like(card, superLike: superLike);
+    } else {
+      _pass(card);
+    }
+  }
+
+  Future<void> _pass(Map<String, dynamic> card) async {
+    final userId = card['userId']?.toString() ?? '';
+    if (userId.isEmpty) return;
+    try {
+      await widget.apiClient.passRelationshipProfile(widget.token, userId);
+    } catch (_) {
+      // A failed pass shouldn't block swiping; they may simply reappear later.
+    }
   }
 
   Future<void> _like(Map<String, dynamic> card, {bool superLike = false}) async {
@@ -117,16 +131,18 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
     if (_history.isEmpty || !_anim.isDismissed) return;
     final last = _history.removeLast();
     setState(() { _cards = [last.card, ..._cards]; _drag = Offset.zero; });
-    // Retract the pending like so it isn't left hanging; a match already made stays.
-    if (last.liked) {
-      final userId = last.card['userId']?.toString() ?? '';
-      if (userId.isNotEmpty) {
-        try {
-          await widget.apiClient.withdrawRelationshipInterest(widget.token, userId);
-        } catch (_) {
-          // Best effort — the card is already back on the deck.
-        }
+    final userId = last.card['userId']?.toString() ?? '';
+    if (userId.isEmpty) return;
+    try {
+      // Undo the recorded action: retract a pending like, or clear a pass so
+      // they return to discovery. A match already made stays.
+      if (last.liked) {
+        await widget.apiClient.withdrawRelationshipInterest(widget.token, userId);
+      } else {
+        await widget.apiClient.withdrawRelationshipPass(widget.token, userId);
       }
+    } catch (_) {
+      // Best effort — the card is already back on the deck.
     }
   }
 

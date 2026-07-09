@@ -95,6 +95,21 @@ export class RelationshipService {
     return this.relationships.likesYou(user.id);
   }
 
+  async pass(token: string, input: Record<string, unknown>) {
+    const user = await this.adult(token);
+    const targetId = String(input.targetId ?? '');
+    if (!targetId) throw new BadRequestException('target_required');
+    if (targetId === user.id) throw new BadRequestException('cannot_pass_self');
+    return this.relationships.passProfile(user.id, targetId);
+  }
+
+  async unpass(token: string, input: Record<string, unknown>) {
+    const user = await this.adult(token);
+    const targetId = String(input.targetId ?? '');
+    if (!targetId) throw new BadRequestException('target_required');
+    return { unpassed: await this.relationships.unpassProfile(user.id, targetId) };
+  }
+
   async withdrawInterest(token: string, input: Record<string, unknown>) {
     const user = await this.adult(token);
     const receiverId = String(input.receiverId ?? '');
