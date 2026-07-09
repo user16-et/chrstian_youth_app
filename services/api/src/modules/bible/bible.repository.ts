@@ -75,15 +75,39 @@ export class BibleRepository {
         [userId, version, book, safeChapter],
       );
     }
+    const totalChapters = await this.db.query(
+      'SELECT chapters FROM bible_books WHERE lower(name) = lower($1) LIMIT 1',
+      [book],
+    );
+    const lastChapter = totalChapters.rows[0]?.chapters ?? safeChapter;
     return {
       version,
       book,
       chapter: safeChapter,
       verses: result.rows,
       previous: safeChapter > 1 ? { version, book, chapter: safeChapter - 1 } : null,
-      next: { version, book, chapter: safeChapter + 1 },
+      next: safeChapter < lastChapter ? { version, book, chapter: safeChapter + 1 } : null,
       offlineReady: true,
     };
+  }
+
+  // Entire translation in one payload for offline download.
+  async entireTranslation(version: string) {
+    const meta = await this.db.query(
+      'SELECT code, name, language, copyright_notice AS "copyrightNotice", license_status AS "licenseStatus" FROM bible_versions WHERE lower(code) = lower($1) LIMIT 1',
+      [version],
+    );
+    if (!meta.rows[0]) return null;
+    const verses = await this.db.query(
+      `SELECT b.name AS book, bv.chapter, bv.verse, bv.text
+       FROM bible_verses bv
+       JOIN bible_versions v ON v.id = bv.version_id
+       JOIN bible_books b ON b.id = bv.book_id
+       WHERE lower(v.code) = lower($1)
+       ORDER BY b.book_order, bv.chapter, bv.verse`,
+      [version],
+    );
+    return { version: meta.rows[0], verses: verses.rows };
   }
 
   async compare(reference: string, versions: string[]) {
@@ -121,28 +145,37 @@ export class BibleRepository {
     return rows;
   }
 
-  async search(query: string, userId: string | null) {
+  async search(query: string, userId: string | null, version?: string | null) {
     const trimmed = query.trim();
     if (!trimmed) {
       return [];
     }
-    const parsed = this.parseReference(trimmed);
-    const params: Params = [`%${trimmed}%`, parsed.book, parsed.chapter, parsed.verse, userId];
+    const ref = this.parseReferenceOrNull(trimmed);
+    // $1 like, $2 userId, $3 version filter, then (only when it's a reference) $4 book, $5 chapter, $6 verse
+    const params: Params = [`%${trimmed}%`, userId, version || null];
+    let refClause = '';
+    if (ref) {
+      params.push(ref.book, ref.chapter, ref.verse);
+      refClause = 'OR (lower(b.name) = lower($4) AND bv.chapter = $5 AND bv.verse = $6)';
+    }
     const result = await this.db.query(
-      `SELECT 'verse' AS type, concat(b.name, ' ', bv.chapter, ':', bv.verse) AS reference,
-              bv.text AS "verseText", v.code AS language, v.name AS source
-       FROM bible_verses bv
-       JOIN bible_versions v ON v.id = bv.version_id
-       JOIN bible_books b ON b.id = bv.book_id
-       WHERE bv.text ILIKE $1
-          OR b.name ILIKE $1
-          OR (lower(b.name) = lower($2) AND bv.chapter = $3 AND bv.verse = $4)
-       UNION ALL
-       SELECT 'note' AS type, reference, verse_text AS "verseText", language, 'My notes' AS source
-       FROM bible_notes
-       WHERE $5::uuid IS NOT NULL AND user_id = $5::uuid AND (note ILIKE $1 OR reference ILIKE $1)
-       ORDER BY reference
-       LIMIT 40`,
+      `SELECT type, reference, "verseText", language, source FROM (
+         SELECT 'verse' AS type, concat(b.name, ' ', bv.chapter, ':', bv.verse) AS reference,
+                bv.text AS "verseText", v.code AS language, v.name AS source,
+                b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
+         FROM bible_verses bv
+         JOIN bible_versions v ON v.id = bv.version_id
+         JOIN bible_books b ON b.id = bv.book_id
+         WHERE ($3::text IS NULL OR lower(v.code) = lower($3))
+           AND (bv.text ILIKE $1 OR b.name ILIKE $1 ${refClause})
+         UNION ALL
+         SELECT 'note' AS type, reference, verse_text AS "verseText", language, 'My notes' AS source,
+                1000 AS o1, 0 AS o2, 0 AS o3
+         FROM bible_notes
+         WHERE $2::uuid IS NOT NULL AND user_id = $2::uuid AND (note ILIKE $1 OR reference ILIKE $1)
+       ) results
+       ORDER BY o1, o2, o3
+       LIMIT 50`,
       params,
     );
     return result.rows;
@@ -354,11 +387,14 @@ export class BibleRepository {
   }
 
   private parseReference(reference: string) {
+    return this.parseReferenceOrNull(reference) ?? { book: 'John', chapter: 3, verse: 16 };
+  }
+
+  // Returns null when the text isn't an actual "Book chapter:verse" reference,
+  // so a plain keyword search doesn't get treated as a reference lookup.
+  private parseReferenceOrNull(reference: string) {
     const match = reference.trim().match(/^(.+?)\s+(\d+)(?::(\d+))?$/);
-    return {
-      book: match?.[1] ?? 'John',
-      chapter: Number(match?.[2] ?? 3),
-      verse: Number(match?.[3] ?? 16),
-    };
+    if (!match) return null;
+    return { book: match[1], chapter: Number(match[2]), verse: Number(match[3] ?? 1) };
   }
 }

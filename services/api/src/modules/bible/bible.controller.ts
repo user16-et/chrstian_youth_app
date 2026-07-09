@@ -40,10 +40,16 @@ export class BibleController {
     return this.bibleService.chapter(authorization ? requireBearerToken(authorization) : null, version ?? 'kjv', book ?? 'Romans', Number(chapter ?? 8));
   }
 
+  @ApiOperation({ summary: 'Download an entire translation for offline use' })
+  @Get('/bible/download/:version')
+  download(@Param('version') version: string) {
+    return this.bibleService.download(version);
+  }
+
   @ApiOperation({ summary: 'Compare a verse across translations' })
   @Get('/bible/compare')
   compare(@Query('reference') reference?: string, @Query('versions') versions?: string) {
-    return this.bibleService.compare(reference ?? 'John 3:16', versions ?? 'amh,kjv,niv');
+    return this.bibleService.compare(reference ?? 'John 3:16', versions ?? 'kjv,amh');
   }
 
   @ApiOperation({ summary: 'List daily verses' })
@@ -60,8 +66,8 @@ export class BibleController {
 
   @ApiOperation({ summary: 'Search Bible content' })
   @Get('/bible/search')
-  search(@Query('q') query?: string, @Headers('authorization') authorization?: string) {
-    return this.bibleService.search(query ?? '', authorization ? requireBearerToken(authorization) : null);
+  search(@Query('q') query?: string, @Query('version') version?: string, @Headers('authorization') authorization?: string) {
+    return this.bibleService.search(query ?? '', authorization ? requireBearerToken(authorization) : null, version ?? null);
   }
 
   @ApiBearerAuth()

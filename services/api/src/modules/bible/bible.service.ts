@@ -32,6 +32,12 @@ export class BibleService {
     return this.bibleRepository.chapter(actor?.id ?? null, version || 'kjv', book || 'Romans', chapter || 8);
   }
 
+  async download(version: string) {
+    const data = await this.bibleRepository.entireTranslation(version);
+    if (!data) throw new NotFoundException('version_not_found');
+    return data;
+  }
+
   compare(reference: string, versions: string) {
     return this.bibleRepository.compare(reference || 'John 3:16', versions.split(',').map((item) => item.trim()).filter(Boolean));
   }
@@ -48,14 +54,14 @@ export class BibleService {
     return this.contentRepository.listReadingPlans();
   }
 
-  search(query: string, token: string | null) {
+  search(query: string, token: string | null, version?: string | null) {
     if (!query.trim()) {
       return [];
     }
     if (token) {
-      return this.userRepository.authenticate(token).then((actor) => this.bibleRepository.search(query, actor?.id ?? null));
+      return this.userRepository.authenticate(token).then((actor) => this.bibleRepository.search(query, actor?.id ?? null, version));
     }
-    return this.bibleRepository.search(query, null);
+    return this.bibleRepository.search(query, null, version);
   }
 
   async updateSettings(token: string, input: Record<string, unknown>) {
