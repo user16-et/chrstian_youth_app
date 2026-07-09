@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 
 import 'church_detail_page.dart';
 import 'courtship_swipe.dart';
+import 'bible_reader.dart';
 import 'likes_you.dart';
 import 'matches_inbox.dart';
 import 'live_chat_panel.dart';
@@ -2201,6 +2202,27 @@ class _BibleScreenState extends State<BibleScreen> {
               _SectionHeader(
                   title: AppStrings.of(language, 'bible'),
                   subtitle: AppStrings.of(language, 'bible_notes_subtitle')),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => BibleReaderScreen(
+                      apiClient: widget.apiClient,
+                      token: widget.session?.token,
+                      language: language,
+                      initialVersion: _readerVersion,
+                      initialBook: _readerBook,
+                      initialChapter: _readerChapter,
+                    ),
+                  )),
+                  icon: const Icon(Icons.menu_book_rounded),
+                  label: Text(language == AppLanguage.english
+                      ? 'Open full Bible reader'
+                      : 'ሙሉ መጽሐፍ ቅዱስ ንባብ ክፈት'),
+                ),
+              ),
               const SizedBox(height: 16),
               _SectionCard(
                 title: language == AppLanguage.english

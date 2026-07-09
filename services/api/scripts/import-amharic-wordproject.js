@@ -89,6 +89,19 @@ async function main() {
     const bookRows = await pool.query('SELECT id, book_order FROM bible_books');
     const bookIdByOrder = new Map(bookRows.rows.map((r) => [r.book_order, r.id]));
 
+    // Populate Amharic book names from the index (folder 01..66 -> Amharic name).
+    const indexHtml = fs.readFileSync(path.join(base, 'index.htm'), 'utf8');
+    const nameMatches = [...indexHtml.matchAll(/href="(\d+)\/1\.htm"[^>]*>([^<]+)</g)];
+    let namedBooks = 0;
+    for (const m of nameMatches) {
+      const order = Number(m[1]);
+      const nameAm = clean(m[2]);
+      if (!nameAm || !bookIdByOrder.has(order)) continue;
+      await pool.query('UPDATE bible_books SET name_am = $2 WHERE book_order = $1', [order, nameAm]);
+      namedBooks += 1;
+    }
+    console.log(`Set Amharic names for ${namedBooks} books.`);
+
     await pool.query('DELETE FROM bible_verses WHERE version_id = $1', [versionId]);
 
     let totalVerses = 0;

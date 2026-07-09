@@ -1269,6 +1269,16 @@ class ApiClient {
         .toList();
   }
 
+  Future<List<Map<String, dynamic>>> fetchBibleVersions() async {
+    final response = await _getJson('/bible/versions');
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchBibleBooks() async {
+    final response = await _getJson('/bible/books');
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
   Future<Map<String, dynamic>> fetchBibleHome(String? token) async {
     final response = token == null || token.isEmpty
         ? await _getJson('/bible/home')

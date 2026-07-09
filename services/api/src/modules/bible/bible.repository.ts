@@ -52,7 +52,7 @@ export class BibleRepository {
 
   async books() {
     const result = await this.db.query(
-      'SELECT testament, name, book_order AS "order" FROM bible_books ORDER BY book_order',
+      'SELECT code, testament, name, name_am AS "nameAm", chapters, book_order AS "order" FROM bible_books ORDER BY book_order',
     );
     return result.rows;
   }
