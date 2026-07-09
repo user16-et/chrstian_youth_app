@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -10,12 +11,16 @@ class BibleLocalStore {
   BibleLocalStore._();
   static final BibleLocalStore instance = BibleLocalStore._();
 
+  /// Overrides the database file path in tests (e.g. an in-memory database).
+  @visibleForTesting
+  static String? overrideDbPath;
+
   Database? _db;
 
   Future<Database> _open() async {
     if (_db != null) return _db!;
-    final dir = await getApplicationDocumentsDirectory();
-    final path = p.join(dir.path, 'bible.db');
+    final path = overrideDbPath ??
+        p.join((await getApplicationDocumentsDirectory()).path, 'bible.db');
     _db = await openDatabase(
       path,
       version: 1,
@@ -140,5 +145,11 @@ class BibleLocalStore {
     if (rows.isEmpty) return const [];
     final decoded = jsonDecode('${rows.first['value']}') as List<dynamic>;
     return decoded.cast<Map<String, dynamic>>();
+  }
+
+  @visibleForTesting
+  Future<void> close() async {
+    await _db?.close();
+    _db = null;
   }
 }
