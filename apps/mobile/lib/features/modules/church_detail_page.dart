@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -14,18 +13,6 @@ Future<void> _openExternalUrl(String url) async {
   final uri = Uri.tryParse(trimmed);
   if (uri == null || !uri.hasScheme) return;
   await launchUrl(uri, mode: LaunchMode.externalApplication);
-}
-
-String _contentTypeForFile(String name) {
-  final lower = name.toLowerCase();
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  if (lower.endsWith('.pdf')) return 'application/pdf';
-  if (lower.endsWith('.mp3')) return 'audio/mpeg';
-  if (lower.endsWith('.mp4')) return 'video/mp4';
-  return 'application/octet-stream';
 }
 
 class ChurchDetailScreen extends StatefulWidget {
@@ -1693,61 +1680,6 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
   }
 
   Future<void> _updateImage(bool cover) async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            leading: const Icon(Icons.upload_file_rounded),
-            title: Text(cover ? 'Upload cover image' : 'Upload logo image'),
-            onTap: () => Navigator.pop(context, 'upload'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.link_rounded),
-            title: const Text('Paste image URL'),
-            onTap: () => Navigator.pop(context, 'url'),
-          ),
-        ]),
-      ),
-    );
-    if (choice == null) return;
-    if (choice == 'upload') {
-      final picked = await FilePicker.pickFiles(
-        type: FileType.image,
-        withData: true,
-        allowMultiple: false,
-      );
-      final file = picked?.files.single;
-      final bytes = file?.bytes;
-      if (file == null || bytes == null || bytes.isEmpty) return;
-      await _adminRun(() async {
-        final asset = await widget.apiClient.uploadMediaAsset(
-          token: widget.session.token,
-          usage: cover ? 'cover_photo' : 'church_logo',
-          fileName: file.name,
-          contentType: _contentTypeForFile(file.name),
-          byteSize: bytes.length,
-          bytes: bytes,
-          scopeType: 'church',
-          scopeId: widget.churchId,
-        );
-        final url = asset['publicUrl']?.toString() ?? '';
-        if (url.isEmpty) throw const ApiException('uploaded_asset_missing_url');
-        return cover
-            ? widget.apiClient.updateChurchCover(
-                token: widget.session.token,
-                churchId: widget.churchId,
-                url: url,
-              )
-            : widget.apiClient.updateChurchLogo(
-                token: widget.session.token,
-                churchId: widget.churchId,
-                url: url,
-              );
-      }, cover ? 'Cover image uploaded.' : 'Logo uploaded.');
-      return;
-    }
-
     final profile = await _profile;
     final current = cover
         ? (profile['coverUrl']?.toString() ??
