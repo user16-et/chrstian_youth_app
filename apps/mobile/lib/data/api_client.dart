@@ -2166,6 +2166,7 @@ class ApiClient {
     required String password,
     required String confirmPassword,
     required String language,
+    String gender = '',
   }) async {
     final response = await _postJson(
       '/auth/register',
@@ -2176,6 +2177,7 @@ class ApiClient {
         'password': password,
         'confirmPassword': confirmPassword,
         'language': language,
+        if (gender.isNotEmpty) 'gender': gender,
       },
     );
     return AuthResult.fromJson(response as Map<String, dynamic>);

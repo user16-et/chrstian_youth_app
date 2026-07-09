@@ -59,7 +59,7 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
       final cards = await widget.apiClient.discoverRelationships(widget.token, _filters);
       if (mounted) setState(() { _cards = cards; _loading = false; });
     } catch (error) {
-      if (mounted) setState(() { _status = error.toString().replaceFirst('HttpException: ', ''); _loading = false; });
+      if (mounted) setState(() { _status = friendlyRelationshipError(error, lang); _loading = false; });
     }
   }
 

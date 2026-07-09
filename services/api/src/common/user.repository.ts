@@ -14,6 +14,7 @@ export interface UserRecord {
   passwordHash: string;
   language: 'en' | 'am';
   role: string;
+  gender?: string;
   createdAt: string;
 }
 
@@ -40,6 +41,7 @@ export interface RegisterInput {
   username: string;
   password: string;
   language: 'en' | 'am';
+  gender?: 'male' | 'female' | '';
 }
 
 export interface UpdateProfileInput {
@@ -90,6 +92,7 @@ export class UserRepository implements OnModuleInit {
       throw new ConflictException('username_taken');
     }
 
+    const gender = input.gender === 'male' || input.gender === 'female' ? input.gender : '';
     const user: UserRecord = {
       id: randomUUID(),
       fullName: input.fullName.trim(),
@@ -98,6 +101,7 @@ export class UserRepository implements OnModuleInit {
       passwordHash: await this.hashPassword(input.password),
       language: input.language,
       role: 'member',
+      gender: gender || undefined,
       createdAt: new Date().toISOString(),
     };
 
@@ -112,8 +116,8 @@ export class UserRepository implements OnModuleInit {
 
     await this.withTransaction(async (client) => {
       await client.query(
-        'INSERT INTO users (id, full_name, phone_number, username, password_hash, language, role, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-        [user.id, user.fullName, user.phoneNumber, user.username, user.passwordHash, user.language, user.role, user.createdAt],
+        'INSERT INTO users (id, full_name, phone_number, username, password_hash, language, role, gender, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        [user.id, user.fullName, user.phoneNumber, user.username, user.passwordHash, user.language, user.role, gender, user.createdAt],
       );
       await client.query('INSERT INTO sessions (token, user_id, created_at, expires_at, refresh_token_hash, refresh_expires_at) VALUES ($1, $2, $3, $4, $5, $6)', [
         session.token,
@@ -222,7 +226,7 @@ export class UserRepository implements OnModuleInit {
     }
 
     const result = await this.pool.query(
-      `SELECT u.id, u.full_name, u.phone_number, u.username, u.password_hash, u.language, u.role, u.created_at
+      `SELECT u.id, u.full_name, u.phone_number, u.username, u.password_hash, u.language, u.role, u.gender, u.created_at
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
        LIMIT 1`,
@@ -586,6 +590,7 @@ export class UserRepository implements OnModuleInit {
       passwordHash: String(row.password_hash),
       language: row.language === 'am' ? 'am' : 'en',
       role: String(row.role ?? 'member'),
+      gender: row.gender ? String(row.gender) : undefined,
       createdAt: String(row.created_at),
     };
   }

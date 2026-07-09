@@ -50,6 +50,7 @@ class _AccountPortalState extends State<AccountPortal> {
   Timer? _usernameDebounce;
   String _usernameStatus = '';
   String _status = '';
+  String _signupGender = '';
 
   bool get _english => widget.language == AppLanguage.english;
 
@@ -506,8 +507,36 @@ class _AccountPortalState extends State<AccountPortal> {
           ),
         ),
         const SizedBox(height: 16),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(_english ? 'Sex' : 'ጾታ',
+              style: Theme.of(context).textTheme.labelLarge),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          _english
+              ? 'Used for courtship matching. This cannot be changed later.'
+              : 'ለጋብቻ ማዛመጃ ይውላል። በኋላ ሊቀየር አይችልም።',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 8),
+        Row(children: [
+          for (final option in [('male', _english ? 'Male' : 'ወንድ'), ('female', _english ? 'Female' : 'ሴት')])
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: option.$1 == 'male' ? 8 : 0),
+                child: ChoiceChip(
+                  label: SizedBox(width: double.infinity, child: Text(option.$2, textAlign: TextAlign.center)),
+                  selected: _signupGender == option.$1,
+                  onSelected: (_) => setState(() => _signupGender = option.$1),
+                ),
+              ),
+            ),
+        ]),
+        const SizedBox(height: 16),
         FilledButton.icon(
-          onPressed: _busy || !_otpVerified ? null : _signUp,
+          onPressed: _busy || !_otpVerified || _signupGender.isEmpty ? null : _signUp,
           icon: const Icon(Icons.person_add_alt_rounded),
           label: Text(_english
               ? 'Create account'
@@ -677,6 +706,7 @@ class _AccountPortalState extends State<AccountPortal> {
         password: password,
         confirmPassword: confirmPassword,
         language: widget.language.code,
+        gender: _signupGender,
       ),
       onSuccess: (result) => _open(
         BelieverJourneyScreen(

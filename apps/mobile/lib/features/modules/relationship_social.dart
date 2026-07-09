@@ -6,6 +6,28 @@ import '../../i18n/app_i18n.dart';
 bool _en(AppLanguage l) => l == AppLanguage.english;
 String _t(AppLanguage l, String en, String am) => _en(l) ? en : am;
 
+/// Turns API error codes into calm, human-readable text for the relationship UI.
+String friendlyRelationshipError(Object error, AppLanguage l) {
+  final raw = error.toString().replaceFirst('HttpException: ', '').trim();
+  switch (raw) {
+    case 'relationship_profile_not_found':
+      return _t(l, "This person hasn't set up a relationship profile yet.",
+          'ይህ ሰው የግንኙነት መገለጫ ገና አላዘጋጀም።');
+    case 'relationship_adults_only':
+      return _t(l, 'The courtship space is available to adults only.',
+          'የጋብቻ ክፍል ለአዋቂዎች ብቻ ነው።');
+    case 'relationship_access_denied':
+    case 'relationship_scope_access_denied':
+      return _t(l, "You don't have access to this profile.",
+          'ይህን መገለጫ ማየት አይችሉም።');
+    case 'receiver_not_available':
+      return _t(l, 'This person is no longer available.', 'ይህ ሰው አሁን የለም።');
+    default:
+      // An unknown snake_case code is still nicer spaced out than shown raw.
+      return raw.contains(' ') ? raw : raw.replaceAll('_', ' ');
+  }
+}
+
 List<Map<String, dynamic>> _mapList(dynamic v) =>
     (v as List<dynamic>? ?? const []).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
 
@@ -317,7 +339,7 @@ class _RelationshipProfileSheetState extends State<_RelationshipProfileSheet> {
       final profile = await widget.apiClient.viewRelationshipProfile(widget.token, widget.userId);
       if (mounted) setState(() { _profile = profile; _loading = false; });
     } catch (error) {
-      if (mounted) setState(() { _error = error.toString().replaceFirst('HttpException: ', ''); _loading = false; });
+      if (mounted) setState(() { _error = friendlyRelationshipError(error, language); _loading = false; });
     }
   }
 
@@ -343,7 +365,7 @@ class _RelationshipProfileSheetState extends State<_RelationshipProfileSheet> {
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
-      if (mounted) setState(() { _sending = false; _error = error.toString().replaceFirst('HttpException: ', ''); });
+      if (mounted) setState(() { _sending = false; _error = friendlyRelationshipError(error, language); });
     }
   }
 

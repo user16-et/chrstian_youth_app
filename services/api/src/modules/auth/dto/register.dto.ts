@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsNotEmpty, Matches, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsIn, IsNotEmpty, IsOptional, Matches, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @ApiProperty()
@@ -26,4 +26,9 @@ export class RegisterDto {
   @ApiProperty({ enum: ['en', 'am'] })
   @IsIn(['en', 'am'])
   language!: 'en' | 'am';
+
+  @ApiPropertyOptional({ enum: ['male', 'female'], description: 'Used for courtship matching' })
+  @IsOptional()
+  @IsIn(['male', 'female'])
+  gender?: 'male' | 'female';
 }

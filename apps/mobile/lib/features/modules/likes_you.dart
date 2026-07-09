@@ -44,7 +44,7 @@ class _LikesYouScreenState extends State<LikesYouScreen> {
       final rows = await widget.apiClient.fetchRelationshipLikes(widget.token);
       if (mounted) setState(() { _likes = rows; _loading = false; _status = ''; });
     } catch (error) {
-      if (mounted) setState(() { _status = error.toString().replaceFirst('HttpException: ', ''); _loading = false; });
+      if (mounted) setState(() { _status = friendlyRelationshipError(error, lang); _loading = false; });
     }
   }
 
