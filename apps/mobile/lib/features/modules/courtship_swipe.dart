@@ -31,6 +31,7 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
   List<Map<String, dynamic>> _cards = const [];
   bool _loading = true;
   String _status = '';
+  Map<String, dynamic> _filters = {};
   Offset _drag = Offset.zero;
   Offset _flyFrom = Offset.zero;
   Offset _flyTo = Offset.zero;
@@ -55,10 +56,23 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
 
   Future<void> _load() async {
     try {
-      final cards = await widget.apiClient.discoverRelationships(widget.token, {});
+      final cards = await widget.apiClient.discoverRelationships(widget.token, _filters);
       if (mounted) setState(() { _cards = cards; _loading = false; });
     } catch (error) {
       if (mounted) setState(() { _status = error.toString().replaceFirst('HttpException: ', ''); _loading = false; });
+    }
+  }
+
+  Future<void> _openFilters() async {
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _DiscoveryFilterSheet(language: lang, initial: _filters),
+    );
+    if (result != null && mounted) {
+      setState(() { _filters = result; _loading = true; _cards = const []; _history.clear(); _status = ''; });
+      await _load();
     }
   }
 
@@ -172,7 +186,20 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_tr(lang, 'Discover', 'ያግኙ'))),
+      appBar: AppBar(
+        title: Text(_tr(lang, 'Discover', 'ያግኙ')),
+        actions: [
+          IconButton(
+            tooltip: _tr(lang, 'Filters', 'ማጣሪያዎች'),
+            onPressed: _openFilters,
+            icon: Badge(
+              isLabelVisible: _filters.isNotEmpty,
+              smallSize: 8,
+              child: const Icon(Icons.tune_rounded),
+            ),
+          ),
+        ],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _cards.isEmpty
@@ -206,10 +233,23 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.favorite_border_rounded, size: 64, color: Theme.of(context).colorScheme.outline),
             const SizedBox(height: 14),
-            Text(_status.isNotEmpty ? _status : _tr(lang, "You're all caught up. Check back soon.", 'ለአሁን ጨርሰዋል። በኋላ ይመለሱ።'),
+            Text(
+                _status.isNotEmpty
+                    ? _status
+                    : _filters.isNotEmpty
+                        ? _tr(lang, 'No one matches these filters. Try widening them.', 'በእነዚህ ማጣሪያዎች የለም። ማጣሪያዎችን ያስፉ።')
+                        : _tr(lang, "You're all caught up. Check back soon.", 'ለአሁን ጨርሰዋል። በኋላ ይመለሱ።'),
                 textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            OutlinedButton(onPressed: () { setState(() => _loading = true); _load(); }, child: Text(_tr(lang, 'Refresh', 'አድስ'))),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              if (_filters.isNotEmpty) ...[
+                OutlinedButton(
+                    onPressed: () { setState(() { _filters = {}; _loading = true; }); _load(); },
+                    child: Text(_tr(lang, 'Clear filters', 'ማጣሪያ አጽዳ'))),
+                const SizedBox(width: 10),
+              ],
+              OutlinedButton(onPressed: () { setState(() => _loading = true); _load(); }, child: Text(_tr(lang, 'Refresh', 'አድስ'))),
+            ]),
           ]),
         ),
       );
@@ -348,6 +388,130 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
             height: size,
             child: Icon(icon, color: active ? color : Theme.of(context).colorScheme.outlineVariant, size: size * 0.5)),
       ),
+    );
+  }
+}
+
+/// Bottom sheet for filtering the discovery deck. Returns a filter map on Apply
+/// (only set fields are included), or null on dismiss.
+class _DiscoveryFilterSheet extends StatefulWidget {
+  const _DiscoveryFilterSheet({required this.language, required this.initial});
+
+  final AppLanguage language;
+  final Map<String, dynamic> initial;
+
+  @override
+  State<_DiscoveryFilterSheet> createState() => _DiscoveryFilterSheetState();
+}
+
+class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
+  static const double _minAgeBound = 18;
+  static const double _maxAgeBound = 70;
+
+  late RangeValues _age;
+  late String _gender;
+  late final TextEditingController _city;
+  late final TextEditingController _denomination;
+
+  AppLanguage get lang => widget.language;
+
+  @override
+  void initState() {
+    super.initState();
+    final i = widget.initial;
+    final lo = (i['minAge'] is num) ? (i['minAge'] as num).toDouble() : _minAgeBound;
+    final hi = (i['maxAge'] is num) ? (i['maxAge'] as num).toDouble() : _maxAgeBound;
+    _age = RangeValues(lo.clamp(_minAgeBound, _maxAgeBound), hi.clamp(_minAgeBound, _maxAgeBound));
+    _gender = '${i['gender'] ?? ''}';
+    _city = TextEditingController(text: '${i['city'] ?? ''}');
+    _denomination = TextEditingController(text: '${i['denomination'] ?? ''}');
+  }
+
+  @override
+  void dispose() {
+    _city.dispose();
+    _denomination.dispose();
+    super.dispose();
+  }
+
+  Map<String, dynamic> _build() {
+    final filters = <String, dynamic>{};
+    if (_age.start > _minAgeBound) filters['minAge'] = _age.start.round();
+    if (_age.end < _maxAgeBound) filters['maxAge'] = _age.end.round();
+    if (_gender.isNotEmpty) filters['gender'] = _gender;
+    if (_city.text.trim().isNotEmpty) filters['city'] = _city.text.trim();
+    if (_denomination.text.trim().isNotEmpty) filters['denomination'] = _denomination.text.trim();
+    return filters;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 4,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(_tr(lang, 'Filter discovery', 'ማጣሪያ'), style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 16),
+        Row(children: [
+          Text(_tr(lang, 'Age', 'ዕድሜ'), style: const TextStyle(fontWeight: FontWeight.w600)),
+          const Spacer(),
+          Text('${_age.start.round()} – ${_age.end.round()}${_age.end >= _maxAgeBound ? '+' : ''}'),
+        ]),
+        RangeSlider(
+          values: _age,
+          min: _minAgeBound,
+          max: _maxAgeBound,
+          divisions: (_maxAgeBound - _minAgeBound).round(),
+          labels: RangeLabels('${_age.start.round()}', '${_age.end.round()}'),
+          onChanged: (v) => setState(() => _age = RangeValues(
+              v.start, v.end - v.start < 1 ? (v.start + 1).clamp(_minAgeBound, _maxAgeBound) : v.end)),
+        ),
+        const SizedBox(height: 8),
+        Text(_tr(lang, 'Looking for', 'የምፈልገው'), style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, children: [
+          for (final option in [('', _tr(lang, 'Everyone', 'ሁሉም')), ('male', _tr(lang, 'Men', 'ወንዶች')), ('female', _tr(lang, 'Women', 'ሴቶች'))])
+            ChoiceChip(
+              label: Text(option.$2),
+              selected: _gender == option.$1,
+              onSelected: (_) => setState(() => _gender = option.$1),
+            ),
+        ]),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _city,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: _tr(lang, 'City', 'ከተማ'),
+            prefixIcon: const Icon(Icons.place_outlined),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _denomination,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: _tr(lang, 'Denomination (optional)', 'ቤተ እምነት (አማራጭ)'),
+            prefixIcon: const Icon(Icons.church_outlined),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(children: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, <String, dynamic>{}),
+            child: Text(_tr(lang, 'Clear all', 'አጽዳ')),
+          ),
+          const Spacer(),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _build()),
+            child: Text(_tr(lang, 'Apply', 'ተግብር')),
+          ),
+        ]),
+      ]),
     );
   }
 }
