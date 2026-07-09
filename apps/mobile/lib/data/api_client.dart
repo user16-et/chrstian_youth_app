@@ -1250,15 +1250,24 @@ class ApiClient {
   }
 
   Future<List<BibleSearchResultItem>> searchBible(String query,
-      {String? token}) async {
+      {String? token, String? version}) async {
+    var path = '/bible/search?q=${Uri.encodeQueryComponent(query)}';
+    if (version != null && version.isNotEmpty) {
+      path += '&version=${Uri.encodeQueryComponent(version)}';
+    }
     final response = token == null
-        ? await _getJson('/bible/search?q=${Uri.encodeQueryComponent(query)}')
-        : await _getJson('/bible/search?q=${Uri.encodeQueryComponent(query)}',
-            headers: {'Authorization': 'Bearer $token'});
+        ? await _getJson(path)
+        : await _getJson(path, headers: {'Authorization': 'Bearer $token'});
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(BibleSearchResultItem.fromJson)
         .toList();
+  }
+
+  /// Full translation payload for offline download (GET /bible/download/:version).
+  Future<Map<String, dynamic>> downloadBibleTranslation(String version) async {
+    final response = await _getJson('/bible/download/$version');
+    return response as Map<String, dynamic>;
   }
 
   Future<List<BibleReadingPlanItem>> fetchReadingPlans() async {

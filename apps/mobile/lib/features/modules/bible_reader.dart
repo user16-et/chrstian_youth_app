@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/api_client.dart';
+import '../../data/bible_local_store.dart';
 import '../../i18n/app_i18n.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
@@ -43,6 +44,10 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   double _font = 1.0;
   bool _loading = true;
   String _error = '';
+  Set<String> _offline = {}; // version codes available on-device
+  bool _readingOffline = false;
+
+  final _store = BibleLocalStore.instance;
 
   AppLanguage get lang => widget.language;
 
@@ -63,6 +68,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   }
 
   Future<void> _bootstrap() async {
+    _offline = await _store.downloadedVersions();
     try {
       final results = await Future.wait([
         widget.apiClient.fetchBibleVersions(),
@@ -70,39 +76,63 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       ]);
       _versions = results[0];
       _books = results[1];
-      if (!_versions.any((v) => v['code'] == _primary) && _versions.isNotEmpty) {
-        _primary = '${_versions.first['code']}';
+      await _store.cacheBooks(_books);
+    } catch (_) {
+      // Offline: fall back to the cached book list and downloaded translations.
+      _books = await _store.cachedBooks();
+      _versions = (await _store.downloadInfo())
+          .map((d) => {'code': d['version'], 'name': d['name'], 'language': d['language']})
+          .toList();
+      if (_books.isEmpty || _versions.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = _t(lang, 'No connection, and nothing downloaded yet. Connect once to download a translation for offline use.',
+                'ግንኙነት የለም፣ የወረደም የለም። ለቀጣይ ንባብ አንዴ ተገናኝተው ትርጉም ያውርዱ።');
+          });
+        }
+        return;
       }
-      _book = _books.firstWhere(
-        (b) => '${b['name']}'.toLowerCase() == widget.initialBook.toLowerCase(),
-        orElse: () => _books.isNotEmpty ? _books.first : <String, dynamic>{},
-      );
-      await _loadChapter();
-    } catch (error) {
-      if (mounted) setState(() { _error = _clean(error); _loading = false; });
     }
+    if (!_versions.any((v) => v['code'] == _primary) && _versions.isNotEmpty) {
+      _primary = '${_versions.first['code']}';
+    }
+    _book = _books.firstWhere(
+      (b) => '${b['name']}'.toLowerCase() == widget.initialBook.toLowerCase(),
+      orElse: () => _books.isNotEmpty ? _books.first : <String, dynamic>{},
+    );
+    await _loadChapter();
   }
 
   String _clean(Object e) => e.toString().replaceFirst('HttpException: ', '');
 
   int get _chapters => (_book?['chapters'] as num?)?.toInt() ?? 1;
 
+  // Read a chapter, preferring the on-device copy when the translation is
+  // downloaded, and falling back to the network otherwise.
+  Future<List<Map<String, dynamic>>> _fetchVerses(String version, String book, int chapter) async {
+    if (_offline.contains(version)) {
+      final local = await _store.chapter(version, book, chapter);
+      if (local != null) {
+        _readingOffline = true;
+        return local;
+      }
+    }
+    final data = await widget.apiClient.fetchBibleChapter(
+        token: widget.token, version: version, book: book, chapter: chapter);
+    return (data['verses'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+  }
+
   Future<void> _loadChapter() async {
     final book = _book;
     if (book == null) return;
-    setState(() { _loading = true; _error = ''; });
+    setState(() { _loading = true; _error = ''; _readingOffline = false; });
     try {
-      final primary = await widget.apiClient.fetchBibleChapter(
-          token: widget.token, version: _primary, book: '${book['name']}', chapter: _chapter);
-      final verses = (primary['verses'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final verses = await _fetchVerses(_primary, '${book['name']}', _chapter);
       Map<int, String> secByVerse = const {};
       if (_secondary != null) {
-        final sec = await widget.apiClient.fetchBibleChapter(
-            token: widget.token, version: _secondary!, book: '${book['name']}', chapter: _chapter);
-        secByVerse = {
-          for (final v in (sec['verses'] as List?)?.cast<Map<String, dynamic>>() ?? const [])
-            (v['verse'] as num).toInt(): '${v['text'] ?? ''}',
-        };
+        final sec = await _fetchVerses(_secondary!, '${book['name']}', _chapter);
+        secByVerse = {for (final v in sec) (v['verse'] as num).toInt(): '${v['text'] ?? ''}'};
       }
       if (mounted) {
         setState(() { _verses = verses; _secondaryByVerse = secByVerse; _loading = false; });
@@ -154,6 +184,14 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
           ),
         ),
         actions: [
+          if (_readingOffline)
+            Padding(
+              padding: const EdgeInsets.only(right: 2),
+              child: Tooltip(
+                message: _t(lang, 'Reading offline', 'ከመስመር ውጭ በማንበብ ላይ'),
+                child: Icon(Icons.cloud_done_rounded, size: 20, color: colors.primary),
+              ),
+            ),
           TextButton(
             onPressed: _versions.isEmpty ? null : _openTranslationPicker,
             child: Text(_primary.toUpperCase(),
@@ -357,8 +395,9 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheet) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
             child: Align(
@@ -373,6 +412,24 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                   : Icons.radio_button_unchecked_rounded),
               title: Text('${v['name']}'),
               subtitle: Text(v['language'] == 'am' ? 'አማርኛ' : 'English'),
+              trailing: _offline.contains('${v['code']}')
+                  ? IconButton(
+                      tooltip: _t(lang, 'Remove download', 'ማውረድ አስወግድ'),
+                      icon: Icon(Icons.cloud_done_rounded, color: Theme.of(context).colorScheme.primary),
+                      onPressed: () async {
+                        await _store.deleteVersion('${v['code']}');
+                        setState(() => _offline.remove('${v['code']}'));
+                        setSheet(() {});
+                      },
+                    )
+                  : IconButton(
+                      tooltip: _t(lang, 'Download for offline', 'ለቀጣይ ንባብ አውርድ'),
+                      icon: const Icon(Icons.download_rounded),
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await _downloadVersion('${v['code']}', '${v['name']}');
+                      },
+                    ),
               onTap: () {
                 final code = '${v['code']}';
                 Navigator.pop(context);
@@ -397,8 +454,40 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
             },
           ),
         ]),
+        ),
       ),
     );
+  }
+
+  Future<void> _downloadVersion(String code, String name) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Row(children: [
+          const CircularProgressIndicator(),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Text(_t(lang, 'Downloading $name…\nThis happens once, then it reads offline.',
+                '$name በማውረድ ላይ…\nአንዴ ብቻ፣ ከዚያ ከመስመር ውጭ ይነበባል።')),
+          ),
+        ]),
+      ),
+    );
+    try {
+      final data = await widget.apiClient.downloadBibleTranslation(code);
+      final verses = (data['verses'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final meta = (data['version'] as Map?)?.cast<String, dynamic>() ?? {'code': code, 'name': name};
+      await _store.saveVersion(meta, verses);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      setState(() => _offline.add(code));
+      _toast(_t(lang, '$name saved for offline reading', '$name ከመስመር ውጭ ንባብ ተቀምጧል'));
+    } catch (error) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      _toast(_clean(error));
+    }
   }
 
   void _openTextSize() {
