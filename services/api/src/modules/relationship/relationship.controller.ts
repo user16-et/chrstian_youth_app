@@ -20,6 +20,7 @@ export class RelationshipController {
   @Get('/connections/:id') connection(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.connection(requireBearerToken(h), id); }
   @Patch('/connections/:id/stage') stage(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() b: Record<string, unknown>) { return this.service.stage(requireBearerToken(h), id, b ?? {}); }
   @Post('/connections/:id/messages') message(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() b: Record<string, unknown>) { return this.service.message(requireBearerToken(h), id, b ?? {}); }
+  @Post('/connections/:id/read') markRead(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.markRead(requireBearerToken(h), id); }
   @Post('/connections/:id/prayers') prayer(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() b: Record<string, unknown>) { return this.service.prayer(requireBearerToken(h), id, b ?? {}); }
   @Patch('/prayers/:id/answer') answerPrayer(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.answerPrayer(requireBearerToken(h), id); }
   @Post('/connections/:id/bible-plans') biblePlan(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() b: Record<string, unknown>) { return this.service.biblePlan(requireBearerToken(h), id, b ?? {}); }

@@ -1,12 +1,22 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRepository } from '../../common/user.repository';
+import { NotificationsService } from '../platform/notifications.service';
 import { RelationshipRepository } from './relationship.repository';
 
 const RELATIONSHIP_STAGES = ['friendship', 'courtship', 'engaged', 'paused', 'ended'];
 
 @Injectable()
 export class RelationshipService {
-  constructor(private readonly users: UserRepository, private readonly relationships: RelationshipRepository) {}
+  constructor(
+    private readonly users: UserRepository,
+    private readonly relationships: RelationshipRepository,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  // A notification must never break the underlying action, so failures are swallowed.
+  private notify(input: Parameters<NotificationsService['send']>[0]) {
+    void this.notifications.send(input).catch(() => undefined);
+  }
 
   private async actor(token: string) {
     const user = await this.users.authenticate(token);
@@ -48,6 +58,20 @@ export class RelationshipService {
     if (!row) throw new NotFoundException('receiver_not_available');
     // If they already liked you, it's a match — both accepted, a connection opens.
     const connection = await this.relationships.matchIfMutual(user.id, receiverId);
+    if (connection) {
+      // Tell the other person — the actor sees the match dialog inline.
+      this.notify({
+        userId: receiverId,
+        actorId: user.id,
+        type: 'relationship_match',
+        title: 'New match 🎉',
+        body: `You and ${user.fullName} liked each other. Say hello!`,
+        targetType: 'relationship',
+        targetId: String(connection.id),
+        priority: 'high',
+        dedupeKey: `relationship_match:${connection.id}:${receiverId}`,
+      });
+    }
     return { ...row, matched: connection != null, connection: connection ?? null };
   }
 
@@ -66,9 +90,18 @@ export class RelationshipService {
   async connections(token: string) { return this.relationships.connections((await this.actor(token)).id); }
 
   async connection(token: string, id: string) {
-    const detail = await this.relationships.connectionDetail((await this.actor(token)).id, id);
+    const user = await this.actor(token);
+    const detail = await this.relationships.connectionDetail(user.id, id);
     if (!detail) throw new NotFoundException('connection_not_found');
+    // Opening the thread clears its unread badge.
+    await this.relationships.markConnectionRead(user.id, id);
     return detail;
+  }
+
+  async markRead(token: string, id: string) {
+    const user = await this.actor(token);
+    await this.requireMember(user.id, id);
+    return this.relationships.markConnectionRead(user.id, id);
   }
 
   async stage(token: string, id: string, body: Record<string, unknown>) {
@@ -85,7 +118,25 @@ export class RelationshipService {
     if (!String(body.body ?? '').trim() && !String(body.attachmentUrl ?? '').trim()) {
       throw new BadRequestException('message_or_attachment_required');
     }
-    return this.relationships.addMessage(user.id, id, body);
+    const message = await this.relationships.addMessage(user.id, id, body);
+    // Sending marks the thread read for the sender, and notifies the recipient.
+    await this.relationships.markConnectionRead(user.id, id);
+    const partnerId = await this.relationships.partnerOf(user.id, id);
+    if (partnerId) {
+      const preview = String(body.body ?? '').trim() || '📎 Attachment';
+      this.notify({
+        userId: partnerId,
+        actorId: user.id,
+        type: 'relationship_message',
+        title: user.fullName,
+        body: preview.length > 140 ? `${preview.slice(0, 139)}…` : preview,
+        targetType: 'relationship',
+        targetId: id,
+        priority: 'high',
+        dedupeKey: `relationship_message:${id}:${(message as { id?: string })?.id ?? Date.now()}`,
+      });
+    }
+    return message;
   }
 
   async prayer(token: string, id: string, body: Record<string, unknown>) {

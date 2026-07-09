@@ -115,6 +115,7 @@ class _MatchesInboxScreenState extends State<MatchesInboxScreen> {
     final name = '${match['partnerName'] ?? ''}';
     final last = '${match['lastMessage'] ?? ''}'.trim();
     final stage = '${match['stage'] ?? ''}';
+    final unread = (match['unread'] is num) ? (match['unread'] as num).toInt() : 0;
     final fromMe = '${match['lastMessageAuthorId'] ?? ''}' != '${match['partnerId'] ?? ''}' && last.isNotEmpty;
     final preview = last.isEmpty
         ? _tr(lang, "You matched! Say hello 👋", 'ተዛመዳችሁ! ሰላም በሉ 👋')
@@ -131,15 +132,32 @@ class _MatchesInboxScreenState extends State<MatchesInboxScreen> {
         Expanded(child: Text(name.isEmpty ? _tr(lang, 'Match', 'ተዛማጅ') : name,
             maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700))),
         Text(_relativeTime(lang, _parseTime(match['lastMessageAt'])),
-            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
+            style: TextStyle(
+                color: unread > 0 ? colors.primary : colors.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w400)),
       ]),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 2),
         child: Row(children: [
           Expanded(child: Text(preview,
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: last.isEmpty ? colors.primary : colors.onSurfaceVariant))),
-          if (stage.isNotEmpty && stage != 'friendship') ...[
+              style: TextStyle(
+                  color: last.isEmpty
+                      ? colors.primary
+                      : (unread > 0 ? colors.onSurface : colors.onSurfaceVariant),
+                  fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.w400))),
+          if (unread > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              constraints: const BoxConstraints(minWidth: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: colors.primary, borderRadius: BorderRadius.circular(999)),
+              child: Text('${unread > 99 ? '99+' : unread}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: colors.onPrimary, fontSize: 12, fontWeight: FontWeight.w700)),
+            ),
+          ] else if (stage.isNotEmpty && stage != 'friendship') ...[
             const SizedBox(width: 8),
             _stageChip(colors, stage),
           ],

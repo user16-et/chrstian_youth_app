@@ -240,19 +240,42 @@ export class RelationshipRepository {
         CASE WHEN rc.user1_id=$1
           THEN COALESCE(NULLIF(pp2.url,''), NULLIF(u2.profile_image,''), up2.photo_url, '')
           ELSE COALESCE(NULLIF(pp1.url,''), NULLIF(u1.profile_image,''), up1.photo_url, '') END AS "partnerPhoto",
-        lm.body AS "lastMessage", lm.author_id AS "lastMessageAuthorId", lm.created_at AS "lastMessageAt"
+        lm.body AS "lastMessage", lm.author_id AS "lastMessageAuthorId", lm.created_at AS "lastMessageAt",
+        COALESCE(uc.unread, 0)::int AS "unread"
       FROM relationship_connections rc
       JOIN users u1 ON u1.id=rc.user1_id
       JOIN users u2 ON u2.id=rc.user2_id
       LEFT JOIN user_profiles up1 ON up1.user_id=rc.user1_id
       LEFT JOIN user_profiles up2 ON up2.user_id=rc.user2_id
+      LEFT JOIN relationship_connection_reads cr ON cr.relationship_id=rc.id AND cr.user_id=$1
       LEFT JOIN LATERAL (SELECT url FROM relationship_profile_photos WHERE user_id=rc.user1_id ORDER BY position, created_at LIMIT 1) pp1 ON true
       LEFT JOIN LATERAL (SELECT url FROM relationship_profile_photos WHERE user_id=rc.user2_id ORDER BY position, created_at LIMIT 1) pp2 ON true
       LEFT JOIN LATERAL (SELECT body, author_id, created_at FROM relationship_messages WHERE relationship_id=rc.id ORDER BY created_at DESC LIMIT 1) lm ON true
+      LEFT JOIN LATERAL (SELECT count(*) AS unread FROM relationship_messages m
+        WHERE m.relationship_id=rc.id AND m.author_id<>$1
+          AND m.created_at > COALESCE(cr.last_read_at, 'epoch'::timestamptz)) uc ON true
       WHERE rc.user1_id=$1 OR rc.user2_id=$1
       ORDER BY COALESCE(lm.created_at, rc.updated_at) DESC`,
       [userId],
     ).then((r) => r.rows);
+  }
+
+  // The other participant in a connection, or null if the user isn't a member.
+  partnerOf(userId: string, relationshipId: string): Promise<string | null> {
+    return this.one(
+      `SELECT CASE WHEN user1_id=$2 THEN user2_id ELSE user1_id END AS "partnerId"
+       FROM relationship_connections WHERE id=$1 AND (user1_id=$2 OR user2_id=$2)`,
+      [relationshipId, userId],
+    ).then((row) => (row?.partnerId as string | undefined) ?? null);
+  }
+
+  markConnectionRead(userId: string, relationshipId: string) {
+    return this.db.query(
+      `INSERT INTO relationship_connection_reads(relationship_id,user_id,last_read_at)
+       VALUES($1,$2,now())
+       ON CONFLICT(relationship_id,user_id) DO UPDATE SET last_read_at=now()`,
+      [relationshipId, userId],
+    ).then(() => ({ status: 'read' as const }));
   }
 
   updateStage(userId: string, relationshipId: string, stage: string) {

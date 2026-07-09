@@ -8,5 +8,6 @@ import { SearchService } from './search.service';
 @Module({
   controllers: [NotificationsController, SearchController],
   providers: [NotificationsService, SearchService],
+  exports: [NotificationsService],
 })
 export class PlatformModule {}

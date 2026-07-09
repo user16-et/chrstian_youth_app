@@ -7872,7 +7872,15 @@ class _RelationshipEcosystemPanelState
                             language: widget.language)));
                     await widget.onChanged();
                   },
-            icon: const Icon(Icons.forum_rounded),
+            icon: Builder(builder: (context) {
+              final unread = connections.fold<int>(
+                  0, (sum, c) => sum + ((c['unread'] is num) ? (c['unread'] as num).toInt() : 0));
+              return Badge(
+                isLabelVisible: unread > 0,
+                label: Text('${unread > 99 ? '99+' : unread}'),
+                child: const Icon(Icons.forum_rounded),
+              );
+            }),
             label: Text(en ? 'Matches' : 'ተዛማጆች'),
           ),
         ),
