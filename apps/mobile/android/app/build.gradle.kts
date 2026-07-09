@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "com.christianyouth.superapp"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned to 36 (installed) — sqflite_android, url_launcher_android and
+    // recent AndroidX libs require compileSdk 36+.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
