@@ -90,6 +90,11 @@ export class RelationshipService {
     return { ...row, matched: connection != null, connection: connection ?? null };
   }
 
+  async likesYou(token: string) {
+    const user = await this.adult(token);
+    return this.relationships.likesYou(user.id);
+  }
+
   async withdrawInterest(token: string, input: Record<string, unknown>) {
     const user = await this.adult(token);
     const receiverId = String(input.receiverId ?? '');

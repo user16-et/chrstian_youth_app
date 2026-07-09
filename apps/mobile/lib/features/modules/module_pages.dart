@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 
 import 'church_detail_page.dart';
 import 'courtship_swipe.dart';
+import 'likes_you.dart';
 import 'matches_inbox.dart';
 import 'live_chat_panel.dart';
 import 'prayer_growth_pages.dart';
@@ -7840,6 +7841,52 @@ class _RelationshipEcosystemPanelState
             ],
           ]),
       const SizedBox(height: 12),
+      if (_interestList('received').isNotEmpty)
+        Builder(builder: (context) {
+          final received = _interestList('received');
+          final superCount = received.where((r) => r['super'] == true).length;
+          final colors = Theme.of(context).colorScheme;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Material(
+              color: colors.primaryContainer,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: (widget.token == null || widget.token!.isEmpty)
+                    ? null
+                    : () async {
+                        await Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => LikesYouScreen(
+                                apiClient: widget.apiClient,
+                                token: widget.token!,
+                                language: widget.language)));
+                        await widget.onChanged();
+                      },
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(children: [
+                    Icon(Icons.favorite_rounded, color: colors.onPrimaryContainer),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(
+                            en
+                                ? '${received.length} ${received.length == 1 ? 'person likes' : 'people like'} you'
+                                : '${received.length} ሰዎች ወደዱዎት',
+                            style: TextStyle(color: colors.onPrimaryContainer, fontWeight: FontWeight.w800, fontSize: 16)),
+                        if (superCount > 0)
+                          Text(en ? '$superCount super-liked you 💙' : '$superCount ሱፐር ወደዱዎት 💙',
+                              style: TextStyle(color: colors.onPrimaryContainer.withValues(alpha: .85), fontSize: 13)),
+                      ]),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: colors.onPrimaryContainer),
+                  ]),
+                ),
+              ),
+            ),
+          );
+        }),
       Row(children: [
         Expanded(
           child: FilledButton.icon(

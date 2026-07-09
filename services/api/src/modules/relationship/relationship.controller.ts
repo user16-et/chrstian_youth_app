@@ -15,6 +15,7 @@ export class RelationshipController {
   @Get('/profiles/:id') viewProfile(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.viewProfile(requireBearerToken(h), id); }
   @Post('/interests') interest(@Headers('authorization') h: string | undefined, @Body() b: Record<string, unknown>) { return this.service.interest(requireBearerToken(h), b ?? {}); }
   @Post('/interests/withdraw') withdrawInterest(@Headers('authorization') h: string | undefined, @Body() b: Record<string, unknown>) { return this.service.withdrawInterest(requireBearerToken(h), b ?? {}); }
+  @Get('/likes') likesYou(@Headers('authorization') h?: string) { return this.service.likesYou(requireBearerToken(h)); }
   @Patch('/interests/:id/accept') accept(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.accept(requireBearerToken(h), id); }
   @Patch('/interests/:id/reject') reject(@Headers('authorization') h: string | undefined, @Param('id') id: string) { return this.service.reject(requireBearerToken(h), id); }
   @Get('/connections') connections(@Headers('authorization') h?: string) { return this.service.connections(requireBearerToken(h)); }

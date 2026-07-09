@@ -193,7 +193,7 @@ export class RelationshipRepository {
   // (received, still pending), who you like (sent), and mutual matches.
   async interestsDetailed(userId: string) {
     const result = await this.db.query(
-      `SELECT i.id, i.sender_id AS "senderId", i.receiver_id AS "receiverId", i.note, i.status,
+      `SELECT i.id, i.sender_id AS "senderId", i.receiver_id AS "receiverId", i.note, i.status, i.super AS "super",
               i.created_at AS "createdAt", i.updated_at AS "updatedAt", (i.receiver_id=$1) AS incoming,
               CASE WHEN i.sender_id=$1 THEN i.receiver_id ELSE i.sender_id END AS "otherId",
               u.full_name AS "otherName",
@@ -265,6 +265,26 @@ export class RelationshipRepository {
           AND m.created_at > COALESCE(cr.last_read_at, 'epoch'::timestamptz)) uc ON true
       WHERE rc.user1_id=$1 OR rc.user2_id=$1
       ORDER BY COALESCE(lm.created_at, rc.updated_at) DESC`,
+      [userId],
+    ).then((r) => r.rows);
+  }
+
+  // People who have liked the user and are awaiting a response — super-likes first.
+  likesYou(userId: string) {
+    return this.db.query(
+      `SELECT i.id, i.sender_id AS "otherId", i.note, i.super AS "super", i.created_at AS "createdAt",
+              u.full_name AS "otherName",
+              COALESCE((SELECT url FROM relationship_profile_photos WHERE user_id=u.id ORDER BY position,created_at LIMIT 1),
+                       NULLIF(u.profile_image,''), up.photo_url, '') AS "otherPhoto",
+              c.city AS "otherCity", c.age AS "otherAge", c.church_name AS "otherChurch",
+              COALESCE(c.verified,false) AS "otherVerified"
+       FROM courtship_interests i
+       JOIN users u ON u.id = i.sender_id
+       LEFT JOIN courtship_profiles c ON c.user_id=u.id
+       LEFT JOIN user_profiles up ON up.user_id=u.id
+       WHERE i.receiver_id=$1 AND i.status='pending'
+         AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE b.blocker_id=$1 AND b.blocked_id=i.sender_id)
+       ORDER BY i.super DESC, i.created_at DESC`,
       [userId],
     ).then((r) => r.rows);
   }
