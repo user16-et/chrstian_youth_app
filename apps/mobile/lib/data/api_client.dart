@@ -1669,6 +1669,13 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  Future<List<Map<String, dynamic>>> listRelationshipConnections(
+      String token) async {
+    final response = await _getJson('/relationship/connections',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
   Future<Map<String, dynamic>> fetchRelationshipConnection(
       String token, String connectionId) async {
     final response = await _getJson('/relationship/connections/$connectionId',

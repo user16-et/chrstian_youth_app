@@ -232,7 +232,27 @@ export class RelationshipRepository {
   }
 
   connections(userId: string) {
-    return this.db.query(`SELECT rc.*,u1.full_name AS "user1Name",u2.full_name AS "user2Name",CASE WHEN rc.user1_id=$1 THEN u2.full_name ELSE u1.full_name END AS "partnerName" FROM relationship_connections rc JOIN users u1 ON u1.id=rc.user1_id JOIN users u2 ON u2.id=rc.user2_id WHERE rc.user1_id=$1 OR rc.user2_id=$1 ORDER BY rc.updated_at DESC`, [userId]).then((r) => r.rows);
+    return this.db.query(
+      `SELECT rc.*,
+        u1.full_name AS "user1Name", u2.full_name AS "user2Name",
+        CASE WHEN rc.user1_id=$1 THEN rc.user2_id ELSE rc.user1_id END AS "partnerId",
+        CASE WHEN rc.user1_id=$1 THEN u2.full_name ELSE u1.full_name END AS "partnerName",
+        CASE WHEN rc.user1_id=$1
+          THEN COALESCE(NULLIF(pp2.url,''), NULLIF(u2.profile_image,''), up2.photo_url, '')
+          ELSE COALESCE(NULLIF(pp1.url,''), NULLIF(u1.profile_image,''), up1.photo_url, '') END AS "partnerPhoto",
+        lm.body AS "lastMessage", lm.author_id AS "lastMessageAuthorId", lm.created_at AS "lastMessageAt"
+      FROM relationship_connections rc
+      JOIN users u1 ON u1.id=rc.user1_id
+      JOIN users u2 ON u2.id=rc.user2_id
+      LEFT JOIN user_profiles up1 ON up1.user_id=rc.user1_id
+      LEFT JOIN user_profiles up2 ON up2.user_id=rc.user2_id
+      LEFT JOIN LATERAL (SELECT url FROM relationship_profile_photos WHERE user_id=rc.user1_id ORDER BY position, created_at LIMIT 1) pp1 ON true
+      LEFT JOIN LATERAL (SELECT url FROM relationship_profile_photos WHERE user_id=rc.user2_id ORDER BY position, created_at LIMIT 1) pp2 ON true
+      LEFT JOIN LATERAL (SELECT body, author_id, created_at FROM relationship_messages WHERE relationship_id=rc.id ORDER BY created_at DESC LIMIT 1) lm ON true
+      WHERE rc.user1_id=$1 OR rc.user2_id=$1
+      ORDER BY COALESCE(lm.created_at, rc.updated_at) DESC`,
+      [userId],
+    ).then((r) => r.rows);
   }
 
   updateStage(userId: string, relationshipId: string, stage: string) {

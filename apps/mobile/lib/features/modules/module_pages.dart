@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 
 import 'church_detail_page.dart';
 import 'courtship_swipe.dart';
+import 'matches_inbox.dart';
 import 'live_chat_panel.dart';
 import 'prayer_growth_pages.dart';
 import 'relationship_social.dart';
@@ -7839,24 +7840,43 @@ class _RelationshipEcosystemPanelState
             ],
           ]),
       const SizedBox(height: 12),
-      SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-          onPressed: (widget.token == null || widget.token!.isEmpty)
-              ? null
-              : () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => CourtshipSwipeScreen(
-                          apiClient: widget.apiClient,
-                          token: widget.token!,
-                          language: widget.language)));
-                  await widget.onChanged();
-                },
-          icon: const Icon(Icons.style_rounded),
-          label: Text(en ? 'Start matching' : 'ማዛመድ ጀምር'),
+      Row(children: [
+        Expanded(
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            onPressed: (widget.token == null || widget.token!.isEmpty)
+                ? null
+                : () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => CourtshipSwipeScreen(
+                            apiClient: widget.apiClient,
+                            token: widget.token!,
+                            language: widget.language)));
+                    await widget.onChanged();
+                  },
+            icon: const Icon(Icons.style_rounded),
+            label: Text(en ? 'Start matching' : 'ማዛመድ ጀምር'),
+          ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+            onPressed: (widget.token == null || widget.token!.isEmpty)
+                ? null
+                : () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => MatchesInboxScreen(
+                            apiClient: widget.apiClient,
+                            token: widget.token!,
+                            language: widget.language)));
+                    await widget.onChanged();
+                  },
+            icon: const Icon(Icons.forum_rounded),
+            label: Text(en ? 'Matches' : 'ተዛማጆች'),
+          ),
+        ),
+      ]),
       const SizedBox(height: 12),
       _SectionCard(
           title: en ? 'Compatibility discovery' : 'ተስማሚነት ፍለጋ',
