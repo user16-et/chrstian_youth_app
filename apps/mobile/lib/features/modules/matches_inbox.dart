@@ -274,6 +274,83 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     }
   }
 
+  Future<void> _report() async {
+    final reasons = <String, String>{
+      'Inappropriate messages': _tr(lang, 'Inappropriate messages', 'ተገቢ ያልሆኑ መልእክቶች'),
+      'Harassment': _tr(lang, 'Harassment or abuse', 'ትንኮሳ ወይም በደል'),
+      'Fake profile': _tr(lang, 'Fake or misleading profile', 'የውሸት መገለጫ'),
+      'Safety concern': _tr(lang, 'Safety concern', 'የደህንነት ስጋት'),
+    };
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(_tr(lang, 'Report ${widget.partnerName}', '${widget.partnerName}ን ሪፖርት አድርግ'),
+                  style: Theme.of(context).textTheme.titleMedium),
+            ),
+          ),
+          for (final entry in reasons.entries)
+            ListTile(title: Text(entry.value), onTap: () => Navigator.pop(context, entry.key)),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (reason == null) return;
+    try {
+      await widget.apiClient.reportRelationshipSafety(widget.token,
+          targetUserId: widget.partnerId, relationshipId: widget.connectionId, reason: reason);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_tr(lang, 'Report sent. Our team will review it. Thank you.',
+                'ሪፖርቱ ተልኳል። ቡድናችን ይመረምረዋል። እናመሰግናለን።'))));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(friendlyRelationshipError(error, lang))));
+      }
+    }
+  }
+
+  Future<void> _block() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(_tr(lang, 'Block ${widget.partnerName}?', '${widget.partnerName}ን ማገድ?')),
+        content: Text(_tr(lang,
+            "They won't be able to message you or find your profile, and this match will be removed. You can unblock from Privacy settings.",
+            'መልእክት መላክ ወይም መገለጫዎን ማግኘት አይችሉም፣ ይህ ተዛማጅም ይወገዳል። ከግላዊነት ቅንብሮች ማገድ መሰረዝ ይችላሉ።')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_tr(lang, 'Cancel', 'ተወው'))),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(_tr(lang, 'Block', 'አግድ')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.apiClient.blockUser(token: widget.token, userId: widget.partnerId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_tr(lang, '${widget.partnerName} has been blocked.', '${widget.partnerName} ታግዷል።'))));
+        Navigator.of(context).pop();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(friendlyRelationshipError(error, lang))));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -298,6 +375,24 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
               tooltip: _tr(lang, 'View profile', 'መገለጫ ይመልከቱ'),
               onPressed: () => showRelationshipProfileSheet(context,
                   apiClient: widget.apiClient, token: widget.token, userId: widget.partnerId, language: lang),
+            ),
+          if (widget.partnerId.isNotEmpty)
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'report') _report();
+                if (value == 'block') _block();
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(value: 'report', child: Row(children: [
+                  const Icon(Icons.flag_outlined, size: 20), const SizedBox(width: 10),
+                  Text(_tr(lang, 'Report', 'ሪፖርት አድርግ')),
+                ])),
+                PopupMenuItem(value: 'block', child: Row(children: [
+                  Icon(Icons.block_rounded, size: 20, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(width: 10),
+                  Text(_tr(lang, 'Block', 'አግድ'), style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ])),
+              ],
             ),
         ],
       ),

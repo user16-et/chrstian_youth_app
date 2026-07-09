@@ -285,7 +285,10 @@ export class RelationshipRepository {
       LEFT JOIN LATERAL (SELECT count(*) AS unread FROM relationship_messages m
         WHERE m.relationship_id=rc.id AND m.author_id<>$1
           AND m.created_at > COALESCE(cr.last_read_at, 'epoch'::timestamptz)) uc ON true
-      WHERE rc.user1_id=$1 OR rc.user2_id=$1
+      WHERE (rc.user1_id=$1 OR rc.user2_id=$1)
+        AND NOT EXISTS(SELECT 1 FROM user_blocks b
+          WHERE (b.blocker_id=$1 AND b.blocked_id=CASE WHEN rc.user1_id=$1 THEN rc.user2_id ELSE rc.user1_id END)
+             OR (b.blocked_id=$1 AND b.blocker_id=CASE WHEN rc.user1_id=$1 THEN rc.user2_id ELSE rc.user1_id END))
       ORDER BY COALESCE(lm.created_at, rc.updated_at) DESC`,
       [userId],
     ).then((r) => r.rows);
