@@ -7863,6 +7863,40 @@ class _RelationshipEcosystemPanelState
             ],
           ]),
       const SizedBox(height: 12),
+      if ('${widget.data['userGender'] ?? ''}'.isEmpty)
+        Builder(builder: (context) {
+          final colors = Theme.of(context).colorScheme;
+          return Card(
+            color: colors.secondaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(en ? 'Complete your profile for matching' : 'ለማዛመድ መገለጫዎን ያሟሉ',
+                    style: TextStyle(fontWeight: FontWeight.w800, color: colors.onSecondaryContainer)),
+                const SizedBox(height: 4),
+                Text(
+                    en
+                        ? 'Tell us your sex so you appear to the right people. This is set once.'
+                        : 'ለትክክለኛ ሰዎች እንዲታዩ ጾታዎን ይንገሩን። አንዴ ብቻ ይቀመጣል።',
+                    style: TextStyle(color: colors.onSecondaryContainer)),
+                const SizedBox(height: 12),
+                Row(children: [
+                  for (final g in [('male', en ? 'Male' : 'ወንድ'), ('female', en ? 'Female' : 'ሴት')])
+                    Padding(
+                      padding: EdgeInsets.only(right: g.$1 == 'male' ? 8 : 0),
+                      child: FilledButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _run((t) => widget.apiClient.setRelationshipGender(t, g.$1),
+                                en ? 'Saved.' : 'ተቀምጧል።'),
+                        child: Text(g.$2),
+                      ),
+                    ),
+                ]),
+              ]),
+            ),
+          );
+        }),
       if (_interestList('received').isNotEmpty)
         Builder(builder: (context) {
           final received = _interestList('received');

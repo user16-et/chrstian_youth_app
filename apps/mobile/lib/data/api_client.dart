@@ -1685,6 +1685,11 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  Future<dynamic> setRelationshipGender(String token, String gender) {
+    return _postJson('/relationship/gender', {'gender': gender},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<dynamic> passRelationshipProfile(String token, String targetId) {
     return _postJson('/relationship/passes', {'targetId': targetId},
         headers: {'Authorization': 'Bearer $token'});

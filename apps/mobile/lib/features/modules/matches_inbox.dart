@@ -221,8 +221,23 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   bool _loading = true;
   bool _sending = false;
   String _status = '';
+  DateTime? _partnerLastReadAt;
 
   AppLanguage get lang => widget.language;
+
+  // Index of the most recent of my messages the partner has already read, so a
+  // single "Seen" marker sits under it. -1 when none are read yet.
+  int get _seenIndex {
+    final readAt = _partnerLastReadAt;
+    if (readAt == null) return -1;
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final mine = '${_messages[i]['author_id'] ?? ''}' != widget.partnerId;
+      if (!mine) continue;
+      final sent = _parseTime(_messages[i]['created_at']);
+      if (sent != null && !sent.isAfter(readAt)) return i;
+    }
+    return -1;
+  }
 
   @override
   void initState() {
@@ -241,8 +256,9 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     try {
       final detail = await widget.apiClient.fetchRelationshipConnection(widget.token, widget.connectionId);
       final msgs = (detail['messages'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final partnerRead = _parseTime(detail['partnerLastReadAt']);
       if (mounted) {
-        setState(() { _messages = msgs; _loading = false; _status = ''; });
+        setState(() { _messages = msgs; _partnerLastReadAt = partnerRead; _loading = false; _status = ''; });
         _scrollToBottom();
       }
     } catch (error) {
@@ -406,7 +422,23 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
                       controller: _scroll,
                       padding: const EdgeInsets.all(16),
                       itemCount: _messages.length,
-                      itemBuilder: (context, i) => _bubble(context, _messages[i]),
+                      itemBuilder: (context, i) => Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _bubble(context, _messages[i]),
+                          if (i == _seenIndex)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 4, top: 2, bottom: 4),
+                              child: Text(
+                                _tr(lang, 'Seen', 'ታይቷል'),
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
         ),
         _composer(context, colors),

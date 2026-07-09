@@ -95,6 +95,14 @@ export class RelationshipService {
     return this.relationships.likesYou(user.id);
   }
 
+  async setGender(token: string, input: Record<string, unknown>) {
+    const user = await this.actor(token);
+    const gender = String(input.gender ?? '');
+    if (gender !== 'male' && gender !== 'female') throw new BadRequestException('invalid_gender');
+    const set = await this.relationships.setGenderIfEmpty(user.id, gender);
+    return { gender, set };
+  }
+
   async pass(token: string, input: Record<string, unknown>) {
     const user = await this.adult(token);
     const targetId = String(input.targetId ?? '');

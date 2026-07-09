@@ -17,7 +17,7 @@ export class RelationshipRepository {
   }
 
   async home(userId: string) {
-    const [me, discovery, interests, connections, resources, events, mentors, analytics] = await Promise.all([
+    const [me, discovery, interests, connections, resources, events, mentors, analytics, userGender] = await Promise.all([
       this.profile(userId),
       this.discover(userId, {}),
       this.interestsDetailed(userId),
@@ -26,8 +26,21 @@ export class RelationshipRepository {
       this.db.query(`SELECT id,title,description,location,starts_at AS "startsAt",category FROM events WHERE category IN ('relationship','fellowship','conference') OR lower(title) LIKE '%marriage%' OR lower(title) LIKE '%singles%' ORDER BY starts_at LIMIT 10`).then((r) => r.rows),
       this.db.query('SELECT id,full_name AS name,ministry,church_name AS "churchName",languages,verified FROM mentors ORDER BY verified DESC,full_name LIMIT 10').then((r) => r.rows),
       this.analytics(userId),
+      this.db.query('SELECT gender FROM users WHERE id=$1', [userId]).then((r) => r.rows[0]?.gender ?? ''),
     ]);
-    return { me, discovery, interests, connections, resources, events, mentors, analytics };
+    return { me, discovery, interests, connections, resources, events, mentors, analytics, userGender };
+  }
+
+  // Set the account's sex, but only when it hasn't been set yet (for older
+  // accounts created before registration captured it). Propagates to the
+  // courtship profile so discovery filters work.
+  async setGenderIfEmpty(userId: string, gender: 'male' | 'female') {
+    const updated = await this.one(
+      `UPDATE users SET gender=$2 WHERE id=$1 AND COALESCE(gender,'')='' RETURNING gender`,
+      [userId, gender],
+    );
+    await this.db.query(`UPDATE courtship_profiles SET gender=$2 WHERE user_id=$1 AND COALESCE(gender,'')=''`, [userId, gender]);
+    return updated != null;
   }
 
   async profile(userId: string) {
@@ -339,14 +352,17 @@ export class RelationshipRepository {
   connectionDetail(userId: string, relationshipId: string) {
     return this.one(`SELECT * FROM relationship_connections WHERE id=$1 AND (user1_id=$2 OR user2_id=$2)`, [relationshipId, userId]).then(async (connection) => {
       if (!connection) return null;
-      const [messages, prayers, plans, milestones, mentors] = await Promise.all([
+      const partnerId = connection.user1_id === userId ? connection.user2_id : connection.user1_id;
+      const [messages, prayers, plans, milestones, mentors, partnerRead] = await Promise.all([
         this.db.query('SELECT rm.*,u.full_name AS "authorName" FROM relationship_messages rm JOIN users u ON u.id=rm.author_id WHERE relationship_id=$1 ORDER BY created_at', [relationshipId]).then((r) => r.rows),
         this.db.query('SELECT * FROM relationship_shared_prayers WHERE relationship_id=$1 ORDER BY created_at DESC', [relationshipId]).then((r) => r.rows),
         this.db.query('SELECT * FROM relationship_bible_plans WHERE relationship_id=$1 ORDER BY created_at DESC', [relationshipId]).then((r) => r.rows),
         this.db.query('SELECT * FROM relationship_milestones WHERE relationship_id=$1 ORDER BY created_at DESC', [relationshipId]).then((r) => r.rows),
         this.db.query('SELECT rm.*,m.full_name AS "mentorName",m.ministry FROM relationship_mentors rm LEFT JOIN mentors m ON m.id=rm.mentor_id WHERE relationship_id=$1', [relationshipId]).then((r) => r.rows),
+        this.db.query('SELECT last_read_at AS "lastReadAt" FROM relationship_connection_reads WHERE relationship_id=$1 AND user_id=$2', [relationshipId, partnerId]).then((r) => r.rows[0]?.lastReadAt ?? null),
       ]);
-      return { ...connection, messages, prayers, plans, milestones, mentors };
+      // partnerLastReadAt lets the client mark the sender's messages as "seen".
+      return { ...connection, messages, prayers, plans, milestones, mentors, partnerLastReadAt: partnerRead };
     });
   }
 
