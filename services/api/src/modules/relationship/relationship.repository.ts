@@ -20,7 +20,7 @@ export class RelationshipRepository {
     const [me, discovery, interests, connections, resources, events, mentors, analytics] = await Promise.all([
       this.profile(userId),
       this.discover(userId, {}),
-      this.interests(userId),
+      this.interestsDetailed(userId),
       this.connections(userId),
       this.db.query('SELECT * FROM relationship_resources ORDER BY created_at DESC LIMIT 20').then((r) => r.rows),
       this.db.query(`SELECT id,title,description,location,starts_at AS "startsAt",category FROM events WHERE category IN ('relationship','fellowship','conference') OR lower(title) LIKE '%marriage%' OR lower(title) LIKE '%singles%' ORDER BY starts_at LIMIT 10`).then((r) => r.rows),
@@ -178,6 +178,49 @@ export class RelationshipRepository {
 
   interests(userId: string) {
     return this.db.query(`SELECT i.id,i.sender_id AS "senderId",su.full_name AS "senderName",i.receiver_id AS "receiverId",ru.full_name AS "receiverName",i.note,i.status,i.created_at AS "createdAt",i.updated_at AS "updatedAt" FROM courtship_interests i JOIN users su ON su.id=i.sender_id JOIN users ru ON ru.id=i.receiver_id WHERE i.sender_id=$1 OR i.receiver_id=$1 ORDER BY i.updated_at DESC`, [userId]).then((r) => r.rows);
+  }
+
+  // Interests with the other person's photo/details, split into who likes you
+  // (received, still pending), who you like (sent), and mutual matches.
+  async interestsDetailed(userId: string) {
+    const result = await this.db.query(
+      `SELECT i.id, i.sender_id AS "senderId", i.receiver_id AS "receiverId", i.note, i.status,
+              i.created_at AS "createdAt", i.updated_at AS "updatedAt", (i.receiver_id=$1) AS incoming,
+              CASE WHEN i.sender_id=$1 THEN i.receiver_id ELSE i.sender_id END AS "otherId",
+              u.full_name AS "otherName",
+              COALESCE((SELECT url FROM relationship_profile_photos WHERE user_id=u.id ORDER BY position,created_at LIMIT 1),
+                       NULLIF(u.profile_image,''), up.photo_url, '') AS "otherPhoto",
+              c.city AS "otherCity", c.age AS "otherAge", COALESCE(c.verified,false) AS "otherVerified"
+       FROM courtship_interests i
+       JOIN users u ON u.id = (CASE WHEN i.sender_id=$1 THEN i.receiver_id ELSE i.sender_id END)
+       LEFT JOIN courtship_profiles c ON c.user_id=u.id
+       LEFT JOIN user_profiles up ON up.user_id=u.id
+       WHERE i.sender_id=$1 OR i.receiver_id=$1
+       ORDER BY i.updated_at DESC`,
+      [userId],
+    );
+    const rows = result.rows;
+    return {
+      received: rows.filter((r) => r.incoming === true && r.status === 'pending'),
+      sent: rows.filter((r) => r.incoming !== true),
+      matches: rows.filter((r) => r.status === 'accepted'),
+    };
+  }
+
+  // If the receiver already expressed interest, both parties are accepted and a
+  // connection (match) is created. Returns the connection, or null if not mutual.
+  async matchIfMutual(senderId: string, receiverId: string) {
+    const reciprocal = await this.one(
+      `SELECT id FROM courtship_interests WHERE sender_id=$1 AND receiver_id=$2 AND status<>'declined' LIMIT 1`,
+      [receiverId, senderId],
+    );
+    if (!reciprocal) return null;
+    await this.db.query(
+      `UPDATE courtship_interests SET status='accepted',updated_at=now()
+       WHERE (sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1)`,
+      [senderId, receiverId],
+    );
+    return this.createConnection(senderId, receiverId);
   }
 
   async createConnection(a: string, b: string, interestId?: string) {

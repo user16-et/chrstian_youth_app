@@ -46,7 +46,9 @@ export class RelationshipService {
     if (receiverId === user.id) throw new BadRequestException('cannot_send_interest_to_self');
     const row = await this.relationships.createInterest(user.id, { ...input, receiverId });
     if (!row) throw new NotFoundException('receiver_not_available');
-    return row;
+    // If they already liked you, it's a match — both accepted, a connection opens.
+    const connection = await this.relationships.matchIfMutual(user.id, receiverId);
+    return { ...row, matched: connection != null, connection: connection ?? null };
   }
 
   async accept(token: string, id: string) {

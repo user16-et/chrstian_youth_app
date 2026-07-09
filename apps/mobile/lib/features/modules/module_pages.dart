@@ -7716,6 +7716,50 @@ class _RelationshipEcosystemPanelState
     }
   }
 
+  Map<String, dynamic> get _interests =>
+      (widget.data['interests'] as Map<String, dynamic>?) ?? const {};
+  List<Map<String, dynamic>> _interestList(String key) =>
+      (_interests[key] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
+
+  void _acceptInterest(String id) => _run(
+      (t) => widget.apiClient.acceptRelationshipInterest(t, id),
+      en ? "It's a match! 🎉" : 'ተገጣጠማችሁ! 🎉');
+  void _declineInterest(String id) =>
+      _run((t) => widget.apiClient.rejectRelationshipInterest(t, id), en ? 'Passed.' : 'ተላልፏል።');
+
+  Widget _interestTile({
+    required String? photo,
+    required String name,
+    required String subtitle,
+    required VoidCallback onTap,
+    required Widget trailing,
+  }) {
+    final hasPhoto = photo != null && photo.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Row(children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundImage: hasPhoto ? NetworkImage(photo) : null,
+            child: hasPhoto ? null : const Icon(Icons.person_rounded),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
+              if (subtitle.isNotEmpty)
+                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+            ]),
+          ),
+          trailing,
+        ]),
+      ),
+    );
+  }
+
   Future<void> _run(
       Future<dynamic> Function(String token) action, String success) async {
     final token = widget.token;
@@ -7836,6 +7880,50 @@ class _RelationshipEcosystemPanelState
                         )),
                 ]),
       const SizedBox(height: 12),
+      if (_interestList('received').isNotEmpty) ...[
+        _SectionCard(
+            title: en ? 'Interested in you' : 'በእርስዎ የተፈለጉ',
+            children: [
+              for (final it in _interestList('received'))
+                _interestTile(
+                  photo: it['otherPhoto']?.toString(),
+                  name: '${it['otherName'] ?? ''}',
+                  subtitle: [it['otherCity'], it['note']]
+                      .where((e) => (e ?? '').toString().isNotEmpty)
+                      .join(' • '),
+                  onTap: () => _openProfile('${it['otherId']}'),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(
+                        tooltip: en ? 'Pass' : 'አልፍ',
+                        onPressed: _busy ? null : () => _declineInterest('${it['id']}'),
+                        icon: const Icon(Icons.close_rounded)),
+                    IconButton.filled(
+                        tooltip: en ? 'Match' : 'ተጣመር',
+                        onPressed: _busy ? null : () => _acceptInterest('${it['id']}'),
+                        icon: const Icon(Icons.favorite_rounded)),
+                  ]),
+                ),
+            ]),
+        const SizedBox(height: 12),
+      ],
+      if (_interestList('sent').isNotEmpty) ...[
+        _SectionCard(
+            title: en ? 'Your interests' : 'የእርስዎ ፍላጎቶች',
+            children: [
+              for (final it in _interestList('sent'))
+                _interestTile(
+                  photo: it['otherPhoto']?.toString(),
+                  name: '${it['otherName'] ?? ''}',
+                  subtitle: '${it['otherCity'] ?? ''}',
+                  onTap: () => _openProfile('${it['otherId']}'),
+                  trailing: Chip(
+                    label: Text('${it['status'] ?? 'pending'}'),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+            ]),
+        const SizedBox(height: 12),
+      ],
       _SectionCard(
           title: en ? 'Connections and shared journey' : 'ግንኙነቶች እና የጋራ ጉዞ',
           children: connections.isEmpty

@@ -324,8 +324,23 @@ class _RelationshipProfileSheetState extends State<_RelationshipProfileSheet> {
   Future<void> _expressInterest() async {
     setState(() => _sending = true);
     try {
-      await widget.apiClient.expressRelationshipInterest(widget.token, widget.userId,
+      final result = await widget.apiClient.expressRelationshipInterest(widget.token, widget.userId,
           _t(language, 'I would value a respectful, prayerful introduction.', 'በአክብሮት እና በጸሎት መተዋወቅ እፈልጋለሁ።'));
+      final matched = result is Map && result['matched'] == true;
+      if (!mounted) return;
+      if (matched) {
+        final name = (_profile?['fullName'] ?? '').toString();
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: Icon(Icons.favorite_rounded, color: Theme.of(context).colorScheme.primary, size: 40),
+            title: Text(_t(language, "It's a match!", 'ተገጣጠማችሁ!')),
+            content: Text(_t(language, 'You and $name both expressed interest. Your connection is open.',
+                'እርስዎ እና $name ፍላጎት አሳይታችኋል። ግንኙነታችሁ ተከፍቷል።')),
+            actions: [FilledButton(onPressed: () => Navigator.pop(context), child: Text(_t(language, 'Great', 'እሺ')))],
+          ),
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (mounted) setState(() { _sending = false; _error = error.toString().replaceFirst('HttpException: ', ''); });
