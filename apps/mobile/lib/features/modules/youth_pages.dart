@@ -192,7 +192,9 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
       return;
     }
     setState(() {
-      _searchFuture = widget.apiClient.searchBible(query, token: widget.session?.token);
+      _searchFuture = widget.apiClient.searchBible(query,
+          token: widget.session?.token,
+          version: widget.language == AppLanguage.english ? 'kjv' : 'amh');
     });
     await _searchFuture;
   }
