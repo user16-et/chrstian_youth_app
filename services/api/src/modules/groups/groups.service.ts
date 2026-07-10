@@ -245,6 +245,72 @@ export class GroupsService {
     return { removed };
   }
 
+  // ---- Polls ----
+
+  async listPolls(token: string | null, groupId: string) {
+    const group = await this.detail(token, groupId);
+    if (group.visibility === 'private' && !group.myRole) throw new ForbiddenException('group_members_only');
+    const viewer = token ? await this.userRepository.authenticate(token) : null;
+    return this.groups.listPolls(groupId, viewer?.id ?? null);
+  }
+
+  async createPoll(token: string, groupId: string, input: Record<string, unknown>) {
+    const user = await this.actor(token);
+    const { group, role } = await this.withRoleUser({ id: user.id, fullName: user.fullName }, groupId);
+    if (!role) throw new ForbiddenException('join_group_first');
+    // Channels: only owners/admins run polls. Groups: any member.
+    if (group.kind === 'channel' && !this.isManager(role)) throw new ForbiddenException('channel_admins_only');
+    const question = String(input.question ?? '').trim();
+    if (!question) throw new BadRequestException('poll_question_required');
+    const options = Array.isArray(input.options)
+      ? input.options.map((o) => String(o ?? '').trim()).filter((o) => o.length > 0)
+      : [];
+    if (options.length < 2) throw new BadRequestException('poll_needs_two_options');
+    if (options.length > 10) throw new BadRequestException('poll_too_many_options');
+    const poll = await this.groups.createPoll(user.id, groupId, question, options);
+    if (group.kind === 'channel') {
+      const recipients = await this.groups.activeMemberIds(groupId, user.id);
+      for (const userId of recipients) {
+        this.notify({
+          userId,
+          actorId: user.id,
+          type: 'group_poll',
+          title: group.name as string,
+          body: `📊 ${question.length > 130 ? `${question.slice(0, 129)}…` : question}`,
+          targetType: 'group',
+          targetId: groupId,
+          priority: 'normal',
+          dedupeKey: `group_poll:${poll.id}:${userId}`,
+        });
+      }
+    }
+    return poll;
+  }
+
+  async votePoll(token: string, groupId: string, pollId: string, optionIndex: number) {
+    const user = await this.actor(token);
+    const role = await this.groups.memberRole(user.id, groupId);
+    if (!role) throw new ForbiddenException('join_group_first');
+    const poll = await this.groups.pollDetail(pollId);
+    if (!poll || poll.groupId !== groupId) throw new NotFoundException('poll_not_found');
+    if (poll.closedAt) throw new BadRequestException('poll_closed');
+    const count = Array.isArray(poll.options) ? poll.options.length : 0;
+    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= count) {
+      throw new BadRequestException('invalid_option');
+    }
+    await this.groups.vote(pollId, user.id, optionIndex);
+    return this.groups.listPolls(groupId, user.id).then((polls) => polls.find((p) => p.id === pollId) ?? null);
+  }
+
+  async closePoll(token: string, groupId: string, pollId: string, closed: boolean) {
+    const user = await this.actor(token);
+    const role = await this.groups.memberRole(user.id, groupId);
+    const poll = await this.groups.pollDetail(pollId);
+    if (!poll || poll.groupId !== groupId) throw new NotFoundException('poll_not_found');
+    if (poll.authorId !== user.id && !this.isManager(role)) throw new ForbiddenException('not_your_poll');
+    return this.groups.closePoll(pollId, closed);
+  }
+
   // ---- Meeting (reuses the group audio room; roomId = groupId) ----
 
   async startMeeting(token: string, groupId: string, input: Record<string, unknown>) {

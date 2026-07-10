@@ -72,7 +72,7 @@ export class GroupRepository {
     if (!group) return null;
     const myRole = viewerId ? await this.memberRole(viewerId, groupId) : null;
     const myStatus = viewerId ? await this.membershipStatus(viewerId, groupId) : null;
-    return { ...group, myRole, myStatus };
+    return { ...group, myRole, myStatus, myUserId: viewerId };
   }
 
   // ---- Membership / roles ----
@@ -177,6 +177,64 @@ export class GroupRepository {
   postAuthor(postId: string): Promise<string | null> {
     return this.one('SELECT author_id FROM group_posts WHERE id=$1', [postId]).then(
       (r) => (r?.author_id as string | undefined) ?? null,
+    );
+  }
+
+  // ---- Polls ----
+
+  createPoll(authorId: string, groupId: string, question: string, options: string[]) {
+    return this.one(
+      `INSERT INTO group_polls (id, group_id, author_id, question, options, created_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, now())
+       RETURNING id, group_id AS "groupId", author_id AS "authorId", question, options, closed_at AS "closedAt", created_at AS "createdAt"`,
+      [groupId, authorId, question, options],
+    );
+  }
+
+  // Polls with per-option counts, total, and the viewer's own choice.
+  listPolls(groupId: string, viewerId: string | null, limit = 20) {
+    return this.db
+      .query(
+        `SELECT p.id, p.author_id AS "authorId", u.full_name AS "authorName",
+                p.question, p.options, p.closed_at AS "closedAt", p.created_at AS "createdAt",
+                (SELECT count(*)::int FROM group_poll_votes v WHERE v.poll_id=p.id) AS "totalVotes",
+                (SELECT v.option_index FROM group_poll_votes v WHERE v.poll_id=p.id AND v.user_id=$2) AS "myVote",
+                (SELECT json_agg(count ORDER BY idx)
+                   FROM (
+                     SELECT gs.idx,
+                            (SELECT count(*)::int FROM group_poll_votes v WHERE v.poll_id=p.id AND v.option_index=gs.idx) AS count
+                     FROM generate_series(0, COALESCE(array_length(p.options,1),1)-1) AS gs(idx)
+                   ) counts) AS "counts"
+         FROM group_polls p JOIN users u ON u.id=p.author_id
+         WHERE p.group_id=$1
+         ORDER BY (p.closed_at IS NULL) DESC, p.created_at DESC
+         LIMIT $3`,
+        [groupId, viewerId, limit],
+      )
+      .then((r) => r.rows);
+  }
+
+  pollDetail(pollId: string) {
+    return this.one(
+      `SELECT id, group_id AS "groupId", author_id AS "authorId", options, closed_at AS "closedAt" FROM group_polls WHERE id=$1`,
+      [pollId],
+    );
+  }
+
+  async vote(pollId: string, userId: string, optionIndex: number) {
+    await this.db.query(
+      `INSERT INTO group_poll_votes (poll_id, user_id, option_index, created_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (poll_id, user_id) DO UPDATE SET option_index=EXCLUDED.option_index, created_at=now()`,
+      [pollId, userId, optionIndex],
+    );
+    return { voted: true };
+  }
+
+  closePoll(pollId: string, closed: boolean) {
+    return this.one(
+      `UPDATE group_polls SET closed_at=$2 WHERE id=$1 RETURNING id, closed_at AS "closedAt"`,
+      [pollId, closed ? new Date().toISOString() : null],
     );
   }
 

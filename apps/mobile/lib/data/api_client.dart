@@ -624,6 +624,30 @@ class ApiClient {
     return response as Map<String, dynamic>;
   }
 
+  Future<List<Map<String, dynamic>>> fetchGroupPolls(String? token, String groupId) async {
+    final response = await _getJson('/groups/$groupId/polls',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> createGroupPoll(String token, String groupId,
+      {required String question, required List<String> options}) async {
+    final response = await _postJson('/groups/$groupId/polls', {'question': question, 'options': options},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> voteGroupPoll(String token, String groupId, String pollId, int optionIndex) async {
+    final response = await _postJson('/groups/$groupId/polls/$pollId/vote', {'optionIndex': optionIndex},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<dynamic> closeGroupPoll(String token, String groupId, String pollId, {bool closed = true}) {
+    return _postJson('/groups/$groupId/polls/$pollId/close', {'closed': closed},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<List<EventItem>> fetchEvents() async {
     final response = await _getJson('/events');
     return (response as List<dynamic>)

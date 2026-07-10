@@ -137,6 +137,43 @@ export class GroupsController {
     return this.groupsService.removePost(requireBearerToken(h), id, postId);
   }
 
+  @ApiOperation({ summary: 'List polls in a group/channel' })
+  @Get('/:id/polls')
+  polls(@Headers('authorization') h: string | undefined, @Param('id') id: string) {
+    return this.groupsService.listPolls(parseBearerToken(h) ?? null, id);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a poll' })
+  @Post('/:id/polls')
+  createPoll(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.groupsService.createPoll(requireBearerToken(h), id, body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Vote on a poll' })
+  @Post('/:id/polls/:pollId/vote')
+  votePoll(
+    @Headers('authorization') h: string | undefined,
+    @Param('id') id: string,
+    @Param('pollId') pollId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.groupsService.votePoll(requireBearerToken(h), id, pollId, Number(body?.optionIndex));
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Close/reopen a poll (author or admins)' })
+  @Post('/:id/polls/:pollId/close')
+  closePoll(
+    @Headers('authorization') h: string | undefined,
+    @Param('id') id: string,
+    @Param('pollId') pollId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.groupsService.closePoll(requireBearerToken(h), id, pollId, body?.closed !== false);
+  }
+
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get/generate the invite code (admins)' })
   @Post('/:id/invite')

@@ -36,6 +36,7 @@ class GroupChannelScreen extends StatefulWidget {
 class _GroupChannelScreenState extends State<GroupChannelScreen> {
   Map<String, dynamic> _detail = const {};
   List<Map<String, dynamic>> _posts = const [];
+  List<Map<String, dynamic>> _polls = const [];
   final Set<String> _postIds = {};
   final TextEditingController _input = TextEditingController();
   bool _loading = true;
@@ -149,15 +150,18 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     try {
       final detail = await widget.apiClient.fetchGroupDetail(widget.token, widget.groupId);
       List<Map<String, dynamic>> posts = const [];
+      List<Map<String, dynamic>> polls = const [];
       try {
         posts = await widget.apiClient.fetchGroupPosts(widget.token, widget.groupId);
+        polls = await widget.apiClient.fetchGroupPolls(widget.token, widget.groupId);
       } catch (_) {
-        // Private wall while not a member — leave posts empty.
+        // Private wall while not a member — leave posts/polls empty.
       }
       if (mounted) {
         setState(() {
           _detail = detail;
           _posts = posts;
+          _polls = polls;
           _postIds
             ..clear()
             ..addAll(posts.map((p) => '${p['id'] ?? ''}').where((id) => id.isNotEmpty));
@@ -226,6 +230,50 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
 
   void _toast(String message) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ---- Polls ----
+
+  Future<void> _vote(String pollId, int index) async {
+    try {
+      final updated = await widget.apiClient.voteGroupPoll(_token, widget.groupId, pollId, index);
+      if (!mounted) return;
+      setState(() {
+        _polls = _polls.map((p) => '${p['id']}' == pollId ? updated : p).toList();
+      });
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    }
+  }
+
+  Future<void> _closePoll(String pollId, bool closed) async {
+    try {
+      await widget.apiClient.closeGroupPoll(_token, widget.groupId, pollId, closed: closed);
+      await _load();
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    }
+  }
+
+  Future<void> _createPoll() async {
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: _CreatePollSheet(language: lang),
+      ),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await widget.apiClient.createGroupPoll(_token, widget.groupId,
+          question: result['question'] as String, options: (result['options'] as List).cast<String>());
+      await _load();
+      if (mounted) _toast(_t(lang, 'Poll posted.', 'ጥያቄ ተለጠፈ።'));
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    }
   }
 
   String _typingText() {
@@ -297,7 +345,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   }
 
   Widget _wall(ColorScheme colors) {
-    if (_posts.isEmpty) {
+    if (_posts.isEmpty && _polls.isEmpty) {
       return RefreshIndicator(
         onRefresh: _load,
         child: ListView(children: [
@@ -319,11 +367,110 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       child: ListView.builder(
         reverse: false,
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        itemCount: _posts.length,
-        itemBuilder: (context, i) => _postCard(_posts[i], colors),
+        itemCount: _polls.length + _posts.length,
+        itemBuilder: (context, i) => i < _polls.length
+            ? _pollCard(_polls[i], colors)
+            : _postCard(_posts[i - _polls.length], colors),
       ),
     );
   }
+
+  Widget _pollCard(Map<String, dynamic> poll, ColorScheme colors) {
+    final id = '${poll['id']}';
+    final options = (poll['options'] as List?)?.map((e) => '$e').toList() ?? const <String>[];
+    final counts = (poll['counts'] as List?)?.map((e) => (e as num).toInt()).toList() ?? const <int>[];
+    final total = (poll['totalVotes'] as num?)?.toInt() ?? 0;
+    final myVote = poll['myVote'] == null ? null : (poll['myVote'] as num).toInt();
+    final closed = poll['closedAt'] != null;
+    final canManage = _isManager || '${poll['authorId']}' == _currentUserId();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.bar_chart_rounded, size: 18, color: colors.primary),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              closed ? _t(lang, 'Poll · closed', 'ጥያቄ · ተዘግቷል') : _t(lang, 'Poll', 'ጥያቄ'),
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.onSurfaceVariant),
+            ),
+          ),
+          if (canManage)
+            InkWell(
+              onTap: () => _closePoll(id, !closed),
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                child: Text(closed ? _t(lang, 'Reopen', 'ክፈት') : _t(lang, 'Close', 'ዝጋ'),
+                    style: TextStyle(fontSize: 12, color: colors.primary, fontWeight: FontWeight.w600)),
+              ),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        Text('${poll['question'] ?? ''}', style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 12),
+        for (var i = 0; i < options.length; i++)
+          _pollOption(colors, options[i], i < counts.length ? counts[i] : 0, total, myVote == i,
+              onTap: (closed || !_isMember) ? null : () => _vote(id, i)),
+        const SizedBox(height: 4),
+        Text(
+          _t(lang, '$total ${total == 1 ? 'vote' : 'votes'}', '$total ድምጽ') +
+              (myVote == null && !closed && _isMember ? _t(lang, ' · tap to vote', ' · ለመምረጥ ይንኩ') : ''),
+          style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+        ),
+      ]),
+    );
+  }
+
+  Widget _pollOption(ColorScheme colors, String label, int count, int total, bool mine, {VoidCallback? onTap}) {
+    final pct = total == 0 ? 0.0 : count / total;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(children: [
+          // Result bar.
+          Positioned.fill(
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: pct.clamp(0.0, 1.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: (mine ? colors.primary : colors.primary.withValues(alpha: 0.35)).withValues(alpha: mine ? 0.22 : 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: mine ? colors.primary : colors.outlineVariant.withValues(alpha: 0.6)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(children: [
+              if (mine) ...[Icon(Icons.check_circle_rounded, size: 16, color: colors.primary), const SizedBox(width: 6)],
+              Expanded(
+                  child: Text(label,
+                      style: TextStyle(fontWeight: mine ? FontWeight.w600 : FontWeight.w400))),
+              const SizedBox(width: 8),
+              Text('${(pct * 100).round()}%',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: colors.onSurfaceVariant)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  String _currentUserId() => '${_detail['myUserId'] ?? ''}';
 
   Widget _postCard(Map<String, dynamic> post, ColorScheme colors) {
     final pinned = post['pinned'] == true;
@@ -412,6 +559,11 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
             onPressed: _posting ? null : _attachAndPost,
             icon: const Icon(Icons.add_photo_alternate_rounded),
             tooltip: _t(lang, 'Photo', 'ፎቶ'),
+          ),
+          IconButton(
+            onPressed: _posting ? null : _createPoll,
+            icon: const Icon(Icons.bar_chart_rounded),
+            tooltip: _t(lang, 'Poll', 'ጥያቄ'),
           ),
           Expanded(
             child: TextField(
@@ -723,4 +875,112 @@ class _MembersSheetState extends State<_MembersSheet> {
         decoration: BoxDecoration(color: colors.primaryContainer, borderRadius: BorderRadius.circular(999)),
         child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colors.onPrimaryContainer)),
       );
+}
+
+/// Compose a poll: a question and 2–10 options.
+class _CreatePollSheet extends StatefulWidget {
+  const _CreatePollSheet({required this.language});
+  final AppLanguage language;
+
+  @override
+  State<_CreatePollSheet> createState() => _CreatePollSheetState();
+}
+
+class _CreatePollSheetState extends State<_CreatePollSheet> {
+  final TextEditingController _question = TextEditingController();
+  final List<TextEditingController> _options = [TextEditingController(), TextEditingController()];
+
+  AppLanguage get lang => widget.language;
+
+  @override
+  void dispose() {
+    _question.dispose();
+    for (final c in _options) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addOption() {
+    if (_options.length >= 10) return;
+    setState(() => _options.add(TextEditingController()));
+  }
+
+  void _removeOption(int i) {
+    if (_options.length <= 2) return;
+    setState(() => _options.removeAt(i).dispose());
+  }
+
+  void _submit() {
+    final question = _question.text.trim();
+    final options = _options.map((c) => c.text.trim()).where((o) => o.isNotEmpty).toList();
+    if (question.isEmpty) return;
+    if (options.length < 2) return;
+    Navigator.pop(context, {'question': question, 'options': options});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final valid = _question.text.trim().isNotEmpty &&
+        _options.where((c) => c.text.trim().isNotEmpty).length >= 2;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(_t(lang, 'New poll', 'አዲስ ጥያቄ'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _question,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: _t(lang, 'Question', 'ጥያቄ'),
+            hintText: _t(lang, 'Ask something…', 'ጥያቄ ይጻፉ…'),
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(_t(lang, 'Options', 'አማራጮች'), style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant)),
+        const SizedBox(height: 6),
+        for (var i = 0; i < _options.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _options[i],
+                  textCapitalization: TextCapitalization.sentences,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: '${_t(lang, 'Option', 'አማራጭ')} ${i + 1}',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              if (_options.length > 2)
+                IconButton(
+                  onPressed: () => _removeOption(i),
+                  icon: Icon(Icons.remove_circle_outline_rounded, color: colors.onSurfaceVariant),
+                ),
+            ]),
+          ),
+        if (_options.length < 10)
+          TextButton.icon(
+            onPressed: _addOption,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: Text(_t(lang, 'Add option', 'አማራጭ ጨምር')),
+          ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: valid ? _submit : null,
+            child: Text(_t(lang, 'Post poll', 'ጥያቄ ለጥፍ')),
+          ),
+        ),
+      ]),
+    );
+  }
 }
