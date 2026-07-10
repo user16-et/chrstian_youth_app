@@ -22,6 +22,22 @@ String _relativeTime(AppLanguage lang, DateTime? when) {
 
 DateTime? _parseTime(dynamic value) => value == null ? null : DateTime.tryParse(value.toString())?.toLocal();
 
+bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+
+// "Today / Yesterday / weekday / date" chip label for a message day divider.
+String _dayLabel(AppLanguage lang, DateTime when) {
+  final now = DateTime.now();
+  final days = DateTime(now.year, now.month, now.day).difference(DateTime(when.year, when.month, when.day)).inDays;
+  if (days == 0) return _tr(lang, 'Today', 'ዛሬ');
+  if (days == 1) return _tr(lang, 'Yesterday', 'ትናንት');
+  if (days > 1 && days < 7) {
+    const en = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const am = ['ሰኞ', 'ማክሰኞ', 'ረቡዕ', 'ሐሙስ', 'ዓርብ', 'ቅዳሜ', 'እሁድ'];
+    return _en(lang) ? en[when.weekday - 1] : am[when.weekday - 1];
+  }
+  return '${when.year}/${when.month.toString().padLeft(2, '0')}/${when.day.toString().padLeft(2, '0')}';
+}
+
 /// Inbox of mutual matches (accepted connections). Tap a match to open the chat.
 class MatchesInboxScreen extends StatefulWidget {
   const MatchesInboxScreen({
@@ -231,23 +247,19 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   final List<StreamSubscription> _subs = [];
   bool _partnerTyping = false;
   bool _amTyping = false;
+  bool _connected = false; // realtime socket up?
   Timer? _typingClear; // clears the partner's "typing…" if no update
   Timer? _typingStop; // stops broadcasting my typing after I go idle
 
   AppLanguage get lang => widget.language;
 
-  // Index of the most recent of my messages the partner has already read, so a
-  // single "Seen" marker sits under it. -1 when none are read yet.
-  int get _seenIndex {
+  bool _isMine(Map<String, dynamic> message) => '${message['author_id'] ?? ''}' != widget.partnerId;
+
+  // True once the partner's last-read timestamp reaches this (mine) message.
+  bool _isSeen(Map<String, dynamic> message) {
     final readAt = _partnerLastReadAt;
-    if (readAt == null) return -1;
-    for (var i = _messages.length - 1; i >= 0; i--) {
-      final mine = '${_messages[i]['author_id'] ?? ''}' != widget.partnerId;
-      if (!mine) continue;
-      final sent = _parseTime(_messages[i]['created_at']);
-      if (sent != null && !sent.isAfter(readAt)) return i;
-    }
-    return -1;
+    final sent = _parseTime(message['created_at']);
+    return readAt != null && sent != null && !sent.isAfter(readAt);
   }
 
   @override
@@ -265,6 +277,9 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     _subs.add(chat.messages.listen(_onIncoming));
     _subs.add(chat.typing.listen(_onTyping));
     _subs.add(chat.reads.listen(_onRead));
+    _subs.add(chat.connectionState.listen((up) {
+      if (mounted) setState(() => _connected = up);
+    }));
     _chat = chat;
   }
 
@@ -494,7 +509,10 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
                     maxLines: 1, overflow: TextOverflow.ellipsis),
                 if (_partnerTyping)
                   Text(_tr(lang, 'typing…', 'እየጻፈ ነው…'),
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.primary)),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.primary))
+                else if (!_connected && !_loading)
+                  Text(_tr(lang, 'connecting…', 'በመገናኘት ላይ…'),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: colors.onSurfaceVariant)),
               ],
             ),
           ),
@@ -537,23 +555,18 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
                       controller: _scroll,
                       padding: const EdgeInsets.all(16),
                       itemCount: _messages.length,
-                      itemBuilder: (context, i) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _bubble(context, _messages[i]),
-                          if (i == _seenIndex)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 4, top: 2, bottom: 4),
-                              child: Text(
-                                _tr(lang, 'Seen', 'ታይቷል'),
-                                textAlign: TextAlign.right,
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: Theme.of(context).colorScheme.onSurfaceVariant),
-                              ),
-                            ),
-                        ],
-                      ),
+                      itemBuilder: (context, i) {
+                        final t = _parseTime(_messages[i]['created_at']);
+                        final prev = i > 0 ? _parseTime(_messages[i - 1]['created_at']) : null;
+                        final showDay = t != null && (prev == null || !_sameDay(t, prev));
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showDay) _dayChip(context, t),
+                            _bubble(context, _messages[i]),
+                          ],
+                        );
+                      },
                     ),
         ),
         _composer(context, colors),
@@ -579,7 +592,7 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
 
   Widget _bubble(BuildContext context, Map<String, dynamic> message) {
     final colors = Theme.of(context).colorScheme;
-    final mine = '${message['author_id'] ?? ''}' != widget.partnerId;
+    final mine = _isMine(message);
     final body = '${message['body'] ?? ''}';
     final verse = '${message['verse_reference'] ?? ''}'.trim();
     final time = _relativeTime(lang, _parseTime(message['created_at']));
@@ -610,11 +623,35 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
             ),
           Text(body, style: TextStyle(color: mine ? colors.onPrimary : colors.onSurface)),
           const SizedBox(height: 2),
-          Text(time,
-              style: TextStyle(
-                  fontSize: 10,
-                  color: (mine ? colors.onPrimary : colors.onSurfaceVariant).withValues(alpha: .7))),
+          Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.end, children: [
+            Text(time,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: (mine ? colors.onPrimary : colors.onSurfaceVariant).withValues(alpha: .7))),
+            if (mine) ...[
+              const SizedBox(width: 4),
+              // ✓ delivered, ✓✓ once the partner has read it.
+              Icon(_isSeen(message) ? Icons.done_all_rounded : Icons.done_rounded,
+                  size: 14, color: colors.onPrimary.withValues(alpha: _isSeen(message) ? 1 : .7)),
+            ],
+          ]),
         ]),
+      ),
+    );
+  }
+
+  Widget _dayChip(BuildContext context, DateTime when) {
+    final colors = Theme.of(context).colorScheme;
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(_dayLabel(lang, when),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: colors.onSurfaceVariant)),
       ),
     );
   }
