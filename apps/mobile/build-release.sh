@@ -31,8 +31,8 @@ else
   API_BASE_URL="http://${HOST_ARG}:${PORT}"
 fi
 
-if [[ "$ARTIFACT" != "apk" && "$ARTIFACT" != "appbundle" ]]; then
-  echo "Third argument must be 'apk' or 'appbundle' (got '$ARTIFACT')." >&2
+if [[ "$ARTIFACT" != "apk" && "$ARTIFACT" != "appbundle" && "$ARTIFACT" != "split" ]]; then
+  echo "Third argument must be 'apk', 'split', or 'appbundle' (got '$ARTIFACT')." >&2
   exit 1
 fi
 
@@ -63,10 +63,20 @@ if [[ "$API_BASE_URL" == http://* ]]; then
 fi
 echo
 
-"$FLUTTER" build "$ARTIFACT" --release --dart-define=API_BASE_URL="$API_BASE_URL"
+# 'split' builds one small APK per architecture (~1/3 the universal size);
+# most modern phones use arm64-v8a.
+if [[ "$ARTIFACT" == "split" ]]; then
+  "$FLUTTER" build apk --release --split-per-abi --dart-define=API_BASE_URL="$API_BASE_URL"
+else
+  "$FLUTTER" build "$ARTIFACT" --release --dart-define=API_BASE_URL="$API_BASE_URL"
+fi
 
 echo
-if [[ "$ARTIFACT" == "apk" ]]; then
+if [[ "$ARTIFACT" == "split" ]]; then
+  echo "Done -> per-architecture APKs in build/app/outputs/flutter-apk/ :"
+  ls -1sh build/app/outputs/flutter-apk/app-*-release.apk 2>/dev/null | sed 's/^/    /'
+  echo "    Install app-arm64-v8a-release.apk on modern phones."
+elif [[ "$ARTIFACT" == "apk" ]]; then
   echo "Done -> build/app/outputs/flutter-apk/app-release.apk"
 else
   echo "Done -> build/app/outputs/bundle/release/app-release.aab"
