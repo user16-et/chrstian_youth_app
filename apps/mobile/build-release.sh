@@ -31,8 +31,8 @@ else
   API_BASE_URL="http://${HOST_ARG}:${PORT}"
 fi
 
-if [[ "$ARTIFACT" != "apk" && "$ARTIFACT" != "appbundle" && "$ARTIFACT" != "split" ]]; then
-  echo "Third argument must be 'apk', 'split', or 'appbundle' (got '$ARTIFACT')." >&2
+if [[ "$ARTIFACT" != "apk" && "$ARTIFACT" != "appbundle" && "$ARTIFACT" != "split" && "$ARTIFACT" != "web" ]]; then
+  echo "Third argument must be 'apk', 'split', 'appbundle', or 'web' (got '$ARTIFACT')." >&2
   exit 1
 fi
 
@@ -72,7 +72,11 @@ else
 fi
 
 echo
-if [[ "$ARTIFACT" == "split" ]]; then
+if [[ "$ARTIFACT" == "web" ]]; then
+  echo "Done -> build/web  (serve this folder; it talks to $API_BASE_URL)"
+  echo "    The API's CORS must allow the web app's origin, and if you serve the"
+  echo "    web app over HTTPS the API must also be HTTPS (no mixed content)."
+elif [[ "$ARTIFACT" == "split" ]]; then
   echo "Done -> per-architecture APKs in build/app/outputs/flutter-apk/ :"
   ls -1sh build/app/outputs/flutter-apk/app-*-release.apk 2>/dev/null | sed 's/^/    /'
   echo "    Install app-arm64-v8a-release.apk on modern phones."
