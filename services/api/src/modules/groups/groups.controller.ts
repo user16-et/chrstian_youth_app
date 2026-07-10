@@ -33,6 +33,13 @@ export class GroupsController {
     return this.groupsService.myMemberships(requireBearerToken(h));
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Join a group/channel with an invite code' })
+  @Post('/join-by-code')
+  joinByCode(@Headers('authorization') h: string | undefined, @Body() body: Record<string, unknown>) {
+    return this.groupsService.joinByCode(requireBearerToken(h), String(body?.code ?? ''));
+  }
+
   @ApiOperation({ summary: 'Get a group (with your role when signed in)' })
   @ApiParam({ name: 'id' })
   @Get('/:id')
@@ -128,6 +135,13 @@ export class GroupsController {
   @Delete('/:id/posts/:postId')
   removePost(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Param('postId') postId: string) {
     return this.groupsService.removePost(requireBearerToken(h), id, postId);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get/generate the invite code (admins)' })
+  @Post('/:id/invite')
+  invite(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.groupsService.inviteCode(requireBearerToken(h), id, body?.reset === true);
   }
 
   @ApiBearerAuth()

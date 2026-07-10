@@ -152,6 +152,23 @@ export class GroupsService {
     return { removed };
   }
 
+  // ---- Invite links ----
+
+  async inviteCode(token: string, groupId: string, reset = false) {
+    const { role } = await this.withRole(token, groupId);
+    if (!this.isManager(role)) throw new ForbiddenException('group_admin_required');
+    const code = reset ? await this.groups.resetInviteCode(groupId) : await this.groups.ensureInviteCode(groupId);
+    return { code };
+  }
+
+  async joinByCode(token: string, code: string) {
+    const user = await this.actor(token);
+    const group = await this.groups.groupByInviteCode(String(code ?? '').trim().toUpperCase());
+    if (!group) throw new NotFoundException('invalid_invite_code');
+    await this.groups.joinActive(user.id, group.id);
+    return { groupId: group.id, name: group.name, kind: group.kind };
+  }
+
   async approveMember(token: string, groupId: string, targetId: string) {
     const { role } = await this.withRole(token, groupId);
     if (!this.isManager(role)) throw new ForbiddenException('group_admin_required');

@@ -612,6 +612,18 @@ class ApiClient {
     return response as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> groupInviteCode(String token, String groupId, {bool reset = false}) async {
+    final response = await _postJson('/groups/$groupId/invite', {'reset': reset},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> joinGroupByCode(String token, String code) async {
+    final response = await _postJson('/groups/join-by-code', {'code': code},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
   Future<List<EventItem>> fetchEvents() async {
     final response = await _getJson('/events');
     return (response as List<dynamic>)

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/api_client.dart';
 import '../../data/call_controller.dart';
@@ -276,6 +277,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
               onSelected: _onMenu,
               itemBuilder: (context) => [
                 PopupMenuItem(value: 'members', child: Text(_t(lang, 'Members', 'አባላት'))),
+                if (_isManager) PopupMenuItem(value: 'invite', child: Text(_t(lang, 'Invite link', 'የመጋበዣ ኮድ'))),
                 if (_isManager) PopupMenuItem(value: 'requests', child: Text(_t(lang, 'Join requests', 'የመቀላቀል ጥያቄዎች'))),
                 if (_isManager) PopupMenuItem(value: 'settings', child: Text(_t(lang, 'Edit group', 'አርትዕ'))),
                 if (_isMember) PopupMenuItem(value: 'leave', child: Text(_t(lang, 'Leave', 'ውጣ'))),
@@ -447,6 +449,9 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       case 'members':
         _openMembers();
         break;
+      case 'invite':
+        _showInvite();
+        break;
       case 'requests':
         _openRequests();
         break;
@@ -527,6 +532,49 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     await _load();
   }
 
+  Future<void> _showInvite() async {
+    try {
+      final res = await widget.apiClient.groupInviteCode(_token, widget.groupId);
+      var code = '${res['code'] ?? ''}';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialog) => AlertDialog(
+            title: Text(_t(lang, 'Invite link', 'የመጋበዣ ኮድ')),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(_t(lang, 'Share this code — anyone with it can join, even a private group.',
+                  'ይህን ኮድ ያጋሩ — ያለው ሁሉ መቀላቀል ይችላል፣ የግል ቢሆንም።')),
+              const SizedBox(height: 14),
+              SelectableText(code,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(letterSpacing: 4, fontWeight: FontWeight.w800)),
+            ]),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  final r = await widget.apiClient.groupInviteCode(_token, widget.groupId, reset: true);
+                  setDialog(() => code = '${r['code'] ?? ''}');
+                },
+                child: Text(_t(lang, 'Reset', 'አድስ')),
+              ),
+              FilledButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: code));
+                  _toast(_t(lang, 'Code copied', 'ኮድ ተቀድቷል'));
+                  Navigator.pop(context);
+                },
+                icon: const Icon(Icons.copy_rounded),
+                label: Text(_t(lang, 'Copy', 'ቅዳ')),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (error) {
+      _toast(_clean(error));
+    }
+  }
+
   Future<void> _openEdit() async {
     final nameC = TextEditingController(text: '${_detail['name'] ?? ''}');
     final descC = TextEditingController(text: '${_detail['description'] ?? ''}');
@@ -535,6 +583,17 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       builder: (context) => AlertDialog(
         title: Text(_t(lang, 'Edit group', 'አርትዕ')),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
+          ImageUploadAvatar(
+            apiClient: widget.apiClient,
+            token: _token,
+            usage: 'cover_photo',
+            currentUrl: '${_detail['avatarUrl'] ?? ''}',
+            radius: 36,
+            onUploaded: (url) => _run(
+                () => widget.apiClient.updateGroup(_token, widget.groupId, {'avatarUrl': url}),
+                ok: _t(lang, 'Photo updated.', 'ፎቶ ተቀይሯል።')),
+          ),
+          const SizedBox(height: 14),
           TextField(controller: nameC, decoration: InputDecoration(labelText: _t(lang, 'Name', 'ስም'))),
           const SizedBox(height: 10),
           TextField(controller: descC, maxLines: 3, decoration: InputDecoration(labelText: _t(lang, 'Description', 'መግለጫ'))),

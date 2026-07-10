@@ -180,6 +180,50 @@ export class GroupRepository {
     );
   }
 
+  // ---- Invite codes ----
+
+  async ensureInviteCode(groupId: string): Promise<string> {
+    const existing = await this.one('SELECT invite_code FROM groups WHERE id=$1', [groupId]);
+    if (existing?.invite_code) return String(existing.invite_code);
+    // Short, URL-safe, collision-retried code.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = this.randomCode();
+      const row = await this.one(
+        `UPDATE groups SET invite_code=$2 WHERE id=$1 AND invite_code IS NULL RETURNING invite_code`,
+        [groupId, code],
+      ).catch(() => null); // unique-violation on race → retry
+      if (row?.invite_code) return String(row.invite_code);
+      const now = await this.one('SELECT invite_code FROM groups WHERE id=$1', [groupId]);
+      if (now?.invite_code) return String(now.invite_code);
+    }
+    throw new Error('could_not_generate_invite_code');
+  }
+
+  resetInviteCode(groupId: string) {
+    return this.db.query('UPDATE groups SET invite_code=NULL WHERE id=$1', [groupId]).then(() => this.ensureInviteCode(groupId));
+  }
+
+  groupByInviteCode(code: string) {
+    return this.one('SELECT id, name, kind, visibility FROM groups WHERE invite_code=$1', [code]);
+  }
+
+  async joinActive(userId: string, groupId: string) {
+    await this.db.query(
+      `INSERT INTO group_memberships (id, group_id, user_id, role, status, joined_at)
+       VALUES (gen_random_uuid(), $1, $2, 'member', 'active', now())
+       ON CONFLICT (group_id, user_id) DO UPDATE SET status='active'`,
+      [groupId, userId],
+    );
+    return { groupId, status: 'active' as const };
+  }
+
+  private randomCode() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 8; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+    return code;
+  }
+
   // Members to notify (everyone active except the actor).
   activeMemberIds(groupId: string, exceptId: string): Promise<string[]> {
     return this.db

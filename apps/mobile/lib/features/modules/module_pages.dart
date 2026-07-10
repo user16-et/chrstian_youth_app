@@ -856,16 +856,23 @@ class _GroupsScreenState extends State<GroupsScreen> {
           ),
           items: [
             if (widget.session != null) ...[
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => _createGroup(context),
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text(language == AppLanguage.english
-                      ? 'Create group or channel'
-                      : 'ቡድን ወይም ቻናል ፍጠር'),
+              Row(children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _createGroup(context),
+                    icon: const Icon(Icons.add_rounded),
+                    label: Text(language == AppLanguage.english ? 'Create' : 'ፍጠር'),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _joinByCode(context),
+                    icon: const Icon(Icons.link_rounded),
+                    label: Text(language == AppLanguage.english ? 'Join by code' : 'በኮድ ተቀላቀል'),
+                  ),
+                ),
+              ]),
               const SizedBox(height: 12),
             ],
             ...(snapshot.connectionState == ConnectionState.waiting && groups.isEmpty
@@ -994,6 +1001,50 @@ class _GroupsScreenState extends State<GroupsScreen> {
       ),
     ));
     await widget.onDataChanged();
+  }
+
+  Future<void> _joinByCode(BuildContext context) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final codeC = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(en ? 'Join by invite code' : 'በመጋበዣ ኮድ ተቀላቀል'),
+        content: TextField(
+          controller: codeC,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: InputDecoration(labelText: en ? 'Invite code' : 'የመጋበዣ ኮድ'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(onPressed: () => Navigator.pop(context, codeC.text.trim()), child: Text(en ? 'Join' : 'ተቀላቀል')),
+        ],
+      ),
+    );
+    if (code == null || code.isEmpty || !context.mounted) return;
+    try {
+      final res = await widget.apiClient.joinGroupByCode(token, code);
+      if (!context.mounted) return;
+      await widget.onDataChanged();
+      if (!context.mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => GroupChannelScreen(
+          language: widget.language,
+          apiClient: widget.apiClient,
+          token: token,
+          groupId: '${res['groupId']}',
+        ),
+      ));
+      await widget.onDataChanged();
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    }
   }
 }
 
