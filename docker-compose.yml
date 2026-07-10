@@ -87,6 +87,10 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      # Allow browser (web app) uploads directly to presigned URLs. CORS doesn't
+      # protect the object — the presigned signature does — so '*' is safe here.
+      # For production, list your web origins comma-separated instead of '*'.
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
       - "${MINIO_HOST_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
