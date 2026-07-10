@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 
@@ -7679,6 +7680,25 @@ class _RelationshipEcosystemPanelState
       (widget.data['analytics'] as Map<String, dynamic>?) ?? const {};
   Map<String, dynamic> get _me =>
       (widget.data['me'] as Map<String, dynamic>?) ?? const {};
+  List<Map<String, dynamic>> get _myPhotos =>
+      (_me['photos'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
+
+  Future<void> _addCourtshipPhoto() async {
+    final token = widget.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final url = await pickAndUploadImage(context,
+        apiClient: widget.apiClient, token: token, usage: 'profile_photo');
+    if (url == null) return;
+    await _run((t) => widget.apiClient.addRelationshipPhoto(t, url),
+        en ? 'Photo added.' : 'ፎቶ ተጨምሯል።');
+  }
+
+  void _deleteCourtshipPhoto(String photoId) => _run(
+      (t) => widget.apiClient.deleteRelationshipPhoto(t, photoId),
+      en ? 'Photo removed.' : 'ፎቶ ተወግዷል።');
 
   @override
   void initState() {
@@ -7866,6 +7886,67 @@ class _RelationshipEcosystemPanelState
             ],
           ]),
       const SizedBox(height: 12),
+      if (_me.isNotEmpty)
+        _SectionCard(
+          title: en ? 'My photos' : 'የእኔ ፎቶዎች',
+          children: [
+            Text(
+                en
+                    ? 'Add up to 9 photos to your courtship profile. Tap ✕ to remove.'
+                    : 'እስከ 9 ፎቶዎች ወደ መገለጫዎ ይጨምሩ። ለማስወገድ ✕ ይንኩ።',
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 104,
+              child: ListView(scrollDirection: Axis.horizontal, children: [
+                for (final photo in _myPhotos)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Stack(children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.network('${photo['url']}',
+                            width: 92, height: 104, fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                                width: 92, height: 104,
+                                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                child: const Icon(Icons.broken_image_outlined))),
+                      ),
+                      Positioned(
+                        top: 3, right: 3,
+                        child: InkWell(
+                          onTap: _busy ? null : () => _deleteCourtshipPhoto('${photo['id']}'),
+                          child: const CircleAvatar(
+                              radius: 12, backgroundColor: Colors.black54,
+                              child: Icon(Icons.close_rounded, size: 15, color: Colors.white)),
+                        ),
+                      ),
+                    ]),
+                  ),
+                if (_myPhotos.length < 9)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: _busy ? null : _addCourtshipPhoto,
+                    child: Container(
+                      width: 92, height: 104,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                      ),
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(Icons.add_a_photo_rounded, color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(height: 4),
+                        Text(en ? 'Add' : 'ጨምር',
+                            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700)),
+                      ]),
+                    ),
+                  ),
+              ]),
+            ),
+          ],
+        ),
+      if (_me.isNotEmpty) const SizedBox(height: 12),
       if ('${widget.data['userGender'] ?? ''}'.isEmpty)
         Builder(builder: (context) {
           final colors = Theme.of(context).colorScheme;
@@ -8574,11 +8655,35 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           decoration: const InputDecoration(
                               labelText: 'Phone number for buyers')),
                       const SizedBox(height: 10),
-                      TextField(
-                          controller: _imageUrlController,
-                          keyboardType: TextInputType.url,
-                          decoration:
-                              const InputDecoration(labelText: 'Image URL')),
+                      Row(children: [
+                        if (_imageUrlController.text.isNotEmpty) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(_imageUrlController.text,
+                                width: 56, height: 56, fit: BoxFit.cover),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: (widget.session?.token ?? '').isEmpty
+                                ? null
+                                : () async {
+                                    final url = await pickAndUploadImage(context,
+                                        apiClient: widget.apiClient,
+                                        token: widget.session!.token,
+                                        usage: 'post_media');
+                                    if (url != null) {
+                                      setState(() => _imageUrlController.text = url);
+                                    }
+                                  },
+                            icon: const Icon(Icons.add_photo_alternate_rounded),
+                            label: Text(_imageUrlController.text.isEmpty
+                                ? _t('Upload product image', 'የምርት ፎቶ ስቀል')
+                                : _t('Change image', 'ፎቶ ቀይር')),
+                          ),
+                        ),
+                      ]),
                       const SizedBox(height: 12),
                       FilledButton.icon(
                           onPressed: _busy ? null : _createListing,
