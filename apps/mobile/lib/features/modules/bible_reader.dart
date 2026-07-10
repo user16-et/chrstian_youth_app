@@ -544,13 +544,11 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
           ListTile(
             leading: const Icon(Icons.bookmark_add_outlined),
             title: Text(_t(lang, 'Bookmark', 'ዕልባት')),
-            enabled: widget.token != null && widget.token!.isNotEmpty,
             onTap: () => _bookmark(reference, text),
           ),
           ListTile(
             leading: const Icon(Icons.share_rounded),
             title: Text(_t(lang, 'Share', 'አጋራ')),
-            enabled: widget.token != null && widget.token!.isNotEmpty,
             onTap: () => _share(reference, text),
           ),
         ]),
@@ -560,6 +558,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
   Future<void> _bookmark(String reference, String text) async {
     Navigator.pop(context);
+    if (!_signedIn) return _toast(_t(lang, 'Sign in to bookmark verses.', 'ጥቅሶችን ለማስቀመጥ ይግቡ።'));
     try {
       await widget.apiClient.createBibleBookmark(
           token: widget.token!, reference: reference, verseText: text,
@@ -570,8 +569,11 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     }
   }
 
+  bool get _signedIn => widget.token != null && widget.token!.isNotEmpty;
+
   Future<void> _share(String reference, String text) async {
     Navigator.pop(context);
+    if (!_signedIn) return _toast(_t(lang, 'Sign in to share verses.', 'ጥቅሶችን ለማጋራት ይግቡ።'));
     try {
       await widget.apiClient.shareBibleVerse(
           token: widget.token!, reference: reference, verseText: text, channel: 'app');
