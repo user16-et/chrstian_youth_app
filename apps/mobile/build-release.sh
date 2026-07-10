@@ -58,6 +58,11 @@ fi
 echo "==> Building release ($ARTIFACT)"
 echo "    flutter = $FLUTTER"
 echo "    API_BASE_URL = $API_BASE_URL"
+if [[ -f android/key.properties ]]; then
+  echo "    signing = RELEASE (android/key.properties → upload keystore)"
+else
+  echo "    signing = DEBUG (no android/key.properties — NOT publishable; see docs/android-release-signing.md)"
+fi
 if [[ "$API_BASE_URL" == http://* ]]; then
   echo "    Note: cleartext HTTP — allowed via res/xml/network_security_config.xml."
 fi
