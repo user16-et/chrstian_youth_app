@@ -27,9 +27,24 @@ export class GroupsService {
   // Load a group and the actor's role; throws if the group is missing.
   private async withRole(token: string, groupId: string) {
     const user = await this.actor(token);
+    return this.withRoleUser(user, groupId);
+  }
+
+  private async withRoleUser(user: { id: string; fullName: string }, groupId: string) {
     const group = await this.groups.detail(groupId, user.id);
     if (!group) throw new NotFoundException('group_not_found');
     return { user, group, role: group.myRole as string | null };
+  }
+
+  // For the realtime gateway: socket auth + membership.
+  async authenticateSocket(token: string) {
+    const user = await this.userRepository.authenticate(token);
+    if (!user) throw new ForbiddenException('unauthorized');
+    return user;
+  }
+
+  memberRole(userId: string, groupId: string) {
+    return this.groups.memberRole(userId, groupId);
   }
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -155,7 +170,12 @@ export class GroupsService {
   }
 
   async createPost(token: string, groupId: string, input: Record<string, unknown>) {
-    const { user, group, role } = await this.withRole(token, groupId);
+    const user = await this.actor(token);
+    return this.createPostAsUser({ id: user.id, fullName: user.fullName }, groupId, input);
+  }
+
+  async createPostAsUser(user: { id: string; fullName: string }, groupId: string, input: Record<string, unknown>) {
+    const { group, role } = await this.withRoleUser(user, groupId);
     if (!role) throw new ForbiddenException('join_group_first');
     // Channels are broadcast-only: just owners/admins post. Groups: any member.
     if (group.kind === 'channel' && !this.isManager(role)) throw new ForbiddenException('channel_admins_only');
@@ -185,13 +205,23 @@ export class GroupsService {
   }
 
   async pinPost(token: string, groupId: string, postId: string, pinned: boolean) {
-    const { role } = await this.withRole(token, groupId);
+    const user = await this.actor(token);
+    return this.pinPostAsUser({ id: user.id, fullName: user.fullName }, groupId, postId, pinned);
+  }
+
+  async pinPostAsUser(user: { id: string; fullName: string }, groupId: string, postId: string, pinned: boolean) {
+    const { role } = await this.withRoleUser(user, groupId);
     if (!this.isManager(role)) throw new ForbiddenException('group_admin_required');
     return this.groups.pinPost(groupId, postId, pinned);
   }
 
   async removePost(token: string, groupId: string, postId: string) {
-    const { user, role } = await this.withRole(token, groupId);
+    const user = await this.actor(token);
+    return this.removePostAsUser({ id: user.id, fullName: user.fullName }, groupId, postId);
+  }
+
+  async removePostAsUser(user: { id: string; fullName: string }, groupId: string, postId: string) {
+    const { role } = await this.withRoleUser(user, groupId);
     const author = await this.groups.postAuthor(postId);
     if (author !== user.id && !this.isManager(role)) throw new ForbiddenException('not_your_post');
     const removed = await this.groups.removePost(groupId, postId, user.id);

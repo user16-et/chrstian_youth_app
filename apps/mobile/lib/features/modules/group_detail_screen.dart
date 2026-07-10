@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/call_controller.dart';
+import '../../data/group_socket_client.dart';
 import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 
@@ -32,10 +35,18 @@ class GroupChannelScreen extends StatefulWidget {
 class _GroupChannelScreenState extends State<GroupChannelScreen> {
   Map<String, dynamic> _detail = const {};
   List<Map<String, dynamic>> _posts = const [];
+  final Set<String> _postIds = {};
   final TextEditingController _input = TextEditingController();
   bool _loading = true;
   bool _posting = false;
   String _error = '';
+
+  GroupSocketClient? _socket;
+  final List<StreamSubscription> _subs = [];
+  final Map<String, DateTime> _typingUsers = {}; // name -> last-seen
+  Timer? _typingSweep;
+  Timer? _stopTyping;
+  bool _amTyping = false;
 
   AppLanguage get lang => widget.language;
   String get _token => widget.token ?? '';
@@ -49,11 +60,86 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   @override
   void initState() {
     super.initState();
+    _connectSocket();
     _load();
+  }
+
+  void _connectSocket() {
+    if (!_signedIn) return;
+    final socket = GroupSocketClient(baseUrl: widget.apiClient.baseUrl);
+    socket.connect(_token);
+    socket.join(widget.groupId);
+    _subs.add(socket.newPosts.listen(_onNewPost));
+    _subs.add(socket.removedPosts.listen(_onRemovedPost));
+    _subs.add(socket.wallChanged.listen((_) => _load()));
+    _subs.add(socket.typing.listen(_onTyping));
+    _socket = socket;
+    // Expire stale "typing" entries.
+    _typingSweep = Timer.periodic(const Duration(seconds: 2), (_) {
+      final now = DateTime.now();
+      final before = _typingUsers.length;
+      _typingUsers.removeWhere((_, t) => now.difference(t).inSeconds > 5);
+      if (_typingUsers.length != before && mounted) setState(() {});
+    });
+  }
+
+  void _onNewPost(Map<String, dynamic> event) {
+    final post = (event['post'] as Map?)?.cast<String, dynamic>();
+    if (post == null) return;
+    final id = '${post['id'] ?? ''}';
+    if (id.isEmpty || _postIds.contains(id)) return;
+    if (!mounted) return;
+    setState(() {
+      _postIds.add(id);
+      // New posts aren't pinned, so they sit right after the pinned block.
+      final pinnedCount = _posts.where((p) => p['pinned'] == true).length;
+      _posts = [..._posts.take(pinnedCount), post, ..._posts.skip(pinnedCount)];
+    });
+  }
+
+  void _onRemovedPost(Map<String, dynamic> event) {
+    final id = '${event['postId'] ?? ''}';
+    if (id.isEmpty || !mounted) return;
+    setState(() {
+      _postIds.remove(id);
+      _posts = _posts.where((p) => '${p['id']}' != id).toList();
+    });
+  }
+
+  void _onTyping(Map<String, dynamic> event) {
+    final name = '${event['name'] ?? ''}';
+    if (name.isEmpty || !mounted) return;
+    setState(() {
+      if (event['typing'] == true) {
+        _typingUsers[name] = DateTime.now();
+      } else {
+        _typingUsers.remove(name);
+      }
+    });
+  }
+
+  void _onComposerChanged(String value) {
+    final socket = _socket;
+    if (socket == null || !socket.connected) return;
+    if (!_amTyping) {
+      _amTyping = true;
+      socket.setTyping(widget.groupId, true);
+    }
+    _stopTyping?.cancel();
+    _stopTyping = Timer(const Duration(seconds: 2), () {
+      _amTyping = false;
+      socket.setTyping(widget.groupId, false);
+    });
   }
 
   @override
   void dispose() {
+    _typingSweep?.cancel();
+    _stopTyping?.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _socket?.dispose();
     _input.dispose();
     super.dispose();
   }
@@ -67,7 +153,17 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       } catch (_) {
         // Private wall while not a member — leave posts empty.
       }
-      if (mounted) setState(() { _detail = detail; _posts = posts; _loading = false; _error = ''; });
+      if (mounted) {
+        setState(() {
+          _detail = detail;
+          _posts = posts;
+          _postIds
+            ..clear()
+            ..addAll(posts.map((p) => '${p['id'] ?? ''}').where((id) => id.isNotEmpty));
+          _loading = false;
+          _error = '';
+        });
+      }
     } catch (error) {
       if (mounted) setState(() { _error = _clean(error); _loading = false; });
     }
@@ -86,6 +182,18 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   Future<void> _post({String mediaUrl = ''}) async {
     final body = _input.text.trim();
     if ((body.isEmpty && mediaUrl.isEmpty) || _posting) return;
+    _stopTyping?.cancel();
+    if (_amTyping) {
+      _amTyping = false;
+      _socket?.setTyping(widget.groupId, false);
+    }
+    // Realtime: the socket persists + broadcasts post:new (which inserts it) —
+    // no reload, and everyone sees it instantly.
+    if (_socket?.connected == true) {
+      _socket!.post(widget.groupId, body: body, mediaUrl: mediaUrl);
+      _input.clear();
+      return;
+    }
     setState(() => _posting = true);
     try {
       await widget.apiClient.postToGroup(_token, widget.groupId, body: body, mediaUrl: mediaUrl);
@@ -119,6 +227,13 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  String _typingText() {
+    final names = _typingUsers.keys.toList();
+    if (names.length == 1) return _t(lang, '${names.first} is typing…', '${names.first} እየጻፈ ነው…');
+    if (names.length == 2) return _t(lang, '${names[0]} and ${names[1]} are typing…', '${names[0]} እና ${names[1]} እየጻፉ ነው…');
+    return _t(lang, '${names.length} people are typing…', '${names.length} ሰዎች እየጻፉ ነው…');
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -139,9 +254,13 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                     Text('${_detail['name'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text(
-                        '${_detail['memberCount'] ?? 0} ${_t(lang, 'members', 'አባላት')} · ${_isChannel ? _t(lang, 'Channel', 'ቻናል') : _t(lang, 'Group', 'ቡድን')}',
-                        style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant, fontWeight: FontWeight.w400)),
+                    _typingUsers.isNotEmpty
+                        ? Text(_typingText(),
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: colors.primary, fontWeight: FontWeight.w500))
+                        : Text(
+                            '${_detail['memberCount'] ?? 0} ${_t(lang, 'members', 'አባላት')} · ${_isChannel ? _t(lang, 'Channel', 'ቻናል') : _t(lang, 'Group', 'ቡድን')}',
+                            style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant, fontWeight: FontWeight.w400)),
                   ]),
                 ),
               ]),
@@ -297,6 +416,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
               controller: _input,
               minLines: 1,
               maxLines: 4,
+              onChanged: _onComposerChanged,
               textCapitalization: TextCapitalization.sentences,
               decoration: InputDecoration(
                 hintText: _isChannel ? _t(lang, 'Broadcast a message…', 'መልእክት አሰራጭ…') : _t(lang, 'Message…', 'መልእክት…'),
@@ -342,10 +462,20 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
 
   void _onPostMenu(String value, Map<String, dynamic> post) {
     final id = '${post['id']}';
+    final live = _socket?.connected == true;
     if (value == 'pin') {
-      _run(() => widget.apiClient.pinGroupPost(_token, widget.groupId, id, post['pinned'] != true));
+      final pin = post['pinned'] != true;
+      if (live) {
+        _socket!.pinPost(widget.groupId, id, pin);
+      } else {
+        _run(() => widget.apiClient.pinGroupPost(_token, widget.groupId, id, pin));
+      }
     } else if (value == 'delete') {
-      _run(() => widget.apiClient.deleteGroupPost(_token, widget.groupId, id), ok: _t(lang, 'Deleted.', 'ተሰርዟል።'));
+      if (live) {
+        _socket!.deletePost(widget.groupId, id);
+      } else {
+        _run(() => widget.apiClient.deleteGroupPost(_token, widget.groupId, id), ok: _t(lang, 'Deleted.', 'ተሰርዟል።'));
+      }
     }
   }
 
