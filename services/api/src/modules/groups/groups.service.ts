@@ -311,6 +311,36 @@ export class GroupsService {
     return this.groups.closePoll(pollId, closed);
   }
 
+  // ---- Shared resources (files & links) ----
+
+  async listResources(token: string | null, groupId: string) {
+    const group = await this.detail(token, groupId);
+    if (group.visibility === 'private' && !group.myRole) throw new ForbiddenException('group_members_only');
+    return this.groups.listResources(groupId);
+  }
+
+  async addResource(token: string, groupId: string, input: Record<string, unknown>) {
+    const user = await this.actor(token);
+    const { group, role } = await this.withRoleUser({ id: user.id, fullName: user.fullName }, groupId);
+    if (!role) throw new ForbiddenException('join_group_first');
+    if (group.kind === 'channel' && !this.isManager(role)) throw new ForbiddenException('channel_admins_only');
+    const title = String(input.title ?? '').trim();
+    const url = String(input.url ?? input.resourceUrl ?? '').trim();
+    if (!url) throw new BadRequestException('resource_url_required');
+    const type = String(input.type ?? input.resourceType ?? 'link').trim() || 'link';
+    return this.groups.addResource(user.id, groupId, title || url, url, type);
+  }
+
+  async removeResource(token: string, groupId: string, resourceId: string) {
+    const user = await this.actor(token);
+    const role = await this.groups.memberRole(user.id, groupId);
+    const author = await this.groups.resourceAuthor(resourceId, groupId);
+    if (!author) throw new NotFoundException('resource_not_found');
+    if (author !== user.id && !this.isManager(role)) throw new ForbiddenException('not_your_resource');
+    const removed = await this.groups.deleteResource(groupId, resourceId);
+    return { removed };
+  }
+
   // ---- Meeting (reuses the group audio room; roomId = groupId) ----
 
   async startMeeting(token: string, groupId: string, input: Record<string, unknown>) {

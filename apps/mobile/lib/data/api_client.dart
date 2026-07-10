@@ -648,6 +648,23 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  Future<List<Map<String, dynamic>>> fetchGroupResources(String? token, String groupId) async {
+    final response = await _getJson('/groups/$groupId/resources',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> addGroupResource(String token, String groupId,
+      {required String url, String title = '', String type = 'link'}) async {
+    final response = await _postJson('/groups/$groupId/resources', {'url': url, 'title': title, 'type': type},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<dynamic> deleteGroupResource(String token, String groupId, String resourceId) {
+    return _deleteJson('/groups/$groupId/resources/$resourceId', headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<List<EventItem>> fetchEvents() async {
     final response = await _getJson('/events');
     return (response as List<dynamic>)

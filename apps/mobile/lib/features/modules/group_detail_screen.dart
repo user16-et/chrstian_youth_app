@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
 import '../../data/call_controller.dart';
@@ -325,6 +326,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
               onSelected: _onMenu,
               itemBuilder: (context) => [
                 PopupMenuItem(value: 'members', child: Text(_t(lang, 'Members', 'አባላት'))),
+                PopupMenuItem(value: 'resources', child: Text(_t(lang, 'Files & links', 'ፋይሎችና አገናኞች'))),
                 if (_isManager) PopupMenuItem(value: 'invite', child: Text(_t(lang, 'Invite link', 'የመጋበዣ ኮድ'))),
                 if (_isManager) PopupMenuItem(value: 'requests', child: Text(_t(lang, 'Join requests', 'የመቀላቀል ጥያቄዎች'))),
                 if (_isManager) PopupMenuItem(value: 'settings', child: Text(_t(lang, 'Edit group', 'አርትዕ'))),
@@ -601,6 +603,9 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       case 'members':
         _openMembers();
         break;
+      case 'resources':
+        _openResources();
+        break;
       case 'invite':
         _showInvite();
         break;
@@ -634,6 +639,23 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
         _run(() => widget.apiClient.deleteGroupPost(_token, widget.groupId, id), ok: _t(lang, 'Deleted.', 'ተሰርዟል።'));
       }
     }
+  }
+
+  Future<void> _openResources() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _ResourcesSheet(
+        apiClient: widget.apiClient,
+        token: widget.token,
+        groupId: widget.groupId,
+        language: lang,
+        canContribute: _canPost,
+        isManager: _isManager,
+        myUserId: _currentUserId(),
+      ),
+    );
   }
 
   Future<void> _openMembers() async {
@@ -875,6 +897,233 @@ class _MembersSheetState extends State<_MembersSheet> {
         decoration: BoxDecoration(color: colors.primaryContainer, borderRadius: BorderRadius.circular(999)),
         child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colors.onPrimaryContainer)),
       );
+}
+
+/// Shared files & links for a group/channel.
+class _ResourcesSheet extends StatefulWidget {
+  const _ResourcesSheet({
+    required this.apiClient,
+    required this.token,
+    required this.groupId,
+    required this.language,
+    required this.canContribute,
+    required this.isManager,
+    required this.myUserId,
+  });
+  final ApiClient apiClient;
+  final String? token;
+  final String groupId;
+  final AppLanguage language;
+  final bool canContribute;
+  final bool isManager;
+  final String myUserId;
+
+  @override
+  State<_ResourcesSheet> createState() => _ResourcesSheetState();
+}
+
+class _ResourcesSheetState extends State<_ResourcesSheet> {
+  List<Map<String, dynamic>> _items = const [];
+  bool _loading = true;
+  bool _busy = false;
+
+  AppLanguage get lang => widget.language;
+  String get _token => widget.token ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final items = await widget.apiClient.fetchGroupResources(widget.token, widget.groupId);
+      if (mounted) setState(() { _items = items; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _toast(String m) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _open(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      _toast(_t(lang, 'Could not open link.', 'አገናኙን መክፈት አልተቻለም።'));
+    }
+  }
+
+  Future<void> _uploadFile() async {
+    setState(() => _busy = true);
+    try {
+      final url = await pickAndUploadImage(context, apiClient: widget.apiClient, token: _token, usage: 'resource_file');
+      if (url == null) return;
+      if (!mounted) return;
+      final title = await _askTitle(defaultValue: _t(lang, 'Shared image', 'የተጋራ ምስል'));
+      if (title == null) return;
+      await widget.apiClient.addGroupResource(_token, widget.groupId, url: url, title: title, type: 'image');
+      await _load();
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _addLink() async {
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (context) {
+        final titleC = TextEditingController();
+        final urlC = TextEditingController();
+        return AlertDialog(
+          title: Text(_t(lang, 'Add a link', 'አገናኝ ጨምር')),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+              controller: titleC,
+              decoration: InputDecoration(labelText: _t(lang, 'Title (optional)', 'ርዕስ (አማራጭ)')),
+            ),
+            TextField(
+              controller: urlC,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(labelText: 'https://…'),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: Text(_t(lang, 'Cancel', 'ተወው'))),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, {'title': titleC.text.trim(), 'url': urlC.text.trim()}),
+              child: Text(_t(lang, 'Add', 'ጨምር')),
+            ),
+          ],
+        );
+      },
+    );
+    if (result == null || (result['url'] ?? '').isEmpty || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.addGroupResource(_token, widget.groupId,
+          url: result['url']!, title: result['title'] ?? '', type: 'link');
+      await _load();
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<String?> _askTitle({required String defaultValue}) async {
+    final c = TextEditingController(text: defaultValue);
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(_t(lang, 'Title', 'ርዕስ')),
+        content: TextField(controller: c, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(_t(lang, 'Cancel', 'ተወው'))),
+          FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: Text(_t(lang, 'Save', 'አስቀምጥ'))),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _delete(Map<String, dynamic> item) async {
+    try {
+      await widget.apiClient.deleteGroupResource(_token, widget.groupId, '${item['id']}');
+      await _load();
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    }
+  }
+
+  IconData _iconFor(String type) {
+    switch (type) {
+      case 'image':
+        return Icons.image_rounded;
+      case 'pdf':
+        return Icons.picture_as_pdf_rounded;
+      case 'doc':
+        return Icons.description_rounded;
+      default:
+        return Icons.link_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.92,
+      builder: (context, scrollController) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(_t(lang, 'Files & links', 'ፋይሎችና አገናኞች'),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            if (widget.canContribute) ...[
+              IconButton(
+                onPressed: _busy ? null : _addLink,
+                icon: const Icon(Icons.add_link_rounded),
+                tooltip: _t(lang, 'Add link', 'አገናኝ ጨምር'),
+              ),
+              IconButton(
+                onPressed: _busy ? null : _uploadFile,
+                icon: const Icon(Icons.upload_file_rounded),
+                tooltip: _t(lang, 'Upload image', 'ምስል ስቀል'),
+              ),
+            ],
+          ]),
+          const SizedBox(height: 6),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _items.isEmpty
+                    ? Center(
+                        child: Text(_t(lang, 'No shared files or links yet.', 'ገና የተጋራ ፋይል ወይም አገናኝ የለም።'),
+                            style: TextStyle(color: colors.onSurfaceVariant)))
+                    : ListView.builder(
+                        controller: scrollController,
+                        itemCount: _items.length,
+                        itemBuilder: (context, i) {
+                          final r = _items[i];
+                          final type = '${r['resourceType'] ?? 'link'}';
+                          final canDelete = widget.isManager || '${r['authorId']}' == widget.myUserId;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: CircleAvatar(
+                              backgroundColor: colors.primaryContainer,
+                              child: Icon(_iconFor(type), color: colors.onPrimaryContainer, size: 20),
+                            ),
+                            title: Text('${r['title'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(
+                                '${r['resourceUrl'] ?? ''}\n${_t(lang, 'by', 'በ')} ${r['authorName'] ?? ''}',
+                                maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+                            isThreeLine: true,
+                            onTap: () => _open('${r['resourceUrl'] ?? ''}'),
+                            trailing: canDelete
+                                ? IconButton(
+                                    icon: Icon(Icons.delete_outline_rounded, color: colors.onSurfaceVariant),
+                                    onPressed: () => _delete(r),
+                                  )
+                                : null,
+                          );
+                        },
+                      ),
+          ),
+        ]),
+      ),
+    );
+  }
 }
 
 /// Compose a poll: a question and 2–10 options.

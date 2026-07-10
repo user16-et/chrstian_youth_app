@@ -174,6 +174,26 @@ export class GroupsController {
     return this.groupsService.closePoll(requireBearerToken(h), id, pollId, body?.closed !== false);
   }
 
+  @ApiOperation({ summary: 'List shared resources (files & links)' })
+  @Get('/:id/resources')
+  resources(@Headers('authorization') h: string | undefined, @Param('id') id: string) {
+    return this.groupsService.listResources(parseBearerToken(h) ?? null, id);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Add a shared resource (file or link)' })
+  @Post('/:id/resources')
+  addResource(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.groupsService.addResource(requireBearerToken(h), id, body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a shared resource (author or admins)' })
+  @Delete('/:id/resources/:resourceId')
+  removeResource(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Param('resourceId') resourceId: string) {
+    return this.groupsService.removeResource(requireBearerToken(h), id, resourceId);
+  }
+
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get/generate the invite code (admins)' })
   @Post('/:id/invite')

@@ -238,6 +238,43 @@ export class GroupRepository {
     );
   }
 
+  // ---- Shared resources (files & links) ----
+
+  addResource(authorId: string, groupId: string, title: string, url: string, type: string) {
+    return this.one(
+      `INSERT INTO group_resources (id, group_id, author_id, title, resource_url, resource_type, created_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, now())
+       RETURNING id, group_id AS "groupId", author_id AS "authorId", title, resource_url AS "resourceUrl", resource_type AS "resourceType", created_at AS "createdAt"`,
+      [groupId, authorId, title, url, type],
+    );
+  }
+
+  listResources(groupId: string, limit = 100) {
+    return this.db
+      .query(
+        `SELECT r.id, r.author_id AS "authorId", u.full_name AS "authorName",
+                r.title, r.resource_url AS "resourceUrl", r.resource_type AS "resourceType", r.created_at AS "createdAt"
+         FROM group_resources r JOIN users u ON u.id=r.author_id
+         WHERE r.group_id=$1
+         ORDER BY r.created_at DESC
+         LIMIT $2`,
+        [groupId, limit],
+      )
+      .then((r) => r.rows);
+  }
+
+  resourceAuthor(resourceId: string, groupId: string): Promise<string | null> {
+    return this.one('SELECT author_id FROM group_resources WHERE id=$1 AND group_id=$2', [resourceId, groupId]).then(
+      (r) => (r?.author_id as string | undefined) ?? null,
+    );
+  }
+
+  deleteResource(groupId: string, resourceId: string) {
+    return this.db
+      .query('DELETE FROM group_resources WHERE id=$1 AND group_id=$2 RETURNING id', [resourceId, groupId])
+      .then((r) => (r.rowCount ?? 0) > 0);
+  }
+
   // ---- Invite codes ----
 
   async ensureInviteCode(groupId: string): Promise<string> {
