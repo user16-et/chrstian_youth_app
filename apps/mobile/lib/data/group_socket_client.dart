@@ -13,6 +13,8 @@ class GroupSocketClient {
   final _removed = StreamController<Map<String, dynamic>>.broadcast();
   final _wallChanged = StreamController<Map<String, dynamic>>.broadcast();
   final _typing = StreamController<Map<String, dynamic>>.broadcast();
+  final _newPolls = StreamController<Map<String, dynamic>>.broadcast();
+  final _pollUpdates = StreamController<Map<String, dynamic>>.broadcast();
 
   io.Socket? _socket;
   String? _pendingJoin;
@@ -22,6 +24,8 @@ class GroupSocketClient {
   Stream<Map<String, dynamic>> get removedPosts => _removed.stream;
   Stream<Map<String, dynamic>> get wallChanged => _wallChanged.stream;
   Stream<Map<String, dynamic>> get typing => _typing.stream;
+  Stream<Map<String, dynamic>> get newPolls => _newPolls.stream;
+  Stream<Map<String, dynamic>> get pollUpdates => _pollUpdates.stream;
   bool get connected => _socket?.connected == true && _ready;
 
   void connect(String token) {
@@ -45,6 +49,8 @@ class GroupSocketClient {
     socket.on('post:removed', (d) => _add(_removed, d));
     socket.on('wall:changed', (d) => _add(_wallChanged, d));
     socket.on('typing', (d) => _add(_typing, d));
+    socket.on('poll:new', (d) => _add(_newPolls, d));
+    socket.on('poll:update', (d) => _add(_pollUpdates, d));
     socket.connect();
     _socket = socket;
   }
@@ -69,6 +75,15 @@ class GroupSocketClient {
 
   void setTyping(String groupId, bool typing) => _socket?.emit('typing', {'groupId': groupId, 'typing': typing});
 
+  void createPoll(String groupId, {required String question, required List<String> options}) =>
+      _socket?.emit('poll:create', {'groupId': groupId, 'question': question, 'options': options});
+
+  void votePoll(String groupId, String pollId, int optionIndex) =>
+      _socket?.emit('poll:vote', {'groupId': groupId, 'pollId': pollId, 'optionIndex': optionIndex});
+
+  void closePoll(String groupId, String pollId, bool closed) =>
+      _socket?.emit('poll:close', {'groupId': groupId, 'pollId': pollId, 'closed': closed});
+
   void _add(StreamController<Map<String, dynamic>> c, dynamic data) {
     if (data is Map) c.add(data.cast<String, dynamic>());
   }
@@ -85,5 +100,7 @@ class GroupSocketClient {
     _removed.close();
     _wallChanged.close();
     _typing.close();
+    _newPolls.close();
+    _pollUpdates.close();
   }
 }

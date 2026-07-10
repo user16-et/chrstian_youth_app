@@ -256,7 +256,11 @@ export class GroupsService {
 
   async createPoll(token: string, groupId: string, input: Record<string, unknown>) {
     const user = await this.actor(token);
-    const { group, role } = await this.withRoleUser({ id: user.id, fullName: user.fullName }, groupId);
+    return this.createPollAsUser({ id: user.id, fullName: user.fullName }, groupId, input);
+  }
+
+  async createPollAsUser(user: { id: string; fullName: string }, groupId: string, input: Record<string, unknown>) {
+    const { group, role } = await this.withRoleUser(user, groupId);
     if (!role) throw new ForbiddenException('join_group_first');
     // Channels: only owners/admins run polls. Groups: any member.
     if (group.kind === 'channel' && !this.isManager(role)) throw new ForbiddenException('channel_admins_only');
@@ -284,11 +288,16 @@ export class GroupsService {
         });
       }
     }
-    return poll;
+    // Fresh polls have no votes yet; shape matches listPolls rows for the client.
+    return { ...poll, authorName: user.fullName, totalVotes: 0, myVote: null, counts: options.map(() => 0) };
   }
 
   async votePoll(token: string, groupId: string, pollId: string, optionIndex: number) {
     const user = await this.actor(token);
+    return this.votePollAsUser({ id: user.id, fullName: user.fullName }, groupId, pollId, optionIndex);
+  }
+
+  async votePollAsUser(user: { id: string; fullName: string }, groupId: string, pollId: string, optionIndex: number) {
     const role = await this.groups.memberRole(user.id, groupId);
     if (!role) throw new ForbiddenException('join_group_first');
     const poll = await this.groups.pollDetail(pollId);
@@ -304,6 +313,10 @@ export class GroupsService {
 
   async closePoll(token: string, groupId: string, pollId: string, closed: boolean) {
     const user = await this.actor(token);
+    return this.closePollAsUser({ id: user.id, fullName: user.fullName }, groupId, pollId, closed);
+  }
+
+  async closePollAsUser(user: { id: string; fullName: string }, groupId: string, pollId: string, closed: boolean) {
     const role = await this.groups.memberRole(user.id, groupId);
     const poll = await this.groups.pollDetail(pollId);
     if (!poll || poll.groupId !== groupId) throw new NotFoundException('poll_not_found');

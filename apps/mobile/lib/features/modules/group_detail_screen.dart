@@ -76,6 +76,8 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     _subs.add(socket.removedPosts.listen(_onRemovedPost));
     _subs.add(socket.wallChanged.listen((_) => _load()));
     _subs.add(socket.typing.listen(_onTyping));
+    _subs.add(socket.newPolls.listen(_onNewPoll));
+    _subs.add(socket.pollUpdates.listen(_onPollUpdate));
     _socket = socket;
     // Expire stale "typing" entries.
     _typingSweep = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -118,6 +120,29 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       } else {
         _typingUsers.remove(name);
       }
+    });
+  }
+
+  void _onNewPoll(Map<String, dynamic> event) {
+    final poll = (event['poll'] as Map?)?.cast<String, dynamic>();
+    if (poll == null || !mounted) return;
+    final id = '${poll['id']}';
+    if (_polls.any((p) => '${p['id']}' == id)) return;
+    setState(() => _polls = [poll, ..._polls]);
+  }
+
+  void _onPollUpdate(Map<String, dynamic> event) {
+    final pollId = '${event['pollId'] ?? ''}';
+    if (pollId.isEmpty || !mounted) return;
+    setState(() {
+      _polls = _polls.map((p) {
+        if ('${p['id']}' != pollId) return p;
+        final updated = Map<String, dynamic>.from(p);
+        if (event['counts'] != null) updated['counts'] = event['counts'];
+        if (event['totalVotes'] != null) updated['totalVotes'] = event['totalVotes'];
+        if (event.containsKey('closedAt')) updated['closedAt'] = event['closedAt'];
+        return updated;
+      }).toList();
     });
   }
 
@@ -236,6 +261,15 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   // ---- Polls ----
 
   Future<void> _vote(String pollId, int index) async {
+    // Realtime: set our own choice optimistically; the socket broadcasts the
+    // fresh tallies to everyone via poll:update.
+    if (_socket?.connected == true) {
+      setState(() {
+        _polls = _polls.map((p) => '${p['id']}' == pollId ? {...p, 'myVote': index} : p).toList();
+      });
+      _socket!.votePoll(widget.groupId, pollId, index);
+      return;
+    }
     try {
       final updated = await widget.apiClient.voteGroupPoll(_token, widget.groupId, pollId, index);
       if (!mounted) return;
@@ -248,6 +282,10 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   }
 
   Future<void> _closePoll(String pollId, bool closed) async {
+    if (_socket?.connected == true) {
+      _socket!.closePoll(widget.groupId, pollId, closed);
+      return;
+    }
     try {
       await widget.apiClient.closeGroupPoll(_token, widget.groupId, pollId, closed: closed);
       await _load();
@@ -267,9 +305,15 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       ),
     );
     if (result == null || !mounted) return;
+    final question = result['question'] as String;
+    final options = (result['options'] as List).cast<String>();
+    // Realtime: poll:new broadcasts the poll to everyone (including us).
+    if (_socket?.connected == true) {
+      _socket!.createPoll(widget.groupId, question: question, options: options);
+      return;
+    }
     try {
-      await widget.apiClient.createGroupPoll(_token, widget.groupId,
-          question: result['question'] as String, options: (result['options'] as List).cast<String>());
+      await widget.apiClient.createGroupPoll(_token, widget.groupId, question: question, options: options);
       await _load();
       if (mounted) _toast(_t(lang, 'Poll posted.', 'ጥያቄ ተለጠፈ።'));
     } catch (error) {

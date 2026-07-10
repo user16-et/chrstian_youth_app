@@ -106,6 +106,60 @@ export class GroupGateway implements OnGatewayConnection {
     }
   }
 
+  @SubscribeMessage('poll:create')
+  async pollCreate(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = client.data.user;
+    const id = String(body?.groupId ?? '').trim();
+    if (!user || !id) return { ok: false, error: 'group_required' };
+    try {
+      const poll = await this.service.createPollAsUser(user, id, {
+        question: body?.question ?? '',
+        options: body?.options ?? [],
+      });
+      this.server.to(this.room(id)).emit('poll:new', { groupId: id, poll });
+      return { ok: true, poll };
+    } catch (error) {
+      return { ok: false, error: this.errorMessage(error) };
+    }
+  }
+
+  @SubscribeMessage('poll:vote')
+  async pollVote(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = client.data.user;
+    const id = String(body?.groupId ?? '').trim();
+    const pollId = String(body?.pollId ?? '').trim();
+    if (!user || !id || !pollId) return { ok: false, error: 'poll_required' };
+    try {
+      const poll = await this.service.votePollAsUser(user, id, pollId, Number(body?.optionIndex));
+      // Broadcast aggregate tallies only — each client keeps its own myVote.
+      this.server.to(this.room(id)).emit('poll:update', {
+        groupId: id,
+        pollId,
+        counts: poll?.counts ?? [],
+        totalVotes: poll?.totalVotes ?? 0,
+        closedAt: poll?.closedAt ?? null,
+      });
+      return { ok: true, poll };
+    } catch (error) {
+      return { ok: false, error: this.errorMessage(error) };
+    }
+  }
+
+  @SubscribeMessage('poll:close')
+  async pollClose(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = client.data.user;
+    const id = String(body?.groupId ?? '').trim();
+    const pollId = String(body?.pollId ?? '').trim();
+    if (!user || !id || !pollId) return { ok: false, error: 'poll_required' };
+    try {
+      const result = await this.service.closePollAsUser(user, id, pollId, body?.closed !== false);
+      this.server.to(this.room(id)).emit('poll:update', { groupId: id, pollId, closedAt: result?.closedAt ?? null });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: this.errorMessage(error) };
+    }
+  }
+
   @SubscribeMessage('typing')
   async typing(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
     const user = client.data.user;
