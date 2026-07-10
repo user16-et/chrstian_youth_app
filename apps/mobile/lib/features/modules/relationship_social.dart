@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
@@ -645,42 +646,63 @@ Future<void> showStoryViewersSheet(
   );
 }
 
-/// Simple dialog to add a story or photo by image URL + caption (media upload is a follow-up).
+/// Dialog to add a story or photo by uploading an image (+ optional caption).
 Future<Map<String, String>?> showAddMediaDialog(
   BuildContext context, {
   required AppLanguage language,
   required String title,
+  required ApiClient apiClient,
+  required String token,
+  String usage = 'post_media',
   bool captionOnly = false,
 }) {
-  final urlController = TextEditingController();
   final captionController = TextEditingController();
+  String url = '';
   return showDialog<Map<String, String>>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (!captionOnly)
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialog) => AlertDialog(
+        title: Text(title),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (!captionOnly) ...[
+            if (url.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Image.network(url, height: 140, width: double.infinity, fit: BoxFit.cover),
+                ),
+              ),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final uploaded = await pickAndUploadImage(context,
+                    apiClient: apiClient, token: token, usage: usage);
+                if (uploaded != null) setDialog(() => url = uploaded);
+              },
+              icon: const Icon(Icons.add_photo_alternate_rounded),
+              label: Text(url.isEmpty
+                  ? _t(language, 'Upload photo', 'ፎቶ ስቀል')
+                  : _t(language, 'Change photo', 'ፎቶ ቀይር')),
+            ),
+            const SizedBox(height: 10),
+          ],
           TextField(
-              controller: urlController,
-              decoration: InputDecoration(labelText: _t(language, 'Image URL', 'የምስል አድራሻ')),
-              keyboardType: TextInputType.url),
-        TextField(
-            controller: captionController,
-            decoration: InputDecoration(labelText: _t(language, 'Caption (optional)', 'መግለጫ (አማራጭ)')),
-            maxLines: 2),
-      ]),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: Text(_t(language, 'Cancel', 'ተወው'))),
-        FilledButton(
-          onPressed: () {
-            final url = urlController.text.trim();
-            final caption = captionController.text.trim();
-            if (!captionOnly && url.isEmpty && caption.isEmpty) return;
-            Navigator.pop(context, {'url': url, 'caption': caption});
-          },
-          child: Text(_t(language, 'Share', 'አጋራ')),
-        ),
-      ],
+              controller: captionController,
+              decoration: InputDecoration(labelText: _t(language, 'Caption (optional)', 'መግለጫ (አማራጭ)')),
+              maxLines: 2),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(_t(language, 'Cancel', 'ተወው'))),
+          FilledButton(
+            onPressed: () {
+              final caption = captionController.text.trim();
+              if (!captionOnly && url.isEmpty && caption.isEmpty) return;
+              Navigator.pop(context, {'url': url, 'caption': caption});
+            },
+            child: Text(_t(language, 'Share', 'አጋራ')),
+          ),
+        ],
+      ),
     ),
   );
 }

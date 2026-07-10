@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
@@ -76,7 +77,8 @@ class _StoriesRailState extends State<StoriesRail> {
   List<Map<String, dynamic>> get _others => _ring.where((r) => r['isMe'] != true).toList();
 
   Future<void> _compose() async {
-    final input = await showStoryComposer(context, language: widget.language);
+    final input = await showStoryComposer(context,
+        language: widget.language, apiClient: widget.apiClient, token: widget.token);
     if (input == null) return;
     try {
       await widget.apiClient.postStory(widget.token,
@@ -372,9 +374,10 @@ class _StoryPage extends StatelessWidget {
 }
 
 /// Composer for a new story: a colored text story or an image-URL story.
-Future<Map<String, String>?> showStoryComposer(BuildContext context, {required AppLanguage language}) {
+Future<Map<String, String>?> showStoryComposer(BuildContext context,
+    {required AppLanguage language, required ApiClient apiClient, required String token}) {
   final captionController = TextEditingController();
-  final urlController = TextEditingController();
+  String imageUrl = '';
   int bgIndex = 0;
   bool imageMode = false;
   return showModalBottomSheet<Map<String, String>>(
@@ -429,12 +432,34 @@ Future<Map<String, String>?> showStoryComposer(BuildContext context, {required A
                 ),
               ),
             ),
-          ] else
-            TextField(
-              controller: urlController,
-              decoration: InputDecoration(labelText: _tr(language, 'Image URL', 'የምስል አድራሻ')),
-              keyboardType: TextInputType.url,
+          ] else ...[
+            if (imageUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.network(imageUrl, height: 160, width: double.infinity, fit: BoxFit.cover),
+              )
+            else
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Container(
+                  decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(16)),
+                  alignment: Alignment.center,
+                  child: Icon(Icons.image_outlined, size: 40, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+              ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final uploaded = await pickAndUploadImage(context,
+                    apiClient: apiClient, token: token, usage: 'post_media');
+                if (uploaded != null) setModal(() => imageUrl = uploaded);
+              },
+              icon: const Icon(Icons.add_photo_alternate_rounded),
+              label: Text(imageUrl.isEmpty ? _tr(language, 'Upload photo', 'ፎቶ ስቀል') : _tr(language, 'Change photo', 'ፎቶ ቀይር')),
             ),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: captionController,
@@ -448,12 +473,11 @@ Future<Map<String, String>?> showStoryComposer(BuildContext context, {required A
             child: FilledButton.icon(
               onPressed: () {
                 final caption = captionController.text.trim();
-                final url = urlController.text.trim();
-                if (imageMode && url.isEmpty) return;
+                if (imageMode && imageUrl.isEmpty) return;
                 if (!imageMode && caption.isEmpty) return;
                 Navigator.pop(context, {
                   'mediaType': imageMode ? 'image' : 'text',
-                  'mediaUrl': imageMode ? url : '',
+                  'mediaUrl': imageMode ? imageUrl : '',
                   'caption': caption,
                   'background': imageMode ? '' : _storyBackgrounds[bgIndex],
                 });

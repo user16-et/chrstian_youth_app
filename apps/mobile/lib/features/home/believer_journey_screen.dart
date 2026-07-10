@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 
@@ -151,10 +152,26 @@ class _BelieverJourneyScreenState extends State<BelieverJourneyScreen> {
               Text(_text('Complete your faith profile', 'የእምነት መገለጫዎን ያጠናቅቁ'),
                   style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 14),
-              TextField(
-                  controller: _photo,
-                  decoration: InputDecoration(
-                      labelText: _text('Profile photo URL', 'የመገለጫ ፎቶ URL'))),
+              Row(children: [
+                ImageUploadAvatar(
+                  apiClient: widget.apiClient,
+                  token: widget.session.token,
+                  usage: 'profile_photo',
+                  currentUrl: _photo.text,
+                  radius: 40,
+                  onUploaded: (url) => setState(() => _photo.text = url),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                      _photo.text.isEmpty
+                          ? _text('Tap the camera to upload your profile photo.',
+                              'የመገለጫ ፎቶዎን ለመስቀል ካሜራውን ይንኩ።')
+                          : _text('Profile photo added. Tap to change.',
+                              'ፎቶ ተጨምሯል። ለመቀየር ይንኩ።'),
+                      style: Theme.of(context).textTheme.bodyMedium),
+                ),
+              ]),
               const SizedBox(height: 10),
               TextField(
                   controller: _city,

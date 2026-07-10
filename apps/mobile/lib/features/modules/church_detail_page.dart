@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 
 import 'live_chat_panel.dart';
@@ -1680,6 +1681,42 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
   }
 
   Future<void> _updateImage(bool cover) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.add_photo_alternate_rounded),
+            title: Text(cover ? 'Upload cover image' : 'Upload logo'),
+            onTap: () => Navigator.pop(context, 'upload'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.link_rounded),
+            title: const Text('Paste image URL'),
+            onTap: () => Navigator.pop(context, 'url'),
+          ),
+        ]),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    if (choice == 'upload') {
+      final url = await pickAndUploadImage(context,
+          apiClient: widget.apiClient,
+          token: widget.session.token,
+          usage: cover ? 'cover_photo' : 'church_logo',
+          scopeType: 'church',
+          scopeId: widget.churchId);
+      if (url == null) return;
+      await _adminRun(
+        () => cover
+            ? widget.apiClient.updateChurchCover(token: widget.session.token, churchId: widget.churchId, url: url)
+            : widget.apiClient.updateChurchLogo(token: widget.session.token, churchId: widget.churchId, url: url),
+        cover ? 'Cover image uploaded.' : 'Logo uploaded.',
+      );
+      return;
+    }
+
     final profile = await _profile;
     final current = cover
         ? (profile['coverUrl']?.toString() ??

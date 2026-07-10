@@ -7705,6 +7705,8 @@ class _RelationshipEcosystemPanelState
     }
     final input = await showAddMediaDialog(context,
         language: widget.language,
+        apiClient: widget.apiClient,
+        token: token,
         title: en ? 'Post a story' : 'ታሪክ ይለጥፉ');
     if (input == null) return;
     await _run(
