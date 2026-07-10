@@ -87,6 +87,13 @@ web build.
 7. Chat
 8. Reporting and blocking
 
+## Content licensing
+
+Bible text is embedded per-translation. KJV is public domain. The Amharic text
+(incl. the full Old Testament) currently comes from WordProject and is
+**non-commercial only** — it must be licensed or replaced before a commercial
+launch. See [docs/content-licensing.md](docs/content-licensing.md).
+
 ## API surface
 
 The backend currently includes real endpoints for:

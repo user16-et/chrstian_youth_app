@@ -24,8 +24,11 @@ const VERSION = {
   name: 'Amharic Bible',
   language: 'am',
   copyright:
-    'Amharic Holy Bible, courtesy of WordProject (wordproject.org). Free for personal, non-commercial use.',
-  license: 'available',
+    'Amharic Holy Bible, courtesy of WordProject (wordproject.org). Free for personal, non-commercial use only.',
+  // NOTE: WordProject grants personal, non-commercial use only. This is fine for
+  // the MVP but is NOT cleared for a commercial launch — see
+  // docs/content-licensing.md before shipping to a paid/at-scale audience.
+  license: 'non_commercial',
 };
 
 function clean(s) {
