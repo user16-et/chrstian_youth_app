@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -48,17 +48,20 @@ class BibleLocalStore {
 
   /// Codes of translations available offline.
   Future<Set<String>> downloadedVersions() async {
+    if (kIsWeb) return {};
     final db = await _open();
     final rows = await db.query('downloads', columns: ['version']);
     return rows.map((r) => '${r['version']}').toSet();
   }
 
   Future<List<Map<String, dynamic>>> downloadInfo() async {
+    if (kIsWeb) return const [];
     final db = await _open();
     return db.query('downloads', orderBy: 'name');
   }
 
   Future<bool> hasVersion(String version) async {
+    if (kIsWeb) return false;
     final db = await _open();
     final rows = await db.query('downloads', where: 'version = ?', whereArgs: [version], limit: 1);
     return rows.isNotEmpty;
@@ -66,6 +69,7 @@ class BibleLocalStore {
 
   /// Store a full translation payload from GET /bible/download/:version.
   Future<void> saveVersion(Map<String, dynamic> version, List<Map<String, dynamic>> verses) async {
+    if (kIsWeb) return;
     final db = await _open();
     final code = '${version['code']}';
     await db.transaction((txn) async {
@@ -104,7 +108,7 @@ class BibleLocalStore {
 
   /// Verses for a chapter, or null when the translation isn't downloaded.
   Future<List<Map<String, dynamic>>?> chapter(String version, String book, int chapter) async {
-    if (!await hasVersion(version)) return null;
+    if (kIsWeb || !await hasVersion(version)) return null;
     final db = await _open();
     final rows = await db.query(
       'verses',
@@ -124,6 +128,7 @@ class BibleLocalStore {
   }
 
   Future<void> deleteVersion(String version) async {
+    if (kIsWeb) return;
     final db = await _open();
     await db.transaction((txn) async {
       await txn.delete('verses', where: 'version = ?', whereArgs: [version]);
@@ -134,12 +139,14 @@ class BibleLocalStore {
   // ---- Book list cache (so navigation works offline) ----
 
   Future<void> cacheBooks(List<Map<String, dynamic>> books) async {
+    if (kIsWeb) return;
     final db = await _open();
     await db.insert('meta', {'key': 'books', 'value': jsonEncode(books)},
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Map<String, dynamic>>> cachedBooks() async {
+    if (kIsWeb) return const [];
     final db = await _open();
     final rows = await db.query('meta', where: 'key = ?', whereArgs: ['books'], limit: 1);
     if (rows.isEmpty) return const [];
