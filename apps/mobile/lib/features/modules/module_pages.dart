@@ -3884,9 +3884,10 @@ class _ProfileGrid extends StatelessWidget {
                 width: 150,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppTheme.parchment.withValues(alpha: .72),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0x1412372A)),
+                  border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
