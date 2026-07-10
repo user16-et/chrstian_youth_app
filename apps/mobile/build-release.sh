@@ -37,15 +37,33 @@ if [[ "$ARTIFACT" != "apk" && "$ARTIFACT" != "appbundle" ]]; then
 fi
 
 cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+
+# Locate Flutter: prefer one on PATH, else the SDK bundled in the repo.
+if command -v flutter >/dev/null 2>&1; then
+  FLUTTER=flutter
+elif [[ -x "$REPO_ROOT/.sdk/flutter/bin/flutter" ]]; then
+  FLUTTER="$REPO_ROOT/.sdk/flutter/bin/flutter"
+else
+  echo "flutter not found on PATH or at $REPO_ROOT/.sdk/flutter/bin/flutter" >&2
+  exit 1
+fi
+
+# Point at the bundled Android SDK if the environment doesn't already set one.
+if [[ -z "${ANDROID_SDK_ROOT:-}" && -d "$REPO_ROOT/.sdk/android-sdk" ]]; then
+  export ANDROID_SDK_ROOT="$REPO_ROOT/.sdk/android-sdk"
+  export ANDROID_HOME="$REPO_ROOT/.sdk/android-sdk"
+fi
 
 echo "==> Building release ($ARTIFACT)"
+echo "    flutter = $FLUTTER"
 echo "    API_BASE_URL = $API_BASE_URL"
 if [[ "$API_BASE_URL" == http://* ]]; then
   echo "    Note: cleartext HTTP — allowed via res/xml/network_security_config.xml."
 fi
 echo
 
-flutter build "$ARTIFACT" --release --dart-define=API_BASE_URL="$API_BASE_URL"
+"$FLUTTER" build "$ARTIFACT" --release --dart-define=API_BASE_URL="$API_BASE_URL"
 
 echo
 if [[ "$ARTIFACT" == "apk" ]]; then
