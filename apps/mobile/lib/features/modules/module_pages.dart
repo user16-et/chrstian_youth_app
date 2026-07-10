@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import 'church_detail_page.dart';
 import 'courtship_swipe.dart';
 import 'bible_reader.dart';
+import 'group_detail_screen.dart';
 import 'likes_you.dart';
 import 'matches_inbox.dart';
 import 'live_chat_panel.dart';
@@ -853,23 +854,36 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     setState(() => _query = '');
                   },
           ),
-          items: snapshot.connectionState == ConnectionState.waiting &&
-                  groups.isEmpty
-              ? const [
-                  Padding(
-                    padding: EdgeInsets.only(top: 24),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                ]
-              : filtered.isEmpty
-                  ? [
-                      _EmptyState(
-                        message: _query.isEmpty
-                            ? AppStrings.of(language, 'no_groups_yet')
-                            : AppStrings.of(language, 'no_search_results'),
-                      ),
-                    ]
-                  : filtered
+          items: [
+            if (widget.session != null) ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => _createGroup(context),
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(language == AppLanguage.english
+                      ? 'Create group or channel'
+                      : 'ቡድን ወይም ቻናል ፍጠር'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            ...(snapshot.connectionState == ConnectionState.waiting && groups.isEmpty
+                ? const [
+                    Padding(
+                      padding: EdgeInsets.only(top: 24),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  ]
+                : filtered.isEmpty
+                    ? [
+                        _EmptyState(
+                          message: _query.isEmpty
+                              ? AppStrings.of(language, 'no_groups_yet')
+                              : AppStrings.of(language, 'no_search_results'),
+                        ),
+                      ]
+                    : filtered
                       .map(
                         (group) => _ListTileRow(
                           icon: Icons.groups_rounded,
@@ -877,21 +891,109 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           subtitle: group.category,
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => GroupDetailScreen(
+                              builder: (_) => GroupChannelScreen(
                                 language: language,
                                 apiClient: widget.apiClient,
-                                group: group,
-                                session: widget.session,
-                                onDataChanged: widget.onDataChanged,
+                                token: widget.session?.token,
+                                groupId: group.id,
                               ),
                             ),
-                          ),
+                          ).then((_) => widget.onDataChanged()),
                         ),
                       )
-                      .toList(),
+                      .toList()),
+          ],
         );
       },
     );
+  }
+
+  Future<void> _createGroup(BuildContext context) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final nameC = TextEditingController();
+    final descC = TextEditingController();
+    String kind = 'group';
+    String visibility = 'public';
+    final created = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheet) => Padding(
+          padding: EdgeInsets.only(
+              left: 20, right: 20, top: 4, bottom: MediaQuery.viewInsetsOf(context).bottom + 20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(en ? 'New group or channel' : 'አዲስ ቡድን ወይም ቻናል',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 14),
+            SegmentedButton<String>(
+              segments: [
+                ButtonSegment(value: 'group', label: Text(en ? 'Group' : 'ቡድን'), icon: const Icon(Icons.groups_rounded)),
+                ButtonSegment(value: 'channel', label: Text(en ? 'Channel' : 'ቻናል'), icon: const Icon(Icons.campaign_rounded)),
+              ],
+              selected: {kind},
+              onSelectionChanged: (s) => setSheet(() => kind = s.first),
+            ),
+            const SizedBox(height: 6),
+            Text(
+                kind == 'channel'
+                    ? (en ? 'A channel broadcasts to followers — only admins post.' : 'ቻናል ለተከታዮች ያሰራጫል — አስተዳዳሪዎች ብቻ ይለጥፋሉ።')
+                    : (en ? 'A group is a shared conversation — every member can post.' : 'ቡድን የጋራ ውይይት ነው — ሁሉም አባል ይለጥፋል።'),
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 12),
+            TextField(controller: nameC, decoration: InputDecoration(labelText: en ? 'Name' : 'ስም')),
+            const SizedBox(height: 10),
+            TextField(controller: descC, maxLines: 2, decoration: InputDecoration(labelText: en ? 'Description (optional)' : 'መግለጫ (አማራጭ)')),
+            const SizedBox(height: 12),
+            Row(children: [
+              Text(en ? 'Visibility' : 'ታይነት', style: const TextStyle(fontWeight: FontWeight.w600)),
+              const Spacer(),
+              ChoiceChip(label: Text(en ? 'Public' : 'የሕዝብ'), selected: visibility == 'public', onSelected: (_) => setSheet(() => visibility = 'public')),
+              const SizedBox(width: 8),
+              ChoiceChip(label: Text(en ? 'Private' : 'የግል'), selected: visibility == 'private', onSelected: (_) => setSheet(() => visibility = 'private')),
+            ]),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () async {
+                  if (nameC.text.trim().isEmpty) return;
+                  try {
+                    final group = await widget.apiClient.createGroup(token, {
+                      'name': nameC.text.trim(),
+                      'description': descC.text.trim(),
+                      'kind': kind,
+                      'visibility': visibility,
+                    });
+                    if (context.mounted) Navigator.pop(context, group);
+                  } catch (error) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+                    }
+                  }
+                },
+                child: Text(en ? 'Create' : 'ፍጠር'),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (created == null || !context.mounted) return;
+    await widget.onDataChanged();
+    if (!context.mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => GroupChannelScreen(
+        language: widget.language,
+        apiClient: widget.apiClient,
+        token: token,
+        groupId: '${created['id']}',
+      ),
+    ));
+    await widget.onDataChanged();
   }
 }
 

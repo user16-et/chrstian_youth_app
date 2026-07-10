@@ -1,0 +1,537 @@
+import 'package:flutter/material.dart';
+
+import '../../data/api_client.dart';
+import '../../data/call_controller.dart';
+import '../../data/image_upload.dart';
+import '../../i18n/app_i18n.dart';
+
+bool _en(AppLanguage l) => l == AppLanguage.english;
+String _t(AppLanguage l, String en, String am) => _en(l) ? en : am;
+String _clean(Object e) => e.toString().replaceFirst('HttpException: ', '');
+
+/// Telegram-style group/channel: header, posts wall, composer (permission-gated),
+/// member management, and one-tap group meetings.
+class GroupChannelScreen extends StatefulWidget {
+  const GroupChannelScreen({
+    super.key,
+    required this.apiClient,
+    required this.token,
+    required this.groupId,
+    required this.language,
+  });
+
+  final ApiClient apiClient;
+  final String? token;
+  final String groupId;
+  final AppLanguage language;
+
+  @override
+  State<GroupChannelScreen> createState() => _GroupChannelScreenState();
+}
+
+class _GroupChannelScreenState extends State<GroupChannelScreen> {
+  Map<String, dynamic> _detail = const {};
+  List<Map<String, dynamic>> _posts = const [];
+  final TextEditingController _input = TextEditingController();
+  bool _loading = true;
+  bool _posting = false;
+  String _error = '';
+
+  AppLanguage get lang => widget.language;
+  String get _token => widget.token ?? '';
+  bool get _signedIn => _token.isNotEmpty;
+  bool get _isChannel => '${_detail['kind']}' == 'channel';
+  String? get _myRole => _detail['myRole'] as String?;
+  bool get _isManager => _myRole == 'owner' || _myRole == 'admin';
+  bool get _isMember => _myRole != null;
+  bool get _canPost => _isChannel ? _isManager : _isMember;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final detail = await widget.apiClient.fetchGroupDetail(widget.token, widget.groupId);
+      List<Map<String, dynamic>> posts = const [];
+      try {
+        posts = await widget.apiClient.fetchGroupPosts(widget.token, widget.groupId);
+      } catch (_) {
+        // Private wall while not a member — leave posts empty.
+      }
+      if (mounted) setState(() { _detail = detail; _posts = posts; _loading = false; _error = ''; });
+    } catch (error) {
+      if (mounted) setState(() { _error = _clean(error); _loading = false; });
+    }
+  }
+
+  Future<void> _run(Future<dynamic> Function() action, {String? ok}) async {
+    try {
+      await action();
+      await _load();
+      if (ok != null && mounted) _toast(ok);
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    }
+  }
+
+  Future<void> _post({String mediaUrl = ''}) async {
+    final body = _input.text.trim();
+    if ((body.isEmpty && mediaUrl.isEmpty) || _posting) return;
+    setState(() => _posting = true);
+    try {
+      await widget.apiClient.postToGroup(_token, widget.groupId, body: body, mediaUrl: mediaUrl);
+      _input.clear();
+      await _load();
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    } finally {
+      if (mounted) setState(() => _posting = false);
+    }
+  }
+
+  Future<void> _attachAndPost() async {
+    final url = await pickAndUploadImage(context,
+        apiClient: widget.apiClient, token: _token, usage: 'post_media');
+    if (url != null) await _post(mediaUrl: url);
+  }
+
+  Future<void> _startMeeting() async {
+    if (!_isMember) return _toast(_t(lang, 'Join the group to start a meeting.', 'ስብሰባ ለመጀመር ይቀላቀሉ።'));
+    try {
+      await widget.apiClient.startGroupMeeting(_token, widget.groupId, title: '${_detail['name'] ?? ''}');
+      if (!mounted) return;
+      CallScope.maybeOf(context)?.joinGroupAudio(groupId: widget.groupId, title: '${_detail['name'] ?? 'Meeting'}');
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    }
+  }
+
+  void _toast(String message) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: _loading
+            ? Text(_t(lang, 'Group', 'ቡድን'))
+            : Row(children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: colors.surfaceContainerHighest,
+                  backgroundImage: '${_detail['avatarUrl'] ?? ''}'.isNotEmpty ? NetworkImage('${_detail['avatarUrl']}') : null,
+                  child: '${_detail['avatarUrl'] ?? ''}'.isEmpty
+                      ? Icon(_isChannel ? Icons.campaign_rounded : Icons.groups_rounded, size: 20, color: colors.onSurfaceVariant)
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text('${_detail['name'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(
+                        '${_detail['memberCount'] ?? 0} ${_t(lang, 'members', 'አባላት')} · ${_isChannel ? _t(lang, 'Channel', 'ቻናል') : _t(lang, 'Group', 'ቡድን')}',
+                        style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant, fontWeight: FontWeight.w400)),
+                  ]),
+                ),
+              ]),
+        actions: [
+          if (!_loading && _isMember)
+            IconButton(
+              tooltip: _t(lang, 'Start meeting', 'ስብሰባ ጀምር'),
+              icon: const Icon(Icons.videocam_rounded),
+              onPressed: _startMeeting,
+            ),
+          if (!_loading)
+            PopupMenuButton<String>(
+              onSelected: _onMenu,
+              itemBuilder: (context) => [
+                PopupMenuItem(value: 'members', child: Text(_t(lang, 'Members', 'አባላት'))),
+                if (_isManager) PopupMenuItem(value: 'requests', child: Text(_t(lang, 'Join requests', 'የመቀላቀል ጥያቄዎች'))),
+                if (_isManager) PopupMenuItem(value: 'settings', child: Text(_t(lang, 'Edit group', 'አርትዕ'))),
+                if (_isMember) PopupMenuItem(value: 'leave', child: Text(_t(lang, 'Leave', 'ውጣ'))),
+              ],
+            ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error.isNotEmpty
+              ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error, textAlign: TextAlign.center)))
+              : Column(children: [
+                  Expanded(child: _wall(colors)),
+                  _footer(colors),
+                ]),
+    );
+  }
+
+  Widget _wall(ColorScheme colors) {
+    if (_posts.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(children: [
+          if ('${_detail['description'] ?? ''}'.isNotEmpty)
+            Padding(padding: const EdgeInsets.all(20), child: Text('${_detail['description']}')),
+          const SizedBox(height: 80),
+          Center(
+            child: Text(
+                _isChannel
+                    ? _t(lang, 'No posts yet.', 'ገና ልጥፍ የለም።')
+                    : _t(lang, 'No messages yet. Say hello 👋', 'ገና መልእክት የለም። ሰላም በሉ 👋'),
+                style: TextStyle(color: colors.onSurfaceVariant)),
+          ),
+        ]),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        reverse: false,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        itemCount: _posts.length,
+        itemBuilder: (context, i) => _postCard(_posts[i], colors),
+      ),
+    );
+  }
+
+  Widget _postCard(Map<String, dynamic> post, ColorScheme colors) {
+    final pinned = post['pinned'] == true;
+    final media = '${post['mediaUrl'] ?? ''}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: pinned ? colors.primary.withValues(alpha: .5) : colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            CircleAvatar(
+              radius: 15,
+              backgroundColor: colors.surfaceContainerHighest,
+              backgroundImage: '${post['authorAvatar'] ?? ''}'.isNotEmpty ? NetworkImage('${post['authorAvatar']}') : null,
+              child: '${post['authorAvatar'] ?? ''}'.isEmpty ? Icon(Icons.person_rounded, size: 16, color: colors.onSurfaceVariant) : null,
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text('${post['authorName'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w700))),
+            if (pinned) Icon(Icons.push_pin_rounded, size: 16, color: colors.primary),
+            if (_signedIn)
+              PopupMenuButton<String>(
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.more_horiz_rounded, size: 18, color: colors.onSurfaceVariant),
+                onSelected: (v) => _onPostMenu(v, post),
+                itemBuilder: (context) => [
+                  if (_isManager)
+                    PopupMenuItem(value: 'pin', child: Text(pinned ? _t(lang, 'Unpin', 'ንቀል') : _t(lang, 'Pin', 'ሰካ'))),
+                  PopupMenuItem(value: 'delete', child: Text(_t(lang, 'Delete', 'ሰርዝ'))),
+                ],
+              ),
+          ]),
+          if ('${post['body'] ?? ''}'.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('${post['body']}', style: Theme.of(context).textTheme.bodyLarge),
+          ],
+          if (media.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(media, fit: BoxFit.cover)),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  Widget _footer(ColorScheme colors) {
+    if (!_signedIn) return const SizedBox.shrink();
+    if (!_isMember) {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _run(() => widget.apiClient.joinGroup(token: _token, groupId: widget.groupId),
+                  ok: _t(lang, 'Joined.', 'ተቀላቅለዋል።')),
+              icon: const Icon(Icons.add_rounded),
+              label: Text(_isChannel ? _t(lang, 'Follow channel', 'ቻናል ተከተል') : _t(lang, 'Join group', 'ቡድን ተቀላቀል')),
+            ),
+          ),
+        ),
+      );
+    }
+    if (!_canPost) {
+      // e.g. a channel follower who isn't an admin — read-only.
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Text(_t(lang, 'Only admins can post in this channel.', 'በዚህ ቻናል አስተዳዳሪዎች ብቻ ይለጥፋሉ።'),
+              textAlign: TextAlign.center, style: TextStyle(color: colors.onSurfaceVariant)),
+        ),
+      );
+    }
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        child: Row(children: [
+          IconButton(
+            onPressed: _posting ? null : _attachAndPost,
+            icon: const Icon(Icons.add_photo_alternate_rounded),
+            tooltip: _t(lang, 'Photo', 'ፎቶ'),
+          ),
+          Expanded(
+            child: TextField(
+              controller: _input,
+              minLines: 1,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                hintText: _isChannel ? _t(lang, 'Broadcast a message…', 'መልእክት አሰራጭ…') : _t(lang, 'Message…', 'መልእክት…'),
+                filled: true,
+                fillColor: colors.surfaceContainerHighest,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+              ),
+              onSubmitted: (_) => _post(),
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton.filled(
+            onPressed: _posting ? null : () => _post(),
+            icon: _posting
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.send_rounded),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  // ---- Menus / management ----
+
+  void _onMenu(String value) {
+    switch (value) {
+      case 'members':
+        _openMembers();
+        break;
+      case 'requests':
+        _openRequests();
+        break;
+      case 'settings':
+        _openEdit();
+        break;
+      case 'leave':
+        _run(() => widget.apiClient.leaveGroup(token: _token, groupId: widget.groupId),
+            ok: _t(lang, 'Left the group.', 'ከቡድኑ ወጥተዋል።'));
+        break;
+    }
+  }
+
+  void _onPostMenu(String value, Map<String, dynamic> post) {
+    final id = '${post['id']}';
+    if (value == 'pin') {
+      _run(() => widget.apiClient.pinGroupPost(_token, widget.groupId, id, post['pinned'] != true));
+    } else if (value == 'delete') {
+      _run(() => widget.apiClient.deleteGroupPost(_token, widget.groupId, id), ok: _t(lang, 'Deleted.', 'ተሰርዟል።'));
+    }
+  }
+
+  Future<void> _openMembers() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _MembersSheet(
+        apiClient: widget.apiClient,
+        token: widget.token,
+        groupId: widget.groupId,
+        language: lang,
+        canManage: _isManager,
+        myRole: _myRole,
+      ),
+    );
+    await _load();
+  }
+
+  Future<void> _openRequests() async {
+    final requests = await widget.apiClient.fetchGroupRequests(_token, widget.groupId);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheet) => SafeArea(
+          child: requests.isEmpty
+              ? Padding(padding: const EdgeInsets.all(30), child: Text(_t(lang, 'No pending requests.', 'ጥያቄ የለም።')))
+              : Column(mainAxisSize: MainAxisSize.min, children: [
+                  for (final r in List<Map<String, dynamic>>.from(requests))
+                    ListTile(
+                      title: Text('${r['fullName'] ?? ''}'),
+                      subtitle: Text('@${r['username'] ?? ''}'),
+                      trailing: FilledButton(
+                        onPressed: () async {
+                          await widget.apiClient.approveGroupMember(_token, widget.groupId, '${r['userId']}');
+                          setSheet(() => requests.removeWhere((x) => x['userId'] == r['userId']));
+                        },
+                        child: Text(_t(lang, 'Approve', 'ፍቀድ')),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                ]),
+        ),
+      ),
+    );
+    await _load();
+  }
+
+  Future<void> _openEdit() async {
+    final nameC = TextEditingController(text: '${_detail['name'] ?? ''}');
+    final descC = TextEditingController(text: '${_detail['description'] ?? ''}');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(_t(lang, 'Edit group', 'አርትዕ')),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: nameC, decoration: InputDecoration(labelText: _t(lang, 'Name', 'ስም'))),
+          const SizedBox(height: 10),
+          TextField(controller: descC, maxLines: 3, decoration: InputDecoration(labelText: _t(lang, 'Description', 'መግለጫ'))),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_t(lang, 'Cancel', 'ተወው'))),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(_t(lang, 'Save', 'አስቀምጥ'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _run(() => widget.apiClient.updateGroup(_token, widget.groupId, {'name': nameC.text.trim(), 'description': descC.text.trim()}),
+        ok: _t(lang, 'Saved.', 'ተቀምጧል።'));
+  }
+}
+
+/// Member list with per-member admin actions (promote / demote / remove).
+class _MembersSheet extends StatefulWidget {
+  const _MembersSheet({
+    required this.apiClient,
+    required this.token,
+    required this.groupId,
+    required this.language,
+    required this.canManage,
+    required this.myRole,
+  });
+
+  final ApiClient apiClient;
+  final String? token;
+  final String groupId;
+  final AppLanguage language;
+  final bool canManage;
+  final String? myRole;
+
+  @override
+  State<_MembersSheet> createState() => _MembersSheetState();
+}
+
+class _MembersSheetState extends State<_MembersSheet> {
+  List<Map<String, dynamic>> _members = const [];
+  bool _loading = true;
+  AppLanguage get lang => widget.language;
+  String get _token => widget.token ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final members = await widget.apiClient.fetchGroupMembersDetailed(widget.token, widget.groupId);
+    if (mounted) setState(() { _members = members; _loading = false; });
+  }
+
+  Future<void> _act(Future<dynamic> Function() action) async {
+    try {
+      await action();
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_clean(error))));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.75,
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('${_members.length} ${_t(lang, 'members', 'አባላት')}',
+                        style: Theme.of(context).textTheme.titleMedium)),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _members.length,
+                  itemBuilder: (context, i) {
+                    final m = _members[i];
+                    final role = '${m['role']}';
+                    final uid = '${m['userId']}';
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: colors.surfaceContainerHighest,
+                        backgroundImage: '${m['avatarUrl'] ?? ''}'.isNotEmpty ? NetworkImage('${m['avatarUrl']}') : null,
+                        child: '${m['avatarUrl'] ?? ''}'.isEmpty ? Icon(Icons.person_rounded, color: colors.onSurfaceVariant) : null,
+                      ),
+                      title: Text('${m['fullName'] ?? ''}'),
+                      subtitle: Text('@${m['username'] ?? ''}'),
+                      trailing: role == 'owner'
+                          ? _roleChip(colors, _t(lang, 'Owner', 'ባለቤት'))
+                          : (widget.canManage
+                              ? PopupMenuButton<String>(
+                                  icon: Row(mainAxisSize: MainAxisSize.min, children: [
+                                    if (role == 'admin') _roleChip(colors, _t(lang, 'Admin', 'አስተዳዳሪ')),
+                                    const Icon(Icons.more_vert_rounded),
+                                  ]),
+                                  onSelected: (v) {
+                                    if (v == 'promote') _act(() => widget.apiClient.setGroupMemberRole(_token, widget.groupId, uid, 'admin'));
+                                    if (v == 'demote') _act(() => widget.apiClient.setGroupMemberRole(_token, widget.groupId, uid, 'member'));
+                                    if (v == 'remove') _act(() => widget.apiClient.removeGroupMember(_token, widget.groupId, uid));
+                                  },
+                                  itemBuilder: (context) => [
+                                    if (role != 'admin') PopupMenuItem(value: 'promote', child: Text(_t(lang, 'Make admin', 'አስተዳዳሪ አድርግ'))),
+                                    if (role == 'admin') PopupMenuItem(value: 'demote', child: Text(_t(lang, 'Remove admin', 'አስተዳዳሪነት አንሳ'))),
+                                    PopupMenuItem(value: 'remove', child: Text(_t(lang, 'Remove from group', 'ከቡድን አስወግድ'))),
+                                  ],
+                                )
+                              : (role == 'admin' ? _roleChip(colors, _t(lang, 'Admin', 'አስተዳዳሪ')) : null)),
+                    );
+                  },
+                ),
+              ),
+            ]),
+    );
+  }
+
+  Widget _roleChip(ColorScheme colors, String label) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(color: colors.primaryContainer, borderRadius: BorderRadius.circular(999)),
+        child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colors.onPrimaryContainer)),
+      );
+}

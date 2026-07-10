@@ -544,6 +544,74 @@ class ApiClient {
     );
   }
 
+  // ---- Telegram-style groups & channels ----
+
+  Future<Map<String, dynamic>> createGroup(String token, Map<String, dynamic> input) async {
+    final response = await _postJson('/groups', input, headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> fetchGroupDetail(String? token, String groupId) async {
+    final response = await _getJson('/groups/$groupId',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<dynamic> updateGroup(String token, String groupId, Map<String, dynamic> input) {
+    return _patchJson('/groups/$groupId', input, headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<List<Map<String, dynamic>>> fetchGroupMembersDetailed(String? token, String groupId) async {
+    final response = await _getJson('/groups/$groupId/members',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchGroupRequests(String token, String groupId) async {
+    final response = await _getJson('/groups/$groupId/requests', headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<dynamic> setGroupMemberRole(String token, String groupId, String userId, String role) {
+    return _postJson('/groups/$groupId/members/$userId/role', {'role': role},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> removeGroupMember(String token, String groupId, String userId) {
+    return _deleteJson('/groups/$groupId/members/$userId', headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> approveGroupMember(String token, String groupId, String userId) {
+    return _postJson('/groups/$groupId/members/$userId/approve', const {},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<List<Map<String, dynamic>>> fetchGroupPosts(String? token, String groupId) async {
+    final response = await _getJson('/groups/$groupId/posts',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<dynamic> postToGroup(String token, String groupId, {required String body, String mediaUrl = ''}) {
+    return _postJson('/groups/$groupId/posts', {'body': body, 'mediaUrl': mediaUrl},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> pinGroupPost(String token, String groupId, String postId, bool pinned) {
+    return _postJson('/groups/$groupId/posts/$postId/pin', {'pinned': pinned},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> deleteGroupPost(String token, String groupId, String postId) {
+    return _deleteJson('/groups/$groupId/posts/$postId', headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<Map<String, dynamic>> startGroupMeeting(String token, String groupId, {String title = ''}) async {
+    final response = await _postJson('/groups/$groupId/meeting', {'title': title},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
   Future<List<EventItem>> fetchEvents() async {
     final response = await _getJson('/events');
     return (response as List<dynamic>)
