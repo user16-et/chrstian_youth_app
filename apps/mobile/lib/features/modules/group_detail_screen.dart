@@ -78,6 +78,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     _subs.add(socket.typing.listen(_onTyping));
     _subs.add(socket.newPolls.listen(_onNewPoll));
     _subs.add(socket.pollUpdates.listen(_onPollUpdate));
+    _subs.add(socket.membersChanged.listen(_onMembersChanged));
     _socket = socket;
     // Expire stale "typing" entries.
     _typingSweep = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -144,6 +145,19 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
         return updated;
       }).toList();
     });
+  }
+
+  void _onMembersChanged(Map<String, dynamic> event) {
+    if (!mounted) return;
+    // Were we the one removed? Leave the screen.
+    final removed = '${event['removedUserId'] ?? ''}';
+    if (removed.isNotEmpty && removed == _currentUserId()) {
+      _toast(_t(lang, 'You are no longer a member of this group.', 'ከዚህ ቡድን አባል አይደሉም።'));
+      Navigator.of(context).maybePop();
+      return;
+    }
+    // Otherwise refresh detail (member count + our own role/permissions).
+    _load();
   }
 
   void _onComposerChanged(String value) {
@@ -714,6 +728,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
         language: lang,
         canManage: _isManager,
         myRole: _myRole,
+        membersStream: _socket?.membersChanged,
       ),
     );
     await _load();
@@ -837,6 +852,7 @@ class _MembersSheet extends StatefulWidget {
     required this.language,
     required this.canManage,
     required this.myRole,
+    this.membersStream,
   });
 
   final ApiClient apiClient;
@@ -845,6 +861,7 @@ class _MembersSheet extends StatefulWidget {
   final AppLanguage language;
   final bool canManage;
   final String? myRole;
+  final Stream<Map<String, dynamic>>? membersStream;
 
   @override
   State<_MembersSheet> createState() => _MembersSheetState();
@@ -853,6 +870,7 @@ class _MembersSheet extends StatefulWidget {
 class _MembersSheetState extends State<_MembersSheet> {
   List<Map<String, dynamic>> _members = const [];
   bool _loading = true;
+  StreamSubscription? _liveSub;
   AppLanguage get lang => widget.language;
   String get _token => widget.token ?? '';
 
@@ -860,6 +878,14 @@ class _MembersSheetState extends State<_MembersSheet> {
   void initState() {
     super.initState();
     _load();
+    // Live refresh while the sheet is open (someone joined / role changed).
+    _liveSub = widget.membersStream?.listen((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _liveSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {

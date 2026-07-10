@@ -15,6 +15,7 @@ class GroupSocketClient {
   final _typing = StreamController<Map<String, dynamic>>.broadcast();
   final _newPolls = StreamController<Map<String, dynamic>>.broadcast();
   final _pollUpdates = StreamController<Map<String, dynamic>>.broadcast();
+  final _membersChanged = StreamController<Map<String, dynamic>>.broadcast();
 
   io.Socket? _socket;
   String? _pendingJoin;
@@ -26,6 +27,7 @@ class GroupSocketClient {
   Stream<Map<String, dynamic>> get typing => _typing.stream;
   Stream<Map<String, dynamic>> get newPolls => _newPolls.stream;
   Stream<Map<String, dynamic>> get pollUpdates => _pollUpdates.stream;
+  Stream<Map<String, dynamic>> get membersChanged => _membersChanged.stream;
   bool get connected => _socket?.connected == true && _ready;
 
   void connect(String token) {
@@ -51,6 +53,7 @@ class GroupSocketClient {
     socket.on('typing', (d) => _add(_typing, d));
     socket.on('poll:new', (d) => _add(_newPolls, d));
     socket.on('poll:update', (d) => _add(_pollUpdates, d));
+    socket.on('members:changed', (d) => _add(_membersChanged, d));
     socket.connect();
     _socket = socket;
   }
@@ -102,5 +105,6 @@ class GroupSocketClient {
     _typing.close();
     _newPolls.close();
     _pollUpdates.close();
+    _membersChanged.close();
   }
 }

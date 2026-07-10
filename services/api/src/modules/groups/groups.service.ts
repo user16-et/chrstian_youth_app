@@ -3,6 +3,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { ContentRepository, GroupRecord } from '../../common/content.repository';
 import { UserRepository } from '../../common/user.repository';
 import { NotificationsService } from '../platform/notifications.service';
+import { GroupRealtime } from './group-realtime.service';
 import { GroupRepository } from './group.repository';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class GroupsService {
     private readonly userRepository: UserRepository,
     private readonly groups: GroupRepository,
     private readonly notifications: NotificationsService,
+    private readonly realtime: GroupRealtime,
   ) {}
 
   private async actor(token: string) {
@@ -81,7 +83,9 @@ export class GroupsService {
       throw new NotFoundException('authenticated_user_not_found');
     }
     await this.getById(groupId);
-    return this.contentRepository.joinGroup(actor.id, groupId);
+    const result = await this.contentRepository.joinGroup(actor.id, groupId);
+    this.realtime.membersChanged(groupId, { userId: actor.id });
+    return result;
   }
 
   async leave(actorToken: string, groupId: string) {
@@ -90,7 +94,9 @@ export class GroupsService {
       throw new NotFoundException('authenticated_user_not_found');
     }
     await this.getById(groupId);
-    return this.contentRepository.leaveGroup(actor.id, groupId);
+    const result = await this.contentRepository.leaveGroup(actor.id, groupId);
+    this.realtime.membersChanged(groupId, { removedUserId: actor.id });
+    return result;
   }
 
   async myMemberships(actorToken: string) {
@@ -141,6 +147,7 @@ export class GroupsService {
     if (roleInput !== 'admin' && roleInput !== 'member') throw new BadRequestException('invalid_role');
     const updated = await this.groups.setMemberRole(groupId, targetId, roleInput);
     if (!updated) throw new NotFoundException('member_not_found');
+    this.realtime.membersChanged(groupId, { userId: targetId, role: roleInput });
     return updated;
   }
 
@@ -149,6 +156,7 @@ export class GroupsService {
     // Managers can remove others; anyone can remove themselves (i.e. leave).
     if (targetId !== user.id && !this.isManager(role)) throw new ForbiddenException('group_admin_required');
     const removed = await this.groups.removeMember(groupId, targetId);
+    if (removed) this.realtime.membersChanged(groupId, { removedUserId: targetId });
     return { removed };
   }
 
@@ -166,6 +174,7 @@ export class GroupsService {
     const group = await this.groups.groupByInviteCode(String(code ?? '').trim().toUpperCase());
     if (!group) throw new NotFoundException('invalid_invite_code');
     await this.groups.joinActive(user.id, group.id);
+    this.realtime.membersChanged(group.id, { userId: user.id });
     return { groupId: group.id, name: group.name, kind: group.kind };
   }
 
@@ -174,6 +183,7 @@ export class GroupsService {
     if (!this.isManager(role)) throw new ForbiddenException('group_admin_required');
     const approved = await this.groups.approveMember(groupId, targetId);
     if (!approved) throw new NotFoundException('request_not_found');
+    this.realtime.membersChanged(groupId, { userId: targetId, status: 'active' });
     return approved;
   }
 

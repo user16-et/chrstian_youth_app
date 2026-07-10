@@ -3,12 +3,14 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
+import { GroupRealtime } from './group-realtime.service';
 import { GroupsService } from './groups.service';
 
 type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string } } };
@@ -16,13 +18,21 @@ type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string } }
 // Realtime group/channel wall: posts, pins, deletes and typing broadcast to a
 // per-group room so members see the wall update live.
 @WebSocketGateway({ namespace: 'groups', cors: { origin: true, credentials: true } })
-export class GroupGateway implements OnGatewayConnection {
+export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(GroupGateway.name);
 
-  constructor(private readonly service: GroupsService) {}
+  constructor(
+    private readonly service: GroupsService,
+    private readonly realtime: GroupRealtime,
+  ) {}
+
+  afterInit(server: Server) {
+    // Let REST membership mutations broadcast into this namespace's rooms.
+    this.realtime.setServer(server);
+  }
 
   async handleConnection(client: AuthedSocket) {
     const token = this.extractToken(client);
