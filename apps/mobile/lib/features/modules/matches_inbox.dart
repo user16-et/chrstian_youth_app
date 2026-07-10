@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../../data/relationship_chat_client.dart';
 import '../../i18n/app_i18n.dart';
 import 'relationship_social.dart';
 
@@ -218,10 +221,18 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
   List<Map<String, dynamic>> _messages = const [];
+  final Set<String> _messageIds = {};
   bool _loading = true;
   bool _sending = false;
   String _status = '';
   DateTime? _partnerLastReadAt;
+
+  RelationshipChatClient? _chat;
+  final List<StreamSubscription> _subs = [];
+  bool _partnerTyping = false;
+  bool _amTyping = false;
+  Timer? _typingClear; // clears the partner's "typing…" if no update
+  Timer? _typingStop; // stops broadcasting my typing after I go idle
 
   AppLanguage get lang => widget.language;
 
@@ -242,11 +253,87 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   @override
   void initState() {
     super.initState();
+    _connectSocket();
     _load();
+  }
+
+  void _connectSocket() {
+    if (widget.token.isEmpty) return;
+    final chat = RelationshipChatClient(baseUrl: widget.apiClient.baseUrl);
+    chat.connect(widget.token);
+    chat.join(widget.connectionId); // buffered until the server signals 'ready'
+    _subs.add(chat.messages.listen(_onIncoming));
+    _subs.add(chat.typing.listen(_onTyping));
+    _subs.add(chat.reads.listen(_onRead));
+    _chat = chat;
+  }
+
+  void _onIncoming(Map<String, dynamic> event) {
+    final message = (event['message'] as Map?)?.cast<String, dynamic>();
+    if (message == null) return;
+    final id = '${message['id'] ?? ''}';
+    if (id.isEmpty || _messageIds.contains(id)) return;
+    if (!mounted) return;
+    setState(() {
+      _messageIds.add(id);
+      _messages = [..._messages, message];
+      _partnerTyping = false;
+    });
+    _scrollToBottom();
+    // I'm looking at the thread, so tell the sender it's read.
+    final fromPartner = '${message['author_id'] ?? ''}' == widget.partnerId;
+    if (fromPartner) _chat?.markRead(widget.connectionId);
+  }
+
+  void _onTyping(Map<String, dynamic> event) {
+    if ('${event['userId'] ?? ''}' != widget.partnerId) return;
+    final typing = event['typing'] == true;
+    if (!mounted) return;
+    setState(() => _partnerTyping = typing);
+    _typingClear?.cancel();
+    if (typing) {
+      _typingClear = Timer(const Duration(seconds: 5), () {
+        if (mounted) setState(() => _partnerTyping = false);
+      });
+    }
+  }
+
+  void _onRead(Map<String, dynamic> event) {
+    if ('${event['userId'] ?? ''}' != widget.partnerId) return;
+    final at = _parseTime(event['at']) ?? DateTime.now();
+    if (mounted) setState(() => _partnerLastReadAt = at);
+  }
+
+  void _onInputChanged(String value) {
+    final chat = _chat;
+    if (chat == null) return;
+    if (!_amTyping) {
+      _amTyping = true;
+      chat.setTyping(widget.connectionId, true);
+    }
+    _typingStop?.cancel();
+    _typingStop = Timer(const Duration(seconds: 2), () {
+      _amTyping = false;
+      chat.setTyping(widget.connectionId, false);
+    });
+  }
+
+  void _stopTyping() {
+    _typingStop?.cancel();
+    if (_amTyping) {
+      _amTyping = false;
+      _chat?.setTyping(widget.connectionId, false);
+    }
   }
 
   @override
   void dispose() {
+    _typingClear?.cancel();
+    _typingStop?.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _chat?.dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -258,7 +345,15 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
       final msgs = (detail['messages'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
       final partnerRead = _parseTime(detail['partnerLastReadAt']);
       if (mounted) {
-        setState(() { _messages = msgs; _partnerLastReadAt = partnerRead; _loading = false; _status = ''; });
+        setState(() {
+          _messages = msgs;
+          _messageIds
+            ..clear()
+            ..addAll(msgs.map((m) => '${m['id'] ?? ''}').where((id) => id.isNotEmpty));
+          _partnerLastReadAt = partnerRead;
+          _loading = false;
+          _status = '';
+        });
         _scrollToBottom();
       }
     } catch (error) {
@@ -275,6 +370,15 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
+    _stopTyping();
+    // Realtime path: the socket persists + echoes message:new back to us, which
+    // appends it — so no reload and instant delivery to the partner.
+    if (_chat?.connected == true) {
+      _chat!.send(connectionId: widget.connectionId, body: text);
+      _input.clear();
+      return;
+    }
+    // Fallback when the socket isn't connected.
     setState(() => _sending = true);
     try {
       await widget.apiClient.sendRelationshipMessage(widget.token, widget.connectionId, text);
@@ -381,8 +485,19 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
             child: widget.partnerPhoto.isEmpty ? Icon(Icons.person_rounded, size: 20, color: colors.onSurfaceVariant) : null,
           ),
           const SizedBox(width: 10),
-          Expanded(child: Text(widget.partnerName.isEmpty ? _tr(lang, 'Match', 'ተዛማጅ') : widget.partnerName,
-              maxLines: 1, overflow: TextOverflow.ellipsis)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(widget.partnerName.isEmpty ? _tr(lang, 'Match', 'ተዛማጅ') : widget.partnerName,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (_partnerTyping)
+                  Text(_tr(lang, 'typing…', 'እየጻፈ ነው…'),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: colors.primary)),
+              ],
+            ),
+          ),
         ]),
         actions: [
           if (widget.partnerId.isNotEmpty)
@@ -515,6 +630,7 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
               controller: _input,
               minLines: 1,
               maxLines: 4,
+              onChanged: _onInputChanged,
               textCapitalization: TextCapitalization.sentences,
               decoration: InputDecoration(
                 hintText: _tr(lang, 'Message…', 'መልእክት…'),

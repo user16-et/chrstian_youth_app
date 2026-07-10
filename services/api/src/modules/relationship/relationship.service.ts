@@ -165,6 +165,11 @@ export class RelationshipService {
 
   async message(token: string, id: string, body: Record<string, unknown>) {
     const user = await this.actor(token);
+    return this.sendMessage({ id: user.id, fullName: user.fullName }, id, body);
+  }
+
+  // Core send used by both the REST endpoint and the realtime chat gateway.
+  async sendMessage(user: { id: string; fullName: string }, id: string, body: Record<string, unknown>) {
     await this.requireMember(user.id, id);
     if (!String(body.body ?? '').trim() && !String(body.attachmentUrl ?? '').trim()) {
       throw new BadRequestException('message_or_attachment_required');
@@ -188,6 +193,22 @@ export class RelationshipService {
       });
     }
     return message;
+  }
+
+  // Used by the chat gateway for socket auth + membership checks.
+  async authenticateSocket(token: string) {
+    const user = await this.users.authenticate(token);
+    if (!user) throw new ForbiddenException('unauthorized');
+    return user;
+  }
+
+  isMember(userId: string, relationshipId: string) {
+    return this.relationships.isMember(userId, relationshipId);
+  }
+
+  async markReadFor(userId: string, relationshipId: string) {
+    await this.relationships.markConnectionRead(userId, relationshipId);
+    return { status: 'read' as const };
   }
 
   async prayer(token: string, id: string, body: Record<string, unknown>) {
