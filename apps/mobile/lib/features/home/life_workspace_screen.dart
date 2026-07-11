@@ -5,6 +5,7 @@ import '../../data/app_models.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 import '../payments/give_sheet.dart';
+import '../payments/payment_history_screen.dart';
 
 class LifeWorkspaceScreen extends StatefulWidget {
   const LifeWorkspaceScreen({
@@ -209,6 +210,20 @@ class _LifeWorkspaceScreenState extends State<LifeWorkspaceScreen> {
                 trailing: Text('${_s(item['amount'])} ${_s(item['currency'])}'),
               )),
         ],
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => PaymentHistoryScreen(
+                apiClient: widget.apiClient,
+                token: _token,
+                language: widget.language,
+              ),
+            )),
+            icon: const Icon(Icons.history_rounded, size: 18),
+            label: Text(_t('Payment history', 'የክፍያ ታሪክ')),
+          ),
+        ),
         if (leadership) ...[
           _heading(_t('Leadership status', 'የአመራር ሁኔታ')),
           _LifeCard(
