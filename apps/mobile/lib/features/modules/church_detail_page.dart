@@ -212,7 +212,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     );
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         body: NestedScrollView(
           headerSliverBuilder: (context, _) => [
@@ -250,6 +250,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                     Tab(icon: Icon(Icons.dynamic_feed_rounded), text: 'Posts'),
                     Tab(icon: Icon(Icons.info_outline_rounded), text: 'About'),
                     Tab(icon: Icon(Icons.play_circle_outline_rounded), text: 'Sermons'),
+                    Tab(icon: Icon(Icons.groups_rounded), text: 'Members'),
                     Tab(icon: Icon(Icons.forum_outlined), text: 'Chat'),
                   ],
                 ),
@@ -260,6 +261,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
             children: [
               // Posts panel: church updates + official posts.
               _tab('posts', [
+                if (canManage) ...[_composer(), const SizedBox(height: 14)],
                 _PinnedAnnouncements(items: announcements),
                 const SizedBox(height: 14),
                 _PostSection(items: posts),
@@ -285,6 +287,17 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
               ]),
               // Sermons panel.
               _tab('sermons', [_SermonShelf(items: sermons)]),
+              // Members panel: roster + admin approvals.
+              _ChurchMembersPanel(
+                apiClient: widget.apiClient,
+                session: widget.session,
+                churchId: widget.church.id,
+                canManage: canManage,
+                onChanged: () {
+                  setState(_reload);
+                  widget.onDataChanged();
+                },
+              ),
               // Chat panel.
               _tab('chat', [
                 LiveChatPanel(
@@ -312,6 +325,92 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
           children: children,
         ),
       );
+
+  // Admin composer at the top of the Posts panel.
+  Widget _composer() => Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : () => _compose('posts'),
+                icon: const Icon(Icons.post_add_rounded, size: 18),
+                label: const Text('Post'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _busy ? null : () => _compose('announcements'),
+                icon: const Icon(Icons.campaign_rounded, size: 18),
+                label: const Text('Announce'),
+              ),
+            ),
+          ]),
+        ),
+      );
+
+  Future<void> _compose(String kind) async {
+    if (widget.session == null) {
+      setState(() => _status = 'Log in to continue.');
+      return;
+    }
+    final isAnnouncement = kind == 'announcements';
+    final titleC = TextEditingController();
+    final bodyC = TextEditingController();
+    var pinned = false;
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: StatefulBuilder(
+          builder: (context, setSheet) => Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(isAnnouncement ? 'New announcement' : 'New post',
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 14),
+              if (isAnnouncement) ...[
+                TextField(controller: titleC, decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder())),
+                const SizedBox(height: 10),
+              ],
+              TextField(
+                controller: bodyC,
+                autofocus: !isAnnouncement,
+                minLines: 3,
+                maxLines: 8,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(labelText: 'Message', border: OutlineInputBorder(), alignLabelWithHint: true),
+              ),
+              if (isAnnouncement)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: pinned,
+                  onChanged: (v) => setSheet(() => pinned = v),
+                  title: const Text('Pin to top'),
+                ),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Publish')),
+            ]),
+          ),
+        ),
+      ),
+    );
+    if (submitted != true) return;
+    final body = bodyC.text.trim();
+    final title = titleC.text.trim();
+    if (body.isEmpty && title.isEmpty) return;
+    final input = isAnnouncement
+        ? {'title': title.isEmpty ? body : title, 'body': body, 'pinned': pinned}
+        : {'body': body};
+    await _run(
+      () => widget.apiClient.createChurchContent(widget.session!.token, widget.church.id, kind, input),
+      isAnnouncement ? 'Announcement published.' : 'Post published.',
+    );
+  }
 }
 
 // Pins the church TabBar below the collapsing hero.
@@ -332,6 +431,172 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(_SliverTabBarDelegate oldDelegate) => oldDelegate.tabBar != tabBar;
+}
+
+// Members roster with admin approval of join requests.
+class _ChurchMembersPanel extends StatefulWidget {
+  const _ChurchMembersPanel({
+    required this.apiClient,
+    required this.session,
+    required this.churchId,
+    required this.canManage,
+    required this.onChanged,
+  });
+
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final String churchId;
+  final bool canManage;
+  final VoidCallback onChanged;
+
+  @override
+  State<_ChurchMembersPanel> createState() => _ChurchMembersPanelState();
+}
+
+class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
+  List<ChurchMemberItem> _members = const [];
+  List<Map<String, dynamic>> _requests = const [];
+  bool _loading = true;
+  String _error = '';
+  final Set<String> _acting = {};
+
+  static const _leaderRoles = {'pastor', 'church_admin', 'elder', 'branch_admin'};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final members = await widget.apiClient.fetchChurchMembers(widget.churchId);
+      var requests = const <Map<String, dynamic>>[];
+      if (widget.canManage && widget.session != null) {
+        final raw = await widget.apiClient.fetchChurchMembershipRequests(widget.session!.token, widget.churchId);
+        requests = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      if (mounted) setState(() { _members = members; _requests = requests; _loading = false; _error = ''; });
+    } catch (error) {
+      if (mounted) setState(() { _error = error.toString().replaceFirst('HttpException: ', ''); _loading = false; });
+    }
+  }
+
+  Future<void> _review(String membershipId, bool approve) async {
+    if (widget.session == null || _acting.contains(membershipId)) return;
+    setState(() => _acting.add(membershipId));
+    try {
+      await widget.apiClient.reviewChurchMembership(widget.session!.token, widget.churchId, membershipId, approve);
+      widget.onChanged();
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    } finally {
+      if (mounted) setState(() => _acting.remove(membershipId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    final colors = Theme.of(context).colorScheme;
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        key: const PageStorageKey('church_tab_members'),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 36),
+        children: [
+          if (_error.isNotEmpty)
+            Padding(padding: const EdgeInsets.only(bottom: 12), child: _Notice(text: _error)),
+          if (widget.canManage && _requests.isNotEmpty) ...[
+            _sectionTitle('Join requests (${_requests.length})', colors),
+            ..._requests.map((r) => _requestTile(r, colors)),
+            const SizedBox(height: 18),
+          ],
+          _sectionTitle('Members (${_members.length})', colors),
+          if (_members.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: Text('No members yet.', style: TextStyle(color: colors.onSurfaceVariant))),
+            )
+          else
+            ..._members.map((m) => _memberTile(m, colors)),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String text, ColorScheme colors) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: colors.onSurfaceVariant)),
+      );
+
+  Widget _requestTile(Map<String, dynamic> r, ColorScheme colors) {
+    final id = '${r['id'] ?? ''}';
+    final name = '${r['name'] ?? r['userFullName'] ?? 'Someone'}';
+    final acting = _acting.contains(id);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(backgroundColor: colors.tertiaryContainer, child: Text(_initials(name))),
+      title: Text(name),
+      subtitle: Text(_roleLabel('${r['role'] ?? 'member'}')),
+      trailing: acting
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+          : Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(
+                icon: Icon(Icons.check_circle_rounded, color: colors.primary),
+                tooltip: 'Approve',
+                onPressed: () => _review(id, true),
+              ),
+              IconButton(
+                icon: Icon(Icons.cancel_rounded, color: colors.error),
+                tooltip: 'Reject',
+                onPressed: () => _review(id, false),
+              ),
+            ]),
+    );
+  }
+
+  Widget _memberTile(ChurchMemberItem m, ColorScheme colors) {
+    final leader = _leaderRoles.contains(m.role);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: leader ? colors.primaryContainer : colors.surfaceContainerHighest,
+        child: Text(_initials(m.userFullName),
+            style: TextStyle(color: leader ? colors.onPrimaryContainer : colors.onSurfaceVariant)),
+      ),
+      title: Text(m.userFullName.isEmpty ? 'Member' : m.userFullName),
+      subtitle: Text(_roleLabel(m.role)),
+      trailing: leader
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(color: colors.primaryContainer, borderRadius: BorderRadius.circular(999)),
+              child: Text(_roleLabel(m.role),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colors.onPrimaryContainer)),
+            )
+          : null,
+    );
+  }
+
+  String _roleLabel(String role) => switch (role) {
+        'pastor' => 'Pastor',
+        'church_admin' => 'Church admin',
+        'elder' => 'Elder',
+        'branch_admin' => 'Branch admin',
+        'visitor' => 'Visitor',
+        _ => 'Member',
+      };
+
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+  }
 }
 
 class _ChurchHero extends StatelessWidget {
