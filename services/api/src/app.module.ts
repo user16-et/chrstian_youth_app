@@ -28,6 +28,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { StoriesModule } from './modules/stories/stories.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     CallsModule,
     StoriesModule,
     SettingsModule,
+    PaymentsModule,
   ],
   controllers: [HealthController, AppBootstrapController, MetricsController],
   providers: [AppStore],

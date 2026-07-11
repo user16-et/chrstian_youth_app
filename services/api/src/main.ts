@@ -15,7 +15,9 @@ import { createSecurityMiddleware } from './common/security.middleware';
 
 async function bootstrap() {
   const appConfig = loadConfig();
-  const app = await NestFactory.create(AppModule);
+  // rawBody: capture the unparsed body so payment webhooks can verify HMAC
+  // signatures over the exact bytes the gateway signed.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   if (appConfig.trustProxy) {
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
   }

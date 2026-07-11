@@ -2475,6 +2475,40 @@ class ApiClient {
     );
   }
 
+  // Start a payment; returns { txRef, checkoutUrl, amount, currency, status }.
+  // Open checkoutUrl in a browser, then poll verifyPayment(txRef) on return.
+  Future<Map<String, dynamic>> createPaymentCheckout(
+    String token, {
+    required String purpose,
+    required String referenceId,
+    num? amount,
+    String currency = 'ETB',
+  }) async {
+    final response = await _postJson(
+      '/payments/checkout',
+      {
+        'purpose': purpose,
+        'referenceId': referenceId,
+        if (amount != null) 'amount': amount,
+        'currency': currency,
+      },
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return response as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> verifyPayment(String token, String txRef) async {
+    final response = await _getJson('/payments/$txRef/verify',
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchPaymentTransactions(String token) async {
+    final response = await _getJson('/payments/transactions',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
   Future<Map<String, dynamic>> fetchJourneyDashboard(String token) async {
     final response = await _getJson('/journey/dashboard',
         headers: {'Authorization': 'Bearer $token'});

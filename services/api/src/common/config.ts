@@ -40,6 +40,13 @@ export interface AppConfig {
   searchIndexName: string;
   searchTimeoutMs: number;
   virusScanProvider: 'disabled' | 'clamav';
+  paymentProvider: 'disabled' | 'chapa' | 'mock';
+  chapaSecretKey: string | null;
+  chapaWebhookSecret: string | null;
+  chapaBaseUrl: string;
+  paymentTimeoutMs: number;
+  paymentCallbackUrl: string | null;
+  paymentReturnUrl: string | null;
 }
 
 let cachedConfig: AppConfig | null = null;
@@ -93,6 +100,13 @@ export function loadConfig(): AppConfig {
     searchIndexName: process.env.SEARCH_INDEX_NAME?.trim() || 'global_search',
     searchTimeoutMs: int('SEARCH_TIMEOUT_MS', 1_500, 100, 30_000),
     virusScanProvider: parseVirusScanProvider(optional('VIRUS_SCAN_PROVIDER') ?? 'disabled'),
+    paymentProvider: parsePaymentProvider(process.env.PAYMENT_PROVIDER ?? (nodeEnv === 'production' ? 'disabled' : 'mock')),
+    chapaSecretKey: optional('CHAPA_SECRET_KEY'),
+    chapaWebhookSecret: optional('CHAPA_WEBHOOK_SECRET'),
+    chapaBaseUrl: (optional('CHAPA_BASE_URL') || 'https://api.chapa.co/v1').replace(/\/+$/, ''),
+    paymentTimeoutMs: int('PAYMENT_TIMEOUT_MS', 20_000, 1_000, 60_000),
+    paymentCallbackUrl: optional('PAYMENT_CALLBACK_URL'),
+    paymentReturnUrl: optional('PAYMENT_RETURN_URL'),
   };
   if (nodeEnv === 'production' && cachedConfig.mediaStorageProvider === 'disabled') {
     throw new Error('MEDIA_STORAGE_PROVIDER must be configured in production');
@@ -106,7 +120,20 @@ export function loadConfig(): AppConfig {
   if (nodeEnv === 'production' && cachedConfig.corsOrigins.length === 0) {
     throw new Error('CORS_ORIGINS must explicitly list trusted production origins');
   }
+  if (nodeEnv === 'production' && cachedConfig.paymentProvider === 'mock') {
+    throw new Error('PAYMENT_PROVIDER=mock is not allowed in production; use chapa');
+  }
+  if (cachedConfig.paymentProvider === 'chapa' && !cachedConfig.chapaSecretKey) {
+    throw new Error('CHAPA_SECRET_KEY is required when PAYMENT_PROVIDER=chapa');
+  }
   return cachedConfig;
+}
+
+function parsePaymentProvider(value: string): 'disabled' | 'chapa' | 'mock' {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'chapa') return 'chapa';
+  if (normalized === 'mock') return 'mock';
+  return 'disabled';
 }
 
 function parseVirusScanProvider(value: string): 'disabled' | 'clamav' {
