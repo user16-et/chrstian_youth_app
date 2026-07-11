@@ -372,6 +372,26 @@ class ApiClient {
       _postJson("/posts/$postId/poll-votes", {"optionIndex": optionIndex},
           headers: {"Authorization": "Bearer $token"});
 
+  Future<dynamic> setChurchMemberRole(
+    String token,
+    String churchId,
+    String userId,
+    String role,
+  ) {
+    return _patchJson(
+      '/churches/$churchId/members/$userId/role',
+      {'role': role},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
+  Future<dynamic> removeChurchMember(String token, String churchId, String userId) {
+    return _deleteJson(
+      '/churches/$churchId/members/$userId',
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
   Future<List<ChurchMemberItem>> fetchChurchMembers(String churchId) async {
     final response = await _getJson('/churches/$churchId/members');
     return (response as List<dynamic>)

@@ -482,6 +482,8 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
     }
   }
 
+  String get _myId => widget.session?.user.id ?? '';
+
   Future<void> _review(String membershipId, bool approve) async {
     if (widget.session == null || _acting.contains(membershipId)) return;
     setState(() => _acting.add(membershipId));
@@ -490,12 +492,60 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
       widget.onChanged();
       await _load();
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('HttpException: ', ''))));
-      }
+      _toast(error);
     } finally {
       if (mounted) setState(() => _acting.remove(membershipId));
+    }
+  }
+
+  Future<void> _setRole(String userId, String role) async {
+    if (widget.session == null || _acting.contains(userId)) return;
+    setState(() => _acting.add(userId));
+    try {
+      await widget.apiClient.setChurchMemberRole(widget.session!.token, widget.churchId, userId, role);
+      widget.onChanged();
+      await _load();
+    } catch (error) {
+      _toast(error);
+    } finally {
+      if (mounted) setState(() => _acting.remove(userId));
+    }
+  }
+
+  Future<void> _removeMember(String userId, String name) async {
+    if (widget.session == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove member?'),
+        content: Text('Remove $name from this church? They can request to join again later.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || _acting.contains(userId)) return;
+    setState(() => _acting.add(userId));
+    try {
+      await widget.apiClient.removeChurchMember(widget.session!.token, widget.churchId, userId);
+      widget.onChanged();
+      await _load();
+    } catch (error) {
+      _toast(error);
+    } finally {
+      if (mounted) setState(() => _acting.remove(userId));
+    }
+  }
+
+  void _toast(Object error) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('HttpException: ', ''))));
     }
   }
 
@@ -562,6 +612,9 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
 
   Widget _memberTile(ChurchMemberItem m, ColorScheme colors) {
     final leader = _leaderRoles.contains(m.role);
+    // Managers can manage everyone except themselves and a sitting pastor.
+    final manageable = widget.canManage && m.userId != _myId && m.role != 'pastor';
+    final acting = _acting.contains(m.userId);
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: CircleAvatar(
@@ -571,14 +624,42 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
       ),
       title: Text(m.userFullName.isEmpty ? 'Member' : m.userFullName),
       subtitle: Text(_roleLabel(m.role)),
-      trailing: leader
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(color: colors.primaryContainer, borderRadius: BorderRadius.circular(999)),
-              child: Text(_roleLabel(m.role),
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colors.onPrimaryContainer)),
-            )
-          : null,
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (leader)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(color: colors.primaryContainer, borderRadius: BorderRadius.circular(999)),
+            child: Text(_roleLabel(m.role),
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colors.onPrimaryContainer)),
+          ),
+        if (manageable)
+          acting
+              ? const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              : PopupMenuButton<String>(
+                  tooltip: 'Manage member',
+                  icon: const Icon(Icons.more_vert_rounded),
+                  onSelected: (v) {
+                    if (v == 'remove') {
+                      _removeMember(m.userId, m.userFullName.isEmpty ? 'this member' : m.userFullName);
+                    } else {
+                      _setRole(m.userId, v);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (m.role != 'member') const PopupMenuItem(value: 'member', child: Text('Make member')),
+                    if (m.role != 'elder') const PopupMenuItem(value: 'elder', child: Text('Make elder')),
+                    if (m.role != 'church_admin') const PopupMenuItem(value: 'church_admin', child: Text('Make admin')),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      value: 'remove',
+                      child: Text('Remove', style: TextStyle(color: colors.error)),
+                    ),
+                  ],
+                ),
+      ]),
     );
   }
 
