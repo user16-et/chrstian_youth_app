@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
+import '../payments/give_sheet.dart';
 
 class LifeWorkspaceScreen extends StatefulWidget {
   const LifeWorkspaceScreen({
@@ -350,18 +351,25 @@ class _LifeWorkspaceScreenState extends State<LifeWorkspaceScreen> {
         title: _s(item['title']),
         subtitle: '${_s(item['destinationName'])}\n${_s(item['description'])}',
         actions: [
-          FilledButton(
-            onPressed: _busy
-                ? null
-                : () => _run(
-                      () => widget.apiClient
-                          .recordDonation(_token, _s(item['id']), 100),
-                      _t('ETB 100 donation recorded.', 'የ100 ብር ልገሳ ተመዝግቧል።'),
-                    ),
-            child: Text(_t('Give ETB 100', '100 ብር ለግስ')),
+          FilledButton.icon(
+            onPressed: _busy ? null : () => _openGive(item),
+            icon: const Icon(Icons.volunteer_activism_rounded, size: 18),
+            label: Text(_t('Give', 'ለግስ')),
           ),
         ],
       );
+
+  Future<void> _openGive(Map<String, dynamic> item) async {
+    final paid = await showGiveSheet(
+      context,
+      apiClient: widget.apiClient,
+      token: _token,
+      fundId: _s(item['id']),
+      fundTitle: _s(item['title']),
+      language: widget.language,
+    );
+    if (paid && mounted) await _refresh();
+  }
 }
 
 class _LifeHero extends StatelessWidget {
