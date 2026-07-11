@@ -130,114 +130,147 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.church.name)),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-                child: Text('Unable to load church: ${snapshot.error}'));
-          }
-          final profile = snapshot.data ?? <String, dynamic>{};
-          List<Map<String, dynamic>> list(String key) =>
-              (profile[key] as List<dynamic>? ?? const [])
-                  .whereType<Map>()
-                  .map((item) => Map<String, dynamic>.from(item))
-                  .toList();
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return _shell(const Center(child: CircularProgressIndicator()));
+        }
+        if (snapshot.hasError) {
+          return _shell(Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('Unable to load church: ${snapshot.error}', textAlign: TextAlign.center),
+            ),
+          ));
+        }
+        return _loaded(snapshot.data ?? <String, dynamic>{});
+      },
+    );
+  }
 
-          final announcements = list('announcements');
-          final posts = list('posts');
-          final sermons = list('sermons');
-          final schedules = list('schedules');
-          final leaders = list('leaders');
-          final ministries = list('ministries');
-          final events = list('events');
-          final branches = list('branches');
-          final groups = list('groups');
-          final resources = list('resources');
-          final canManage = profile['canManage'] == true;
-          final membership = profile['membership'] as Map<String, dynamic>?;
+  // Bar-only scaffold for the loading / error states.
+  Widget _shell(Widget child) => Scaffold(
+        appBar: AppBar(title: Text(widget.church.name)),
+        body: child,
+      );
 
-          return RefreshIndicator(
-            onRefresh: () async {
-              setState(() {
-                _reload();
-              });
-              await _future;
+  Future<void> _refresh() async {
+    setState(_reload);
+    await _future;
+  }
+
+  Widget _loaded(Map<String, dynamic> profile) {
+    List<Map<String, dynamic>> list(String key) =>
+        (profile[key] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+
+    final announcements = list('announcements');
+    final posts = list('posts');
+    final sermons = list('sermons');
+    final schedules = list('schedules');
+    final leaders = list('leaders');
+    final ministries = list('ministries');
+    final events = list('events');
+    final branches = list('branches');
+    final groups = list('groups');
+    final resources = list('resources');
+    final canManage = profile['canManage'] == true;
+    final membership = profile['membership'] as Map<String, dynamic>?;
+
+    final hero = _ChurchHero(
+      profile: profile,
+      fallback: widget.church,
+      membership: membership,
+      busy: _busy,
+      canManage: canManage,
+      onJoin: membership == null ? _join : _leave,
+      onFollow: () => _run(
+        () => profile['followedByMe'] == true
+            ? widget.apiClient.unfollowChurch(token: widget.session!.token, churchId: widget.church.id)
+            : widget.apiClient.followChurch(token: widget.session!.token, churchId: widget.church.id),
+        profile['followedByMe'] == true ? 'Church updates unfollowed.' : 'Following church updates.',
+      ),
+      onManage: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChurchAdminScreen(
+            apiClient: widget.apiClient,
+            churchId: widget.church.id,
+            churchName: widget.church.name,
+            initialProfile: profile,
+            session: widget.session!,
+            onChanged: () {
+              setState(_reload);
+              return widget.onDataChanged();
             },
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 36),
-              children: [
-                _ChurchHero(
-                  profile: profile,
-                  fallback: widget.church,
-                  membership: membership,
-                  busy: _busy,
-                  canManage: canManage,
-                  onJoin: membership == null ? _join : _leave,
-                  onFollow: () => _run(
-                    () => profile['followedByMe'] == true
-                        ? widget.apiClient.unfollowChurch(
-                            token: widget.session!.token,
-                            churchId: widget.church.id,
-                          )
-                        : widget.apiClient.followChurch(
-                            token: widget.session!.token,
-                            churchId: widget.church.id,
-                          ),
-                    profile['followedByMe'] == true
-                        ? 'Church updates unfollowed.'
-                        : 'Following church updates.',
-                  ),
-                  onManage: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ChurchAdminScreen(
-                        apiClient: widget.apiClient,
-                        churchId: widget.church.id,
-                        churchName: widget.church.name,
-                        initialProfile: profile,
-                        session: widget.session!,
-                        onChanged: () {
-                          setState(() {
-                            _reload();
-                          });
-                          return widget.onDataChanged();
-                        },
-                      ),
-                    ),
-                  ),
+          ),
+        ),
+      ),
+    );
+
+    return DefaultTabController(
+      length: 4,
+      child: Scaffold(
+        body: NestedScrollView(
+          headerSliverBuilder: (context, _) => [
+            SliverAppBar(
+              pinned: true,
+              title: Text(widget.church.name),
+              actions: [
+                IconButton(
+                  tooltip: 'Refresh',
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: _busy ? null : _refresh,
                 ),
-                if (_status.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _Notice(text: _status),
-                ],
+              ],
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Column(children: [
+                  hero,
+                  if (_status.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _Notice(text: _status),
+                  ],
+                  const SizedBox(height: 8),
+                ]),
+              ),
+            ),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _SliverTabBarDelegate(
+                const TabBar(
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  tabs: [
+                    Tab(icon: Icon(Icons.dynamic_feed_rounded), text: 'Posts'),
+                    Tab(icon: Icon(Icons.info_outline_rounded), text: 'About'),
+                    Tab(icon: Icon(Icons.play_circle_outline_rounded), text: 'Sermons'),
+                    Tab(icon: Icon(Icons.forum_outlined), text: 'Chat'),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          body: TabBarView(
+            children: [
+              // Posts panel: church updates + official posts.
+              _tab('posts', [
+                _PinnedAnnouncements(items: announcements),
                 const SizedBox(height: 14),
+                _PostSection(items: posts),
+              ]),
+              // About panel: the static profile.
+              _tab('about', [
                 _ChurchProfileSummary(
                   profile: profile,
                   leaders: leaders,
                   ministries: ministries,
                   schedules: schedules,
-                ),
-                const SizedBox(height: 14),
-                _PinnedAnnouncements(items: announcements),
-                const SizedBox(height: 14),
-                _SermonShelf(items: sermons),
-                const SizedBox(height: 14),
-                _PostSection(items: posts),
-                const SizedBox(height: 14),
-                LiveChatPanel(
-                  apiClient: widget.apiClient,
-                  session: widget.session,
-                  language: widget.language,
-                  scopeType: 'church',
-                  scopeId: widget.church.id,
-                  title: '${widget.church.name} chat',
                 ),
                 const SizedBox(height: 14),
                 _InfoGrid(
@@ -249,13 +282,56 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                   groups: groups,
                   resources: resources,
                 ),
-              ],
-            ),
-          );
-        },
+              ]),
+              // Sermons panel.
+              _tab('sermons', [_SermonShelf(items: sermons)]),
+              // Chat panel.
+              _tab('chat', [
+                LiveChatPanel(
+                  apiClient: widget.apiClient,
+                  session: widget.session,
+                  language: widget.language,
+                  scopeType: 'church',
+                  scopeId: widget.church.id,
+                  title: '${widget.church.name} chat',
+                ),
+              ]),
+            ],
+          ),
+        ),
       ),
     );
   }
+
+  // A scrollable tab body that plays nicely with NestedScrollView and refreshes.
+  Widget _tab(String key, List<Widget> children) => RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          key: PageStorageKey('church_tab_$key'),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 36),
+          children: children,
+        ),
+      );
+}
+
+// Pins the church TabBar below the collapsing hero.
+class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
+  _SliverTabBarDelegate(this.tabBar);
+  final TabBar tabBar;
+
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(color: colors.surface, child: tabBar);
+  }
+
+  @override
+  bool shouldRebuild(_SliverTabBarDelegate oldDelegate) => oldDelegate.tabBar != tabBar;
 }
 
 class _ChurchHero extends StatelessWidget {
