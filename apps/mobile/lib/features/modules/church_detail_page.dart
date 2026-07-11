@@ -262,9 +262,17 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
               // Posts panel: church updates + official posts.
               _tab('posts', [
                 if (canManage) ...[_composer(), const SizedBox(height: 14)],
-                _PinnedAnnouncements(items: announcements),
+                _PinnedAnnouncements(
+                  items: announcements,
+                  onEdit: canManage ? (item) => _compose('announcements', existing: item) : null,
+                  onDelete: canManage ? (item) => _deleteContent('announcements', item) : null,
+                ),
                 const SizedBox(height: 14),
-                _PostSection(items: posts),
+                _PostSection(
+                  items: posts,
+                  onEdit: canManage ? (item) => _compose('posts', existing: item) : null,
+                  onDelete: canManage ? (item) => _deleteContent('posts', item) : null,
+                ),
               ]),
               // About panel: the static profile.
               _tab('about', [
@@ -351,15 +359,17 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
         ),
       );
 
-  Future<void> _compose(String kind) async {
+  Future<void> _compose(String kind, {Map<String, dynamic>? existing}) async {
     if (widget.session == null) {
       setState(() => _status = 'Log in to continue.');
       return;
     }
     final isAnnouncement = kind == 'announcements';
-    final titleC = TextEditingController();
-    final bodyC = TextEditingController();
-    var pinned = false;
+    final editing = existing != null;
+    final titleC = TextEditingController(text: editing ? '${existing['title'] ?? ''}' : '');
+    final bodyC = TextEditingController(text: editing ? '${existing['body'] ?? ''}' : '');
+    var pinned = existing?['pinned'] == true;
+    final noun = isAnnouncement ? 'announcement' : 'post';
     final submitted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -370,8 +380,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
           builder: (context, setSheet) => Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text(isAnnouncement ? 'New announcement' : 'New post',
-                  style: Theme.of(context).textTheme.titleLarge),
+              Text('${editing ? 'Edit' : 'New'} $noun', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 14),
               if (isAnnouncement) ...[
                 TextField(controller: titleC, decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder())),
@@ -379,7 +388,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
               ],
               TextField(
                 controller: bodyC,
-                autofocus: !isAnnouncement,
+                autofocus: !isAnnouncement && !editing,
                 minLines: 3,
                 maxLines: 8,
                 textCapitalization: TextCapitalization.sentences,
@@ -393,7 +402,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                   title: const Text('Pin to top'),
                 ),
               const SizedBox(height: 12),
-              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Publish')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(editing ? 'Save' : 'Publish')),
             ]),
           ),
         ),
@@ -406,9 +415,41 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     final input = isAnnouncement
         ? {'title': title.isEmpty ? body : title, 'body': body, 'pinned': pinned}
         : {'body': body};
+    if (editing) {
+      await _run(
+        () => widget.apiClient.updateChurchContent(widget.session!.token, widget.church.id, kind, '${existing['id']}', input),
+        '${noun[0].toUpperCase()}${noun.substring(1)} updated.',
+      );
+    } else {
+      await _run(
+        () => widget.apiClient.createChurchContent(widget.session!.token, widget.church.id, kind, input),
+        isAnnouncement ? 'Announcement published.' : 'Post published.',
+      );
+    }
+  }
+
+  Future<void> _deleteContent(String kind, Map<String, dynamic> item) async {
+    if (widget.session == null) return;
+    final noun = kind == 'announcements' ? 'announcement' : 'post';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete $noun?'),
+        content: Text('This $noun will be permanently removed.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
     await _run(
-      () => widget.apiClient.createChurchContent(widget.session!.token, widget.church.id, kind, input),
-      isAnnouncement ? 'Announcement published.' : 'Post published.',
+      () => widget.apiClient.deleteChurchContent(widget.session!.token, widget.church.id, kind, '${item['id']}'),
+      '${noun[0].toUpperCase()}${noun.substring(1)} deleted.',
     );
   }
 }
@@ -1030,8 +1071,10 @@ class _MiniList extends StatelessWidget {
 }
 
 class _PinnedAnnouncements extends StatelessWidget {
-  const _PinnedAnnouncements({required this.items});
+  const _PinnedAnnouncements({required this.items, this.onEdit, this.onDelete});
   final List<Map<String, dynamic>> items;
+  final void Function(Map<String, dynamic> item)? onEdit;
+  final void Function(Map<String, dynamic> item)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1049,11 +1092,31 @@ class _PinnedAnnouncements extends StatelessWidget {
                 : Icons.campaign_rounded,
             title: item['title']?.toString() ?? '',
             subtitle: item['body']?.toString() ?? '',
+            trailing: _managerMenu(item, onEdit, onDelete),
           );
         }).toList(),
       ),
     );
   }
+}
+
+// Per-item Edit / Delete menu, shown only when management callbacks are wired.
+Widget? _managerMenu(
+  Map<String, dynamic> item,
+  void Function(Map<String, dynamic>)? onEdit,
+  void Function(Map<String, dynamic>)? onDelete,
+) {
+  if (onEdit == null && onDelete == null) return null;
+  return PopupMenuButton<String>(
+    icon: const Icon(Icons.more_vert_rounded, size: 20),
+    tooltip: 'Manage',
+    onSelected: (v) => v == 'edit' ? onEdit?.call(item) : onDelete?.call(item),
+    itemBuilder: (context) => [
+      if (onEdit != null) const PopupMenuItem(value: 'edit', child: Text('Edit')),
+      if (onDelete != null)
+        PopupMenuItem(value: 'delete', child: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error))),
+    ],
+  );
 }
 
 class _SermonShelf extends StatelessWidget {
@@ -1146,8 +1209,10 @@ class _SermonCard extends StatelessWidget {
 }
 
 class _PostSection extends StatelessWidget {
-  const _PostSection({required this.items});
+  const _PostSection({required this.items, this.onEdit, this.onDelete});
   final List<Map<String, dynamic>> items;
+  final void Function(Map<String, dynamic> item)? onEdit;
+  final void Function(Map<String, dynamic> item)? onDelete;
 
   @override
   Widget build(BuildContext context) => _SectionPanel(
@@ -1160,6 +1225,7 @@ class _PostSection extends StatelessWidget {
               icon: Icons.post_add_rounded,
               title: item['body']?.toString() ?? '',
               subtitle: item['created_at']?.toString() ?? '',
+              trailing: _managerMenu(item, onEdit, onDelete),
             );
           }).toList(),
         ),
@@ -1324,11 +1390,13 @@ class _DenseRow extends StatelessWidget {
       {required this.icon,
       required this.title,
       required this.subtitle,
-      this.url = ''});
+      this.url = '',
+      this.trailing});
   final IconData icon;
   final String title;
   final String subtitle;
   final String url;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -1356,6 +1424,7 @@ class _DenseRow extends StatelessWidget {
           ],
         ]),
       ),
+      if (trailing != null) trailing!,
     ]);
     return InkWell(
       onTap: url.trim().isEmpty ? null : () => _openExternalUrl(url),
