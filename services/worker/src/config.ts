@@ -28,6 +28,9 @@ export interface WorkerConfig {
   afroMessageFrom: string | null;
   afroMessageSender: string | null;
   afroMessageCallback: string | null;
+  pushProvider: 'disabled' | 'fcm';
+  pushTimeoutMs: number;
+  fcmServiceAccount: string | null;
 }
 
 export function loadWorkerConfig(): WorkerConfig {
@@ -61,7 +64,21 @@ export function loadWorkerConfig(): WorkerConfig {
     afroMessageFrom: optional('AFROMESSAGE_FROM'),
     afroMessageSender: optional('AFROMESSAGE_SENDER'),
     afroMessageCallback: optional('AFROMESSAGE_CALLBACK'),
+    pushProvider: parsePushProvider(process.env.PUSH_PROVIDER ?? 'disabled'),
+    pushTimeoutMs: int('PUSH_TIMEOUT_MS', 15_000, 1_000, 60_000),
+    fcmServiceAccount: optional('FCM_SERVICE_ACCOUNT'),
   };
+}
+
+function parsePushProvider(value: string): 'disabled' | 'fcm' {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'fcm') {
+    if (!secretValue('FCM_SERVICE_ACCOUNT')) {
+      throw new Error('FCM_SERVICE_ACCOUNT is required when PUSH_PROVIDER=fcm');
+    }
+    return 'fcm';
+  }
+  return 'disabled';
 }
 
 function parseSmsProvider(value: string): 'disabled' | 'afromessage' {

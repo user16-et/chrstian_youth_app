@@ -38,4 +38,13 @@ Phase 8 makes notifications queue-backed and delivery-aware.
 
 ## Provider Integration
 
-The worker currently logs push/SMS/email sends and marks delivery rows as delivered. Replace that block with provider clients for FCM/APNS, local SMS gateway, and email provider while keeping the delivery status updates.
+- **Push:** delivered via **FCM HTTP v1** in the worker (`push-sender.ts`),
+  env-gated by `PUSH_PROVIDER=fcm` + `FCM_SERVICE_ACCOUNT`; dead tokens are
+  auto-disabled. See [push-notifications-setup.md](push-notifications-setup.md).
+- **SMS:** delivered via AfroMessage (`sms-sender.ts`, `SMS_PROVIDER=afromessage`).
+  See [sms-otp.md](sms-otp.md).
+- **Email:** still logs and marks delivered; swap in an email provider while
+  keeping the delivery status updates.
+
+Each provider stays behind an env flag and logs (marking the delivery delivered)
+when unconfigured, so the pipeline is fully testable without credentials.

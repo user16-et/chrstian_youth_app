@@ -2453,6 +2453,28 @@ class ApiClient {
     );
   }
 
+  // Register this device's push token (FCM) so the backend can target it.
+  Future<Map<String, dynamic>> registerDeviceToken(
+    String token, {
+    required String deviceToken,
+    required String platform,
+    String locale = 'en',
+  }) async {
+    final response = await _postJson(
+      '/notifications/device-tokens',
+      {'token': deviceToken, 'platform': platform, 'locale': locale},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return response as Map<String, dynamic>;
+  }
+
+  Future<dynamic> disableDeviceToken(String token, String deviceTokenId) {
+    return _deleteJson(
+      '/notifications/device-tokens/$deviceTokenId',
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
   Future<Map<String, dynamic>> fetchJourneyDashboard(String token) async {
     final response = await _getJson('/journey/dashboard',
         headers: {'Authorization': 'Bearer $token'});

@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import { QUEUE_NAMES, type QueueName, type SearchIndexingJob } from '@christian-super-app/shared';
 import type { WorkerConfig } from './config';
 import { ImageProcessor } from './image-processor';
+import { PushInvalidTokenError, PushSender } from './push-sender';
 import { SearchIndexer } from './search-indexer';
 import { SmsSender } from './sms-sender';
 import { VirusScanner } from './virus-scanner';
@@ -15,16 +16,41 @@ export function createProcessors(db: Pool, config: WorkerConfig): ProcessorMap {
   const virusScanner = new VirusScanner(db, config);
   const imageProcessor = new ImageProcessor(db, config);
   const smsSender = new SmsSender(config);
+  const pushSender = new PushSender(config);
   return {
     [QUEUE_NAMES.pushNotifications]: async (job) => {
       const data = job.data as { userId: string; title: string; body: string; targetType?: string; targetId?: string; notificationId?: string; deliveryId?: string; deviceToken?: string; priority?: string };
       const notificationId = data.notificationId ?? await createLegacyNotification(db, data.userId, 'push', data.title, data.body, data.targetType, data.targetId);
       const deliveryId = data.deliveryId ?? await ensureDelivery(db, notificationId, data.userId, 'push', data.deviceToken ?? null);
       await markDeliveryProcessing(db, deliveryId);
+      const deviceToken = data.deviceToken ?? '';
+      if (!deviceToken) {
+        // No target token on the job (legacy enqueue) — nothing to deliver.
+        await markDeliveryDelivered(db, deliveryId, `push:notoken:${Date.now()}`);
+        return;
+      }
       try {
-        console.log(JSON.stringify({ level: 'info', event: 'push_requested', userId: data.userId, notificationId, deliveryId, priority: data.priority ?? 'normal' }));
-        await markDeliveryDelivered(db, deliveryId, `push:${Date.now()}`);
+        const result = await pushSender.send({
+          token: deviceToken,
+          title: data.title,
+          body: data.body,
+          priority: data.priority,
+          data: {
+            notificationId: String(notificationId),
+            ...(data.targetType ? { targetType: data.targetType } : {}),
+            ...(data.targetId ? { targetId: data.targetId } : {}),
+          },
+        });
+        console.log(JSON.stringify({ level: 'info', event: 'push_sent', provider: result.provider, userId: data.userId, notificationId, deliveryId, priority: data.priority ?? 'normal' }));
+        await markDeliveryDelivered(db, deliveryId, result.providerMessageId);
       } catch (error) {
+        if (error instanceof PushInvalidTokenError) {
+          // Dead token: disable it and stop — retrying can never succeed.
+          await db.query('UPDATE device_tokens SET enabled=false, last_seen_at=now() WHERE token=$1', [deviceToken]);
+          await markDeliveryFailed(db, deliveryId, error);
+          console.log(JSON.stringify({ level: 'warn', event: 'push_token_disabled', userId: data.userId, deliveryId }));
+          return;
+        }
         await markDeliveryRetry(db, deliveryId, error);
         throw error;
       }
@@ -219,6 +245,13 @@ async function markDeliveryDelivered(db: Pool, deliveryId: string, providerMessa
   await db.query(
     `UPDATE notification_deliveries SET status='delivered',delivered_at=now(),provider_message_id=$2,error=NULL,updated_at=now() WHERE id=$1`,
     [deliveryId, providerMessageId],
+  );
+}
+
+async function markDeliveryFailed(db: Pool, deliveryId: string, error: unknown) {
+  await db.query(
+    `UPDATE notification_deliveries SET status='failed',failed_at=now(),error=$2,updated_at=now() WHERE id=$1`,
+    [deliveryId, error instanceof Error ? error.message : String(error)],
   );
 }
 
