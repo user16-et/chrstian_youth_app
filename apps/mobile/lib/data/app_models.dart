@@ -1122,6 +1122,46 @@ class BibleDailyVerseItem {
   }
 }
 
+/// A Bible study group — a chat-enabled group (category `bible_study`) that
+/// reuses the app's group membership, chat and notifications.
+class BibleStudyGroupItem {
+  const BibleStudyGroupItem({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.memberCount,
+    required this.myRole,
+    required this.visibility,
+    required this.isMember,
+    required this.lastActivityAt,
+  });
+
+  final String id;
+  final String name;
+  final String description;
+  final int memberCount;
+  final String myRole; // owner / admin / member / '' when not a member
+  final String visibility; // public / private
+  final bool isMember;
+  final String lastActivityAt;
+
+  bool get isPrivate => visibility == 'private';
+  bool get canManage => myRole == 'owner' || myRole == 'admin';
+
+  factory BibleStudyGroupItem.fromJson(Map<String, dynamic> json) {
+    return BibleStudyGroupItem(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      memberCount: (json['memberCount'] as num?)?.toInt() ?? 0,
+      myRole: json['myRole'] as String? ?? '',
+      visibility: json['visibility'] as String? ?? 'public',
+      isMember: json['isMember'] as bool? ?? false,
+      lastActivityAt: json['lastActivityAt'] as String? ?? '',
+    );
+  }
+}
+
 class BibleReadingPlanItem {
   const BibleReadingPlanItem({
     required this.id,

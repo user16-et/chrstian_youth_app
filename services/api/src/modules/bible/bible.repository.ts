@@ -295,6 +295,61 @@ export class BibleRepository {
     return result.rows[0];
   }
 
+  // ---- Study groups (backed by the shared groups system) ----
+  // A Bible study group is a regular group with category='bible_study', so it
+  // reuses the app's group chat, membership and notifications ("Telegram"
+  // groups). These helpers surface them inside the Bible section.
+
+  async listStudyGroups(userId: string) {
+    const [mine, discover] = await Promise.all([
+      this.db.query(
+        `SELECT g.id, g.name, g.description, g.visibility, g.created_at AS "createdAt",
+                m.role AS "myRole",
+                (SELECT count(*)::int FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') AS "memberCount",
+                (SELECT max(p.created_at) FROM group_posts p WHERE p.group_id = g.id AND p.removed_at IS NULL) AS "lastActivityAt"
+         FROM groups g
+         JOIN group_memberships m ON m.group_id = g.id AND m.user_id = $1 AND m.status = 'active'
+         WHERE g.category = 'bible_study' AND g.status = 'active'
+         ORDER BY COALESCE(
+           (SELECT max(p.created_at) FROM group_posts p WHERE p.group_id = g.id AND p.removed_at IS NULL),
+           g.created_at) DESC`,
+        [userId],
+      ),
+      this.db.query(
+        `SELECT g.id, g.name, g.description, g.visibility, g.created_at AS "createdAt",
+                (SELECT count(*)::int FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') AS "memberCount"
+         FROM groups g
+         WHERE g.category = 'bible_study' AND g.status = 'active' AND g.visibility = 'public'
+           AND NOT EXISTS (SELECT 1 FROM group_memberships m WHERE m.group_id = g.id AND m.user_id = $1 AND m.status = 'active')
+         ORDER BY (SELECT count(*)::int FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') DESC, g.created_at DESC
+         LIMIT 12`,
+        [userId],
+      ),
+    ]);
+    return {
+      mine: mine.rows.map((r) => ({ ...r, isMember: true })),
+      discover: discover.rows.map((r) => ({ ...r, isMember: false, myRole: null })),
+    };
+  }
+
+  async createStudyGroup(userId: string, input: Record<string, unknown>) {
+    const visibility = ['public', 'private'].includes(String(input.visibility)) ? String(input.visibility) : 'public';
+    const group = await this.db.query(
+      `INSERT INTO groups (id, name, description, category, kind, visibility, type, status, created_by, created_at)
+       VALUES (gen_random_uuid(), $1, $2, 'bible_study', 'group', $3, 'group', 'active', $4, now())
+       RETURNING id, name, description, category, visibility, created_by AS "createdBy", created_at AS "createdAt"`,
+      [String(input.name ?? '').trim(), String(input.description ?? '').trim(), visibility, userId],
+    );
+    const row = group.rows[0];
+    await this.db.query(
+      `INSERT INTO group_memberships (id, group_id, user_id, role, status, joined_at)
+       VALUES (gen_random_uuid(), $1, $2, 'owner', 'active', now())
+       ON CONFLICT (group_id, user_id) DO UPDATE SET role = 'owner', status = 'active'`,
+      [row.id, userId],
+    );
+    return { ...row, memberCount: 1, myRole: 'owner', isMember: true };
+  }
+
   async analytics(userId: string) {
     const result = await this.db.query(
       `SELECT

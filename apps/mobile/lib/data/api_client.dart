@@ -1452,6 +1452,34 @@ class ApiClient {
         .toList();
   }
 
+  /// Bible study groups: the viewer's groups plus discoverable public ones.
+  Future<({List<BibleStudyGroupItem> mine, List<BibleStudyGroupItem> discover})>
+      fetchBibleStudyGroups(String token) async {
+    final response = await _getJson('/bible/study-groups',
+        headers: {'Authorization': 'Bearer $token'});
+    final map = (response as Map<String, dynamic>?) ?? const {};
+    List<BibleStudyGroupItem> parse(String key) =>
+        ((map[key] as List<dynamic>?) ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(BibleStudyGroupItem.fromJson)
+            .toList();
+    return (mine: parse('mine'), discover: parse('discover'));
+  }
+
+  Future<BibleStudyGroupItem> createBibleStudyGroup(
+    String token, {
+    required String name,
+    required String description,
+    required String visibility,
+  }) async {
+    final response = await _postJson(
+      '/bible/study-groups',
+      {'name': name, 'description': description, 'visibility': visibility},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return BibleStudyGroupItem.fromJson(response as Map<String, dynamic>);
+  }
+
   Future<List<BibleSearchResultItem>> searchBible(String query,
       {String? token, String? version}) async {
     var path = '/bible/search?q=${Uri.encodeQueryComponent(query)}';

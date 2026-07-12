@@ -109,6 +109,19 @@ export class BibleService {
     return this.bibleRepository.addGroupStudyNote(actor.id, studyId, input);
   }
 
+  async listStudyGroups(token: string) {
+    const actor = await this.requireActor(token);
+    return this.bibleRepository.listStudyGroups(actor.id);
+  }
+
+  async createStudyGroup(token: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    if (!String(input.name ?? '').trim()) {
+      throw new BadRequestException('study_group_name_required');
+    }
+    return this.bibleRepository.createStudyGroup(actor.id, input);
+  }
+
   async analytics(token: string) {
     const actor = await this.requireActor(token);
     return this.bibleRepository.analytics(actor.id);

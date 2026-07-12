@@ -2237,6 +2237,8 @@ class _BibleHubData {
     required this.bookmarks,
     required this.highlights,
     required this.ecosystem,
+    this.studyGroupsMine = const [],
+    this.studyGroupsDiscover = const [],
   });
 
   final List<BibleDailyVerseItem> dailyVerses;
@@ -2245,6 +2247,8 @@ class _BibleHubData {
   final List<BibleBookmarkItem> bookmarks;
   final List<BibleHighlightItem> highlights;
   final Map<String, dynamic> ecosystem;
+  final List<BibleStudyGroupItem> studyGroupsMine;
+  final List<BibleStudyGroupItem> studyGroupsDiscover;
 }
 
 class BibleScreen extends StatefulWidget {
@@ -2335,6 +2339,12 @@ class _BibleScreenState extends State<BibleScreen> {
         ? Future.value(const <BibleHighlightItem>[])
         : widget.apiClient.fetchBibleHighlights(token);
     final ecosystemFuture = widget.apiClient.fetchBibleHome(token);
+    final studyGroupsFuture = token == null || token.isEmpty
+        ? Future.value((
+            mine: const <BibleStudyGroupItem>[],
+            discover: const <BibleStudyGroupItem>[]
+          ))
+        : widget.apiClient.fetchBibleStudyGroups(token);
     final results = await Future.wait<dynamic>([
       dailyVersesFuture,
       plansFuture,
@@ -2342,7 +2352,10 @@ class _BibleScreenState extends State<BibleScreen> {
       bookmarksFuture,
       highlightsFuture,
       ecosystemFuture,
+      studyGroupsFuture,
     ]);
+    final studyGroups = results[6]
+        as ({List<BibleStudyGroupItem> mine, List<BibleStudyGroupItem> discover});
     return _BibleHubData(
       dailyVerses: results[0] as List<BibleDailyVerseItem>,
       readingPlans: results[1] as List<BibleReadingPlanItem>,
@@ -2350,6 +2363,8 @@ class _BibleScreenState extends State<BibleScreen> {
       bookmarks: results[3] as List<BibleBookmarkItem>,
       highlights: results[4] as List<BibleHighlightItem>,
       ecosystem: results[5] as Map<String, dynamic>,
+      studyGroupsMine: studyGroups.mine,
+      studyGroupsDiscover: studyGroups.discover,
     );
   }
 
@@ -2742,6 +2757,149 @@ class _BibleScreenState extends State<BibleScreen> {
           ),
         ),
     ];
+  }
+
+  // ---- Study groups ----
+
+  // Opens the shared group experience (chat, members, notifications).
+  void _openStudyGroup(BibleStudyGroupItem group) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => GroupDetailScreen(
+        language: widget.language,
+        apiClient: widget.apiClient,
+        group: GroupItem(
+            id: group.id, name: group.name, category: 'bible_study'),
+        session: widget.session,
+        onDataChanged: _refreshHub,
+      ),
+    ));
+  }
+
+  Future<void> _joinStudyGroup(BibleStudyGroupItem group) async {
+    if (!_requireLogin()) return;
+    await _runAction(() async {
+      await widget.apiClient
+          .joinGroup(token: widget.session!.token, groupId: group.id);
+    });
+    if (mounted) _openStudyGroup(group);
+  }
+
+  Future<void> _createStudyGroup() async {
+    if (!_requireLogin()) return;
+    final nameController = TextEditingController();
+    final focusController = TextEditingController();
+    var isPrivate = false;
+    final created = await showModalBottomSheet<BibleStudyGroupItem>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        var saving = false;
+        return StatefulBuilder(
+          builder: (sheetContext, setSheet) => Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 4,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(_tr('New study group', 'አዲስ የጥናት ቡድን'),
+                    style: Theme.of(sheetContext).textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text(
+                    _tr('Members can chat, share and get notified together.',
+                        'አባላት አብረው ይወያያሉ፣ ያጋራሉ እና ማሳወቂያ ይደርሳቸዋል።'),
+                    style: Theme.of(sheetContext).textTheme.bodySmall),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    labelText: _tr('Group name', 'የቡድን ስም'),
+                    hintText: _tr('e.g. Romans Deep Dive', 'ለምሳሌ የሮሜ ጥናት'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: focusController,
+                  decoration: InputDecoration(
+                    labelText: _tr('Current focus', 'የአሁን ትኩረት'),
+                    hintText: _tr(
+                        'What you are reading together', 'አብራችሁ የምታነቡት'),
+                  ),
+                  maxLines: 3,
+                  minLines: 2,
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: isPrivate,
+                  onChanged: (v) => setSheet(() => isPrivate = v),
+                  title: Text(_tr('Private group', 'የግል ቡድን')),
+                  subtitle: Text(
+                      isPrivate
+                          ? _tr('Only people you invite can join.',
+                              'የምትጋብዟቸው ብቻ ይቀላቀላሉ።')
+                          : _tr('Anyone can discover and join.',
+                              'ማንኛውም ሰው አግኝቶ ሊቀላቀል ይችላል።'),
+                      style: Theme.of(sheetContext).textTheme.bodySmall),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (nameController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                SnackBar(
+                                    content: Text(_tr('Enter a group name.',
+                                        'የቡድን ስም አስገባ።'))));
+                            return;
+                          }
+                          setSheet(() => saving = true);
+                          try {
+                            final group =
+                                await widget.apiClient.createBibleStudyGroup(
+                              widget.session!.token,
+                              name: nameController.text.trim(),
+                              description: focusController.text.trim(),
+                              visibility: isPrivate ? 'private' : 'public',
+                            );
+                            if (sheetContext.mounted) {
+                              Navigator.of(sheetContext).pop(group);
+                            }
+                          } catch (error) {
+                            setSheet(() => saving = false);
+                            if (sheetContext.mounted) {
+                              ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                  SnackBar(
+                                      content: Text(error
+                                          .toString()
+                                          .replaceFirst(
+                                              'HttpException: ', ''))));
+                            }
+                          }
+                        },
+                  child: Text(saving
+                      ? AppStrings.of(widget.language, 'working')
+                      : _tr('Create group', 'ቡድን ፍጠር')),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    nameController.dispose();
+    focusController.dispose();
+    if (created != null) {
+      await _refreshHub();
+      if (mounted) _openStudyGroup(created);
+    }
   }
 
   Future<void> _runAction(Future<void> Function() action) async {
@@ -3200,6 +3358,74 @@ class _BibleScreenState extends State<BibleScreen> {
               ),
               const SizedBox(height: 18),
 
+              // Study groups — chat-enabled groups with members & notifications.
+              _SectionCard(
+                title: _tr('Study groups', 'የጥናት ቡድኖች'),
+                children: [
+                  Text(
+                    _tr(
+                        'Read together in a group chat with members and notifications.',
+                        'በቡድን ውይይት፣ ከአባላትና ማሳወቂያ ጋር አብራችሁ አንብቡ።'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _busy ? null : _createStudyGroup,
+                      icon: const Icon(Icons.group_add_rounded),
+                      label: Text(_tr('Create study group', 'የጥናት ቡድን ፍጠር')),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (!_loggedIn)
+                    _EmptyState(
+                        message: AppStrings.of(widget.language, 'login_required'))
+                  else ...[
+                    if (data.studyGroupsMine.isEmpty)
+                      _EmptyState(
+                          message: _tr('You have not joined any study group yet.',
+                              'እስካሁን የተቀላቀሉት የጥናት ቡድን የለም።'))
+                    else
+                      for (final group in data.studyGroupsMine)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _StudyGroupTile(
+                            colors: colors,
+                            group: group,
+                            joinLabel: _tr('Open', 'ክፈት'),
+                            memberWord: (n) => n == 1
+                                ? _tr('member', 'አባል')
+                                : _tr('members', 'አባላት'),
+                            onTap: () => _openStudyGroup(group),
+                            onAction: () => _openStudyGroup(group),
+                          ),
+                        ),
+                    if (data.studyGroupsDiscover.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(_tr('Discover', 'ያግኙ'),
+                          style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 8),
+                      for (final group in data.studyGroupsDiscover)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _StudyGroupTile(
+                            colors: colors,
+                            group: group,
+                            joinLabel: _tr('Join', 'ተቀላቀል'),
+                            memberWord: (n) => n == 1
+                                ? _tr('member', 'አባል')
+                                : _tr('members', 'አባላት'),
+                            onTap: _busy ? null : () => _joinStudyGroup(group),
+                            onAction: _busy ? null : () => _joinStudyGroup(group),
+                          ),
+                        ),
+                    ],
+                  ],
+                ],
+              ),
+              const SizedBox(height: 18),
+
               // Library: notes / bookmarks / highlights in one tabbed card.
               _SectionCard(
                 title: _tr('Your library', 'የእርስዎ ስብስብ'),
@@ -3388,6 +3614,132 @@ class _FullVerseCard extends StatelessWidget {
                     color: colors.onSurface.withValues(alpha: .92),
                   )),
         ],
+      ),
+    );
+  }
+}
+
+// A study-group row: avatar, name, focus, member count + a primary action.
+class _StudyGroupTile extends StatelessWidget {
+  const _StudyGroupTile({
+    required this.colors,
+    required this.group,
+    required this.joinLabel,
+    required this.memberWord,
+    required this.onTap,
+    required this.onAction,
+  });
+
+  final ColorScheme colors;
+  final BibleStudyGroupItem group;
+  final String joinLabel;
+  final String Function(int count) memberWord;
+  final VoidCallback? onTap;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = group.name.trim().isEmpty
+        ? '?'
+        : group.name.trim().characters.first.toUpperCase();
+    return Material(
+      color: colors.surfaceContainerHighest.withValues(alpha: .4),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                      colors: [colors.primary, colors.secondary]),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Text(initials,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(group.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700)),
+                        ),
+                        if (group.isPrivate) ...[
+                          const SizedBox(width: 6),
+                          Icon(Icons.lock_rounded,
+                              size: 13,
+                              color: colors.onSurface.withValues(alpha: .5)),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      group.description.isNotEmpty
+                          ? group.description
+                          : '${group.memberCount} ${memberWord(group.memberCount)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: colors.onSurface.withValues(alpha: .62)),
+                    ),
+                    if (group.description.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(children: [
+                          Icon(Icons.people_alt_rounded,
+                              size: 12,
+                              color: colors.onSurface.withValues(alpha: .5)),
+                          const SizedBox(width: 4),
+                          Text(
+                              '${group.memberCount} ${memberWord(group.memberCount)}',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color:
+                                      colors.onSurface.withValues(alpha: .55))),
+                        ]),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              group.isMember
+                  ? IconButton(
+                      onPressed: onAction,
+                      icon: Icon(Icons.chat_rounded,
+                          size: 20, color: colors.primary),
+                      tooltip: joinLabel,
+                    )
+                  : FilledButton.tonal(
+                      onPressed: onAction,
+                      style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          visualDensity: VisualDensity.compact),
+                      child: Text(joinLabel),
+                    ),
+            ],
+          ),
+        ),
       ),
     );
   }

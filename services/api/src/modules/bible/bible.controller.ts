@@ -142,6 +142,20 @@ export class BibleController {
   }
 
   @ApiBearerAuth()
+  @ApiOperation({ summary: 'List the viewer\'s Bible study groups and discoverable ones' })
+  @Get('/bible/study-groups')
+  listStudyGroups(@Headers('authorization') authorization?: string) {
+    return this.bibleService.listStudyGroups(requireBearerToken(authorization));
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a Bible study group (a chat-enabled group)' })
+  @Post('/bible/study-groups')
+  createStudyGroup(@Headers('authorization') authorization?: string, @Body() body?: Record<string, unknown>) {
+    return this.bibleService.createStudyGroup(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get Bible growth analytics' })
   @Get('/bible/analytics')
   analytics(@Headers('authorization') authorization?: string) {
