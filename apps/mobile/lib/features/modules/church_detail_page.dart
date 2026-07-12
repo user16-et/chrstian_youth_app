@@ -295,6 +295,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                   onAdd: canManage ? (kind) => _manageItem(kind) : null,
                   onEdit: canManage ? (kind, item) => _manageItem(kind, existing: item) : null,
                   onDelete: canManage ? (kind, item) => _deleteContent(kind, item) : null,
+                  onOpenEvent: (item) => _openEvent(item, canManage),
                 ),
               ]),
               // Sermons panel.
@@ -644,6 +645,22 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     }
   }
 
+  Future<void> _openEvent(Map<String, dynamic> item, bool canManage) async {
+    final id = '${item['id'] ?? ''}';
+    if (id.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _EventDetailSheet(
+        apiClient: widget.apiClient,
+        session: widget.session,
+        eventId: id,
+        canManage: canManage,
+      ),
+    );
+  }
+
   Future<DateTime?> _pickDateTime(BuildContext context, DateTime? initial) async {
     final now = DateTime.now();
     final date = await showDatePicker(
@@ -977,6 +994,219 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first.characters.first.toUpperCase();
     return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+  }
+}
+
+// Event RSVP + self check-in, with a read-only registrations roster for managers.
+class _EventDetailSheet extends StatefulWidget {
+  const _EventDetailSheet({
+    required this.apiClient,
+    required this.session,
+    required this.eventId,
+    required this.canManage,
+  });
+
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final String eventId;
+  final bool canManage;
+
+  @override
+  State<_EventDetailSheet> createState() => _EventDetailSheetState();
+}
+
+class _EventDetailSheetState extends State<_EventDetailSheet> {
+  Map<String, dynamic> _event = const {};
+  List<Map<String, dynamic>> _registrations = const [];
+  bool _loading = true;
+  bool _busy = false;
+  String _error = '';
+
+  String get _myId => widget.session?.user.id ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final e = await widget.apiClient.fetchEventDetail(widget.eventId, widget.session?.token);
+      final regs = (e['registrations'] as List?)
+              ?.whereType<Map>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .toList() ??
+          const <Map<String, dynamic>>[];
+      if (mounted) setState(() { _event = e; _registrations = regs; _loading = false; _error = ''; });
+    } catch (err) {
+      if (mounted) setState(() { _error = err.toString().replaceFirst('HttpException: ', ''); _loading = false; });
+    }
+  }
+
+  Map<String, dynamic>? get _mine {
+    for (final r in _registrations) {
+      if ('${r['userId']}' == _myId) return r;
+    }
+    return null;
+  }
+
+  Future<void> _rsvp() async {
+    if (widget.session == null) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.registerForEvent(token: widget.session!.token, eventId: widget.eventId);
+      await _load();
+      _toast('You are registered.');
+    } catch (err) {
+      _toast(err.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _checkIn() async {
+    if (widget.session == null) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.checkInForEvent(token: widget.session!.token, eventId: widget.eventId);
+      await _load();
+      _toast('Checked in. See you there!');
+    } catch (err) {
+      _toast(err.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _toast(String m) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.75,
+      maxChildSize: 0.95,
+      builder: (context, scroll) {
+        if (_loading) {
+          return const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator()));
+        }
+        if (_error.isNotEmpty) {
+          return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error, textAlign: TextAlign.center)));
+        }
+        final e = _event;
+        final mine = _mine;
+        final status = mine == null ? '' : '${mine['status'] ?? ''}';
+        final checkedIn = status == 'checked_in' || (mine?['checkedInAt'] != null);
+        final registered = mine != null || e['registeredByMe'] == true;
+        final signedIn = widget.session != null;
+        final capacity = (e['capacity'] as num?)?.toInt() ?? 0;
+        final regCount = (e['registrationCount'] as num?)?.toInt() ?? 0;
+        final attCount = (e['attendanceCount'] as num?)?.toInt() ?? 0;
+        return ListView(controller: scroll, padding: const EdgeInsets.fromLTRB(20, 4, 20, 28), children: [
+          Text('${e['title'] ?? 'Event'}', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 12),
+          _line(Icons.event_rounded, _dateLabel('${e['startsAt'] ?? ''}')),
+          if ('${e['location'] ?? ''}'.isNotEmpty) _line(Icons.place_rounded, '${e['location']}'),
+          _line(
+            Icons.people_alt_rounded,
+            capacity > 0
+                ? '$regCount registered · $attCount checked in · $capacity capacity'
+                : '$regCount registered · $attCount checked in',
+          ),
+          if ('${e['description'] ?? ''}'.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text('${e['description']}'),
+          ],
+          const SizedBox(height: 22),
+          if (!signedIn)
+            const FilledButton(onPressed: null, child: Text('Sign in to RSVP'))
+          else ...[
+            if (!registered)
+              FilledButton.icon(
+                onPressed: _busy ? null : _rsvp,
+                icon: const Icon(Icons.how_to_reg_rounded),
+                label: Text(status == 'requested' ? 'Request to attend' : 'RSVP / Register'),
+              )
+            else
+              _statusBanner(colors, Icons.check_circle_rounded,
+                  status == 'requested' ? "You've requested to attend" : "You're registered", colors.primaryContainer, colors.onPrimaryContainer),
+            const SizedBox(height: 10),
+            if (registered && !checkedIn)
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _checkIn,
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+                label: const Text('Check in'),
+              )
+            else if (checkedIn)
+              _statusBanner(colors, Icons.verified_rounded, 'Checked in', colors.tertiaryContainer, colors.onTertiaryContainer),
+          ],
+          if (widget.canManage) ...[
+            const SizedBox(height: 26),
+            Text('Registrations ($regCount)', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            if (_registrations.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text('No registrations yet.', style: TextStyle(color: colors.onSurfaceVariant)),
+              )
+            else
+              ..._registrations.map((r) {
+                final done = r['checkedInAt'] != null || '${r['status']}' == 'checked_in';
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundColor: colors.surfaceContainerHighest,
+                    child: Icon(done ? Icons.verified_rounded : Icons.person_rounded,
+                        size: 20, color: done ? colors.primary : colors.onSurfaceVariant),
+                  ),
+                  title: Text('${r['userFullName'] ?? 'Member'}'),
+                  subtitle: Text(_regStatusLabel('${r['status']}', r['checkedInAt'])),
+                  trailing: done ? Icon(Icons.check_circle_rounded, color: colors.primary) : null,
+                );
+              }),
+          ],
+        ]);
+      },
+    );
+  }
+
+  Widget _statusBanner(ColorScheme colors, IconData icon, String text, Color bg, Color fg) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          Icon(icon, color: fg, size: 20),
+          const SizedBox(width: 10),
+          Text(text, style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
+        ]),
+      );
+
+  Widget _line(IconData icon, String text) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text)),
+        ]),
+      );
+
+  String _regStatusLabel(String status, dynamic checkedInAt) {
+    if (status == 'checked_in' || checkedInAt != null) return 'Checked in';
+    if (status == 'requested') return 'Pending approval';
+    return 'Registered';
+  }
+
+  String _dateLabel(String raw) {
+    final dt = DateTime.tryParse(raw)?.toLocal();
+    if (dt == null) return 'Date to be announced';
+    const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const d = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final ap = dt.hour < 12 ? 'AM' : 'PM';
+    return '${d[dt.weekday - 1]}, ${m[dt.month - 1]} ${dt.day}, ${dt.year} · $h:${dt.minute.toString().padLeft(2, '0')} $ap';
   }
 }
 
@@ -1531,6 +1761,7 @@ class _InfoGrid extends StatelessWidget {
     this.onAdd,
     this.onEdit,
     this.onDelete,
+    this.onOpenEvent,
   });
 
   final List<Map<String, dynamic>> schedules;
@@ -1544,6 +1775,7 @@ class _InfoGrid extends StatelessWidget {
   final void Function(String kind)? onAdd;
   final void Function(String kind, Map<String, dynamic> item)? onEdit;
   final void Function(String kind, Map<String, dynamic> item)? onDelete;
+  final void Function(Map<String, dynamic> item)? onOpenEvent;
 
   @override
   Widget build(BuildContext context) => Column(children: [
@@ -1576,7 +1808,8 @@ class _InfoGrid extends StatelessWidget {
         ],
         const SizedBox(height: 14),
         _managed('Events', Icons.celebration_rounded, 'No public events yet.', 'events', events,
-            (item) => (Icons.celebration_rounded, item['title']?.toString() ?? '', '${item['location'] ?? ''} • ${item['starts_at'] ?? ''}', '')),
+            (item) => (Icons.celebration_rounded, item['title']?.toString() ?? '', '${item['location'] ?? ''} • ${item['starts_at'] ?? ''}', ''),
+            onTap: onOpenEvent),
         const SizedBox(height: 14),
         _managed('Branches', Icons.account_tree_rounded, 'No branches yet.', 'branches', branches,
             (item) => (Icons.account_tree_rounded, item['name']?.toString() ?? '', '${item['city'] ?? ''} • ${item['address'] ?? ''}', '')),
@@ -1614,8 +1847,9 @@ class _InfoGrid extends StatelessWidget {
     String empty,
     String kind,
     List<Map<String, dynamic>> items,
-    (IconData, String, String, String) Function(Map<String, dynamic> item) row,
-  ) {
+    (IconData, String, String, String) Function(Map<String, dynamic> item) row, {
+    void Function(Map<String, dynamic> item)? onTap,
+  }) {
     return _SectionPanel(
       title: title,
       icon: icon,
@@ -1629,6 +1863,7 @@ class _InfoGrid extends StatelessWidget {
             title: rowTitle,
             subtitle: rowSubtitle,
             url: rowUrl,
+            onTap: onTap == null ? null : () => onTap(item),
             trailing: canManage
                 ? _managerMenu(
                     item,
@@ -1705,12 +1940,14 @@ class _DenseRow extends StatelessWidget {
       required this.title,
       required this.subtitle,
       this.url = '',
-      this.trailing});
+      this.trailing,
+      this.onTap});
   final IconData icon;
   final String title;
   final String subtitle;
   final String url;
   final Widget? trailing;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1741,7 +1978,7 @@ class _DenseRow extends StatelessWidget {
       if (trailing != null) trailing!,
     ]);
     return InkWell(
-      onTap: url.trim().isEmpty ? null : () => _openExternalUrl(url),
+      onTap: onTap ?? (url.trim().isEmpty ? null : () => _openExternalUrl(url)),
       borderRadius: BorderRadius.circular(14),
       child: Padding(
         padding: const EdgeInsets.only(bottom: 8),
