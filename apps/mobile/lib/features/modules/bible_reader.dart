@@ -363,25 +363,30 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     final picked = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(_t(lang, 'Chapter', 'ምዕራፍ'), style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 12),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (var c = 1; c <= count; c++)
-              SizedBox(
-                width: 46, height: 46,
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    backgroundColor: c == _chapter ? Theme.of(context).colorScheme.primaryContainer : null,
+          Flexible(
+            child: SingleChildScrollView(
+              child: Wrap(spacing: 8, runSpacing: 8, children: [
+                for (var c = 1; c <= count; c++)
+                  SizedBox(
+                    width: 46, height: 46,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        backgroundColor: c == _chapter ? Theme.of(context).colorScheme.primaryContainer : null,
+                      ),
+                      onPressed: () => Navigator.pop(context, c),
+                      child: Text('$c'),
+                    ),
                   ),
-                  onPressed: () => Navigator.pop(context, c),
-                  child: Text('$c'),
-                ),
-              ),
-          ]),
+              ]),
+            ),
+          ),
         ]),
       ),
     );
