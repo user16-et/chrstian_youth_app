@@ -294,7 +294,24 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                 ),
               ]),
               // Sermons panel.
-              _tab('sermons', [_SermonShelf(items: sermons)]),
+              _tab('sermons', [
+                if (canManage) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      onPressed: _busy ? null : () => _composeSermon(),
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('Add sermon'),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                _SermonShelf(
+                  items: sermons,
+                  onEdit: canManage ? (item) => _composeSermon(existing: item) : null,
+                  onDelete: canManage ? (item) => _deleteContent('sermons', item) : null,
+                ),
+              ]),
               // Members panel: roster + admin approvals.
               _ChurchMembersPanel(
                 apiClient: widget.apiClient,
@@ -430,7 +447,11 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
 
   Future<void> _deleteContent(String kind, Map<String, dynamic> item) async {
     if (widget.session == null) return;
-    final noun = kind == 'announcements' ? 'announcement' : 'post';
+    final noun = switch (kind) {
+      'announcements' => 'announcement',
+      'sermons' => 'sermon',
+      _ => 'post',
+    };
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -451,6 +472,72 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
       () => widget.apiClient.deleteChurchContent(widget.session!.token, widget.church.id, kind, '${item['id']}'),
       '${noun[0].toUpperCase()}${noun.substring(1)} deleted.',
     );
+  }
+
+  Future<void> _composeSermon({Map<String, dynamic>? existing}) async {
+    if (widget.session == null) {
+      setState(() => _status = 'Log in to continue.');
+      return;
+    }
+    final editing = existing != null;
+    final titleC = TextEditingController(text: editing ? '${existing['title'] ?? ''}' : '');
+    final speakerC = TextEditingController(text: editing ? '${existing['speaker'] ?? ''}' : '');
+    final passageC = TextEditingController(text: editing ? '${existing['bible_passage'] ?? ''}' : '');
+    final videoC = TextEditingController(text: editing ? '${existing['video_url'] ?? existing['media_url'] ?? ''}' : '');
+    final summaryC = TextEditingController(text: editing ? '${existing['summary'] ?? ''}' : '');
+    InputDecoration dec(String label) => InputDecoration(labelText: label, border: const OutlineInputBorder());
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('${editing ? 'Edit' : 'New'} sermon', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 14),
+              TextField(controller: titleC, decoration: dec('Title *')),
+              const SizedBox(height: 10),
+              TextField(controller: speakerC, decoration: dec('Speaker')),
+              const SizedBox(height: 10),
+              TextField(controller: passageC, decoration: dec('Bible passage')),
+              const SizedBox(height: 10),
+              TextField(controller: videoC, keyboardType: TextInputType.url, decoration: dec('Video / audio URL')),
+              const SizedBox(height: 10),
+              TextField(controller: summaryC, minLines: 2, maxLines: 5, decoration: dec('Summary')),
+              const SizedBox(height: 14),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(editing ? 'Save' : 'Publish')),
+            ]),
+          ),
+        ),
+      ),
+    );
+    if (submitted != true) return;
+    final title = titleC.text.trim();
+    if (title.isEmpty) {
+      setState(() => _status = 'A sermon needs a title.');
+      return;
+    }
+    final input = {
+      'title': title,
+      'speaker': speakerC.text.trim(),
+      'biblePassage': passageC.text.trim(),
+      'videoUrl': videoC.text.trim(),
+      'summary': summaryC.text.trim(),
+    };
+    if (editing) {
+      await _run(
+        () => widget.apiClient.updateChurchContent(widget.session!.token, widget.church.id, 'sermons', '${existing['id']}', input),
+        'Sermon updated.',
+      );
+    } else {
+      await _run(
+        () => widget.apiClient.createChurchContent(widget.session!.token, widget.church.id, 'sermons', input),
+        'Sermon published.',
+      );
+    }
   }
 }
 
@@ -1120,8 +1207,10 @@ Widget? _managerMenu(
 }
 
 class _SermonShelf extends StatelessWidget {
-  const _SermonShelf({required this.items});
+  const _SermonShelf({required this.items, this.onEdit, this.onDelete});
   final List<Map<String, dynamic>> items;
+  final void Function(Map<String, dynamic> item)? onEdit;
+  final void Function(Map<String, dynamic> item)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1138,7 +1227,7 @@ class _SermonShelf extends StatelessWidget {
                 itemCount: items.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 12),
                 itemBuilder: (context, index) =>
-                    _SermonCard(item: items[index]),
+                    _SermonCard(item: items[index], onEdit: onEdit, onDelete: onDelete),
               ),
             ),
     );
@@ -1146,8 +1235,10 @@ class _SermonShelf extends StatelessWidget {
 }
 
 class _SermonCard extends StatelessWidget {
-  const _SermonCard({required this.item});
+  const _SermonCard({required this.item, this.onEdit, this.onDelete});
   final Map<String, dynamic> item;
+  final void Function(Map<String, dynamic> item)? onEdit;
+  final void Function(Map<String, dynamic> item)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1155,6 +1246,22 @@ class _SermonCard extends StatelessWidget {
         ? item['video_url'].toString()
         : item['media_url']?.toString() ?? '';
     final thumb = _youtubeThumbnail(videoUrl);
+    final manager = onEdit != null || onDelete != null;
+    final media = thumb == null
+        ? Container(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: const Center(child: Icon(Icons.graphic_eq_rounded)),
+          )
+        : Stack(children: [
+            Positioned.fill(child: Image.network(thumb, fit: BoxFit.cover)),
+            const Center(
+              child: CircleAvatar(
+                backgroundColor: Colors.black54,
+                foregroundColor: Colors.white,
+                child: Icon(Icons.play_arrow_rounded),
+              ),
+            ),
+          ]);
     return SizedBox(
       width: 244,
       child: InkWell(
@@ -1165,24 +1272,31 @@ class _SermonCard extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             AspectRatio(
               aspectRatio: 16 / 9,
-              child: thumb == null
-                  ? Container(
-                      color:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child:
-                          const Center(child: Icon(Icons.graphic_eq_rounded)),
-                    )
-                  : Stack(children: [
-                      Positioned.fill(
-                          child: Image.network(thumb, fit: BoxFit.cover)),
-                      const Center(
-                        child: CircleAvatar(
-                          backgroundColor: Colors.black54,
-                          foregroundColor: Colors.white,
-                          child: Icon(Icons.play_arrow_rounded),
-                        ),
+              child: Stack(children: [
+                Positioned.fill(child: media),
+                if (manager)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: PopupMenuButton<String>(
+                      icon: const CircleAvatar(
+                        radius: 15,
+                        backgroundColor: Colors.black54,
+                        child: Icon(Icons.more_vert_rounded, size: 18, color: Colors.white),
                       ),
-                    ]),
+                      tooltip: 'Manage sermon',
+                      onSelected: (v) => v == 'edit' ? onEdit?.call(item) : onDelete?.call(item),
+                      itemBuilder: (context) => [
+                        if (onEdit != null) const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        if (onDelete != null)
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Delete', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                          ),
+                      ],
+                    ),
+                  ),
+              ]),
             ),
             Padding(
               padding: const EdgeInsets.all(12),
