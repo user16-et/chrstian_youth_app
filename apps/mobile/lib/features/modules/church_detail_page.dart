@@ -10,6 +10,7 @@ import '../../i18n/app_i18n.dart';
 
 import 'live_chat_panel.dart';
 import 'qr_scan_screen.dart';
+import 'user_profile_sheet.dart';
 
 Future<void> _openExternalUrl(String url) async {
   final trimmed = url.trim();
@@ -980,6 +981,8 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
     final acting = _acting.contains(id);
     return ListTile(
       contentPadding: EdgeInsets.zero,
+      onTap: () => showUserProfileSheet(context,
+          apiClient: widget.apiClient, userId: '${r['user_id'] ?? r['userId'] ?? ''}', token: widget.session?.token),
       leading: CircleAvatar(backgroundColor: colors.tertiaryContainer, child: Text(_initials(name))),
       title: Text(name),
       subtitle: Text(_roleLabel('${r['role'] ?? 'member'}')),
@@ -1007,6 +1010,8 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
     final acting = _acting.contains(m.userId);
     return ListTile(
       contentPadding: EdgeInsets.zero,
+      onTap: () => showUserProfileSheet(context,
+          apiClient: widget.apiClient, userId: m.userId, token: widget.session?.token),
       leading: CircleAvatar(
         backgroundColor: leader ? colors.primaryContainer : colors.surfaceContainerHighest,
         child: Text(_initials(m.userFullName),
@@ -1320,6 +1325,8 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
                 final uid = '${r['userId'] ?? ''}';
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
+                  onTap: () => showUserProfileSheet(context,
+                      apiClient: widget.apiClient, userId: uid, token: widget.session?.token),
                   leading: CircleAvatar(
                     backgroundColor: colors.surfaceContainerHighest,
                     child: Icon(done ? Icons.verified_rounded : Icons.person_rounded,

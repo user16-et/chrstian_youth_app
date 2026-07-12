@@ -9,6 +9,7 @@ import '../../data/call_controller.dart';
 import '../../data/group_socket_client.dart';
 import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
+import 'user_profile_sheet.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
 String _t(AppLanguage l, String en, String am) => _en(l) ? en : am;
@@ -747,6 +748,8 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
               : Column(mainAxisSize: MainAxisSize.min, children: [
                   for (final r in List<Map<String, dynamic>>.from(requests))
                     ListTile(
+                      onTap: () => showUserProfileSheet(context,
+                          apiClient: widget.apiClient, userId: '${r['userId']}', token: _token),
                       title: Text('${r['fullName'] ?? ''}'),
                       subtitle: Text('@${r['username'] ?? ''}'),
                       trailing: FilledButton(
@@ -927,6 +930,8 @@ class _MembersSheetState extends State<_MembersSheet> {
                     final role = '${m['role']}';
                     final uid = '${m['userId']}';
                     return ListTile(
+                      onTap: () => showUserProfileSheet(context,
+                          apiClient: widget.apiClient, userId: uid, token: widget.token),
                       leading: CircleAvatar(
                         backgroundColor: colors.surfaceContainerHighest,
                         backgroundImage: '${m['avatarUrl'] ?? ''}'.isNotEmpty ? NetworkImage('${m['avatarUrl']}') : null,

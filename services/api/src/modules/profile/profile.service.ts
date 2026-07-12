@@ -9,5 +9,8 @@ export class ProfileService {
   async me(token: string) { const user = await this.actor(token); return this.profiles.full(user.id); }
   async update(token: string, input: Record<string, unknown>) { const user = await this.actor(token); return this.profiles.update(user.id, input); }
   async save(token: string, input: Record<string, unknown>) { const user = await this.actor(token); if (!input.contentType) throw new BadRequestException('content_type_required'); return this.profiles.saveContent(user.id, input); }
-  public(id: string) { return this.profiles.public(id); }
+  async public(id: string, token?: string) {
+    const viewer = token ? await this.users.authenticate(token) : null;
+    return this.profiles.public(id, viewer?.id ?? null);
+  }
 }

@@ -21,11 +21,11 @@ export class ProfileRepository {
     return { identity, church, ministries, community, posts, saved, bible, prayers, events, volunteer, relationship, mentorship, notes, achievements, verifications, notifications, analytics };
   }
 
-  async public(userId: string) {
-    const [identity, church, ministries, community, posts, events, achievements, relationship] = await Promise.all([
-      this.identity(userId), this.church(userId), this.ministries(userId), this.community(userId), this.posts(userId), this.events(userId), this.achievements(userId), this.relationship(userId),
+  async public(userId: string, viewerId: string | null = null) {
+    const [identity, church, ministries, community, posts, events, achievements, relationship, viewer] = await Promise.all([
+      this.identity(userId), this.church(userId), this.ministries(userId), this.community(userId), this.posts(userId), this.events(userId), this.achievements(userId), this.relationship(userId), this.viewerContext(userId, viewerId),
     ]);
-    return { identity, church, ministries, community, posts, events, achievements, relationship };
+    return { identity, church, ministries, community, posts, events, achievements, relationship, ...viewer };
   }
 
   update(userId: string, input: Record<string, unknown>) {
@@ -44,6 +44,10 @@ export class ProfileRepository {
     return this.one(`INSERT INTO user_saved_content(user_id,content_type,content_id,title,url) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id,content_type,content_id) DO UPDATE SET title=EXCLUDED.title,url=EXCLUDED.url RETURNING *`, [userId, input.contentType, input.contentId ?? null, input.title ?? '', input.url ?? '']);
   }
 
+  private viewerContext(userId: string, viewerId: string | null) {
+    if (!viewerId) return Promise.resolve({ followedByMe: false, isMe: false });
+    return this.one(`SELECT EXISTS(SELECT 1 FROM user_follows WHERE follower_id=$2 AND following_id=$1) AS "followedByMe", ($1=$2) AS "isMe"`, [userId, viewerId]);
+  }
   private identity(userId: string) { return this.one(`SELECT u.id,u.full_name AS "fullName",u.username,u.first_name AS "firstName",u.middle_name AS "middleName",u.last_name AS "lastName",u.email,u.phone_number AS "phoneNumber",u.profile_image AS "profileImage",u.cover_image AS "coverImage",u.bio,u.country,u.gender,u.language,u.role,u.created_at AS "createdAt",p.photo_url AS "photoUrl",p.cover_url AS "coverUrl",p.city,p.occupation,p.relationship_status AS "relationshipStatus",p.testimony,p.interests,p.birth_date AS "birthDate",p.baptism_status AS "baptismStatus",p.baptism_date AS "baptismDate",p.years_in_faith AS "yearsInFaith",p.favorite_verse AS "favoriteVerse",p.spiritual_interests AS "spiritualInterests",p.service_areas AS "serviceAreas",p.privacy_settings AS "privacySettings",p.notification_settings AS "notificationSettings",p.theme FROM users u LEFT JOIN user_profiles p ON p.user_id=u.id WHERE u.id=$1`, [userId]); }
   private church(userId: string) { return this.rows(`SELECT cm.role,cm.status,cm.joined_at AS "joinedAt",cm.visibility,cm.branch_id AS "branchId",b.name AS "branchName",c.id AS "churchId",c.name AS "churchName",c.city,c.verification_status AS "verificationStatus" FROM church_memberships cm JOIN churches c ON c.id=cm.church_id LEFT JOIN church_branches b ON b.id=cm.branch_id WHERE cm.user_id=$1 ORDER BY cm.joined_at DESC`, [userId]); }
   private ministries(userId: string) { return this.rows(`SELECT mm.role,mm.status,mm.joined_at AS "joinedAt",mm.service_hours AS "serviceHours",m.id AS "ministryId",m.name,m.department,m.ministry_type AS "ministryType" FROM ministry_memberships mm JOIN ministries m ON m.id=mm.ministry_id WHERE mm.user_id=$1 ORDER BY mm.joined_at DESC`, [userId]); }

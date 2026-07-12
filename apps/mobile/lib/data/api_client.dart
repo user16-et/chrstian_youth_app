@@ -2438,8 +2438,9 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> fetchPublicProfile(String userId) async {
-    final response = await _getJson('/profile/$userId');
+  Future<Map<String, dynamic>> fetchPublicProfile(String userId, {String? token}) async {
+    final response = await _getJson('/profile/$userId',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
     return response as Map<String, dynamic>;
   }
 
