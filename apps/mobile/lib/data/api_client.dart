@@ -486,6 +486,18 @@ class ApiClient {
     );
   }
 
+  Future<List<Map<String, dynamic>>> fetchFollowers(String userId, {String? token}) async {
+    final response = await _getJson('/users/$userId/followers',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchFollowing(String userId, {String? token}) async {
+    final response = await _getJson('/users/$userId/following',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
   Future<dynamic> blockUser({
     required String token,
     required String userId,

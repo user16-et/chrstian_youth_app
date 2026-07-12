@@ -85,6 +85,16 @@ export class UsersService {
     return this.userRepository.unfollowUser(actor.id, targetUserId);
   }
 
+  async followers(token: string | undefined, targetUserId: string) {
+    const viewer = token ? await this.userRepository.authenticate(token) : null;
+    return this.userRepository.followers(targetUserId, viewer?.id ?? null);
+  }
+
+  async following(token: string | undefined, targetUserId: string) {
+    const viewer = token ? await this.userRepository.authenticate(token) : null;
+    return this.userRepository.following(targetUserId, viewer?.id ?? null);
+  }
+
   async block(actorToken: string, targetUserId: string) {
     const actor = await this.requireActor(actorToken);
     await this.getById(targetUserId);

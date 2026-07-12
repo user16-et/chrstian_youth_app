@@ -19,6 +19,129 @@ Future<void> showUserProfileSheet(
   );
 }
 
+/// A list of a user's followers or the people they follow.
+class FollowListScreen extends StatefulWidget {
+  const FollowListScreen({
+    super.key,
+    required this.apiClient,
+    required this.userId,
+    required this.mode, // 'followers' | 'following'
+    this.token,
+  });
+  final ApiClient apiClient;
+  final String userId;
+  final String mode;
+  final String? token;
+
+  @override
+  State<FollowListScreen> createState() => _FollowListScreenState();
+}
+
+class _FollowListScreenState extends State<FollowListScreen> {
+  List<Map<String, dynamic>> _users = const [];
+  bool _loading = true;
+  final Set<String> _busy = {};
+
+  bool get _signedIn => (widget.token ?? '').isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final u = widget.mode == 'followers'
+          ? await widget.apiClient.fetchFollowers(widget.userId, token: widget.token)
+          : await widget.apiClient.fetchFollowing(widget.userId, token: widget.token);
+      if (mounted) setState(() { _users = u; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _toggle(Map<String, dynamic> u) async {
+    final id = '${u['id'] ?? ''}';
+    if (!_signedIn || id.isEmpty || _busy.contains(id)) return;
+    final following = u['followedByMe'] == true;
+    setState(() {
+      _busy.add(id);
+      _users = _users.map((x) => '${x['id']}' == id ? {...x, 'followedByMe': !following} : x).toList();
+    });
+    try {
+      if (following) {
+        await widget.apiClient.unfollowUser(token: widget.token!, userId: id);
+      } else {
+        await widget.apiClient.followUser(token: widget.token!, userId: id);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _users = _users.map((x) => '${x['id']}' == id ? {...x, 'followedByMe': following} : x).toList());
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy.remove(id));
+    }
+  }
+
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.mode == 'followers' ? 'Followers' : 'Following')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _users.isEmpty
+              ? Center(
+                  child: Text(widget.mode == 'followers' ? 'No followers yet.' : 'Not following anyone yet.',
+                      style: TextStyle(color: colors.onSurfaceVariant)))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView.builder(
+                    itemCount: _users.length,
+                    itemBuilder: (context, i) {
+                      final u = _users[i];
+                      final id = '${u['id'] ?? ''}';
+                      final avatar = '${u['profileImage'] ?? ''}';
+                      final following = u['followedByMe'] == true;
+                      final acting = _busy.contains(id);
+                      return ListTile(
+                        onTap: () => showUserProfileSheet(context,
+                            apiClient: widget.apiClient, userId: id, token: widget.token),
+                        leading: CircleAvatar(
+                          backgroundColor: colors.surfaceContainerHighest,
+                          backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                          child: avatar.isEmpty
+                              ? Text(_initials('${u['fullName'] ?? ''}'),
+                                  style: TextStyle(color: colors.onSurfaceVariant))
+                              : null,
+                        ),
+                        title: Text('${u['fullName'] ?? 'Member'}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: '${u['username'] ?? ''}'.isEmpty ? null : Text('@${u['username']}'),
+                        trailing: !_signedIn
+                            ? null
+                            : acting
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                : (following
+                                    ? OutlinedButton(onPressed: () => _toggle(u), child: const Text('Following'))
+                                    : FilledButton(onPressed: () => _toggle(u), child: const Text('Follow'))),
+                      );
+                    },
+                  ),
+                ),
+    );
+  }
+}
+
 class _UserProfileSheet extends StatefulWidget {
   const _UserProfileSheet({required this.apiClient, required this.userId, this.token});
   final ApiClient apiClient;
@@ -195,8 +318,8 @@ class _UserProfileSheetState extends State<_UserProfileSheet> {
               const SizedBox(height: 16),
               // Stats
               Row(children: [
-                _stat('${_community['followers'] ?? 0}', 'Followers', colors),
-                _stat('${_community['following'] ?? 0}', 'Following', colors),
+                _stat('${_community['followers'] ?? 0}', 'Followers', colors, onTap: () => _openFollowList('followers')),
+                _stat('${_community['following'] ?? 0}', 'Following', colors, onTap: () => _openFollowList('following')),
                 _stat('${_community['groups'] ?? 0}', 'Groups', colors),
               ]),
               if (_church.isNotEmpty) ...[
@@ -254,11 +377,29 @@ class _UserProfileSheetState extends State<_UserProfileSheet> {
     );
   }
 
-  Widget _stat(String value, String label, ColorScheme colors) => Expanded(
-        child: Column(children: [
-          Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-          Text(label, style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
-        ]),
+  void _openFollowList(String mode) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => FollowListScreen(
+        apiClient: widget.apiClient,
+        userId: widget.userId,
+        mode: mode,
+        token: widget.token,
+      ),
+    ));
+  }
+
+  Widget _stat(String value, String label, ColorScheme colors, {VoidCallback? onTap}) => Expanded(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(children: [
+              Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              Text(label, style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+            ]),
+          ),
+        ),
       );
 
   Widget _chip(ColorScheme colors, String text, Color bg, Color fg) => Container(

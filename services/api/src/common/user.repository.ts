@@ -481,6 +481,30 @@ export class UserRepository implements OnModuleInit {
     return { actorId, targetId, followed: false, action: 'unfollowed' };
   }
 
+  // Users following `userId` (their followers). followedByMe is from the viewer.
+  async followers(userId: string, viewerId?: string | null) {
+    const result = await this.pool.query(
+      `SELECT u.id, u.full_name AS "fullName", u.username, COALESCE(NULLIF(u.profile_image,''),'') AS "profileImage",
+              ($2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=$2 AND f.following_id=u.id)) AS "followedByMe"
+       FROM user_follows uf JOIN users u ON u.id=uf.follower_id
+       WHERE uf.following_id=$1 ORDER BY uf.created_at DESC LIMIT 200`,
+      [userId, viewerId ?? null],
+    );
+    return result.rows;
+  }
+
+  // Users that `userId` follows.
+  async following(userId: string, viewerId?: string | null) {
+    const result = await this.pool.query(
+      `SELECT u.id, u.full_name AS "fullName", u.username, COALESCE(NULLIF(u.profile_image,''),'') AS "profileImage",
+              ($2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=$2 AND f.following_id=u.id)) AS "followedByMe"
+       FROM user_follows uf JOIN users u ON u.id=uf.following_id
+       WHERE uf.follower_id=$1 ORDER BY uf.created_at DESC LIMIT 200`,
+      [userId, viewerId ?? null],
+    );
+    return result.rows;
+  }
+
   async blockUser(actorId: string, targetId: string) {
     if (actorId === targetId) {
       throw new ConflictException('cannot_block_self');

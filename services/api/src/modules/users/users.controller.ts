@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 
-import { requireBearerToken } from '../../common/request-auth';
+import { parseBearerToken, requireBearerToken } from '../../common/request-auth';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UsersService } from './users.service';
 
@@ -82,6 +82,20 @@ export class UsersController {
   @Post('/:id/follow')
   follow(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
     return this.usersService.follow(requireBearerToken(authorization), id);
+  }
+
+  @ApiOperation({ summary: "A user's followers" })
+  @ApiParam({ name: 'id' })
+  @Get('/:id/followers')
+  followers(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.usersService.followers(parseBearerToken(authorization) ?? undefined, id);
+  }
+
+  @ApiOperation({ summary: 'Users a user follows' })
+  @ApiParam({ name: 'id' })
+  @Get('/:id/following')
+  following(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.usersService.following(parseBearerToken(authorization) ?? undefined, id);
   }
 
   @ApiBearerAuth()
