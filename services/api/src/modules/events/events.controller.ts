@@ -65,6 +65,26 @@ export class EventsController {
   }
 
   @ApiBearerAuth()
+  @ApiOperation({ summary: 'Check in a specific attendee (event managers)' })
+  @ApiParam({ name: 'id' })
+  @Post('/:id/attendees/:userId/check-in')
+  checkInAttendee(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.eventsService.checkInAttendee(requireBearerToken(authorization), id, userId);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Door check-in by ticket code / QR (event managers)' })
+  @ApiParam({ name: 'id' })
+  @Post('/:id/door-check-in')
+  doorCheckIn(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.eventsService.doorCheckIn(requireBearerToken(authorization), id, String(body?.code ?? ''));
+  }
+
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'List event registrations (event managers only)' })
   @ApiParam({ name: 'id' })
   @Get('/:id/registrations')

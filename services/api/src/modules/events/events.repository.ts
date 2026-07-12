@@ -125,6 +125,16 @@ export class EventsRepository {
       RETURNING id,event_id AS "eventId",user_id AS "userId",status,ticket_code AS "ticketCode",qr_payload AS "qrPayload",checked_in_at AS "checkedInAt",created_at AS "createdAt"`, [eventId, userId]).then((record) => (record ? { ...record, method } : null));
   }
 
+  // Door check-in by ticket code or scanned QR payload (event managers). Only
+  // matches a registration already on this event.
+  checkInByCode(eventId: string, code: string) {
+    return this.one(`UPDATE event_registrations er SET status='checked_in', checked_in_at=COALESCE(er.checked_in_at, now())
+      FROM users u
+      WHERE er.event_id=$1::uuid AND u.id=er.user_id AND (er.ticket_code=$2 OR er.qr_payload=$2)
+      RETURNING er.id,er.event_id AS "eventId",er.user_id AS "userId",u.full_name AS "userFullName",
+                er.status,er.ticket_code AS "ticketCode",er.checked_in_at AS "checkedInAt"`, [eventId, code]);
+  }
+
   // May the user manage this event: a platform/moderation role, or a leader of
   // the organizing church/ministry.
   canManageEvent(userId: string, eventId: string) {

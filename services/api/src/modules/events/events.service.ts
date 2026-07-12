@@ -80,6 +80,27 @@ export class EventsService {
     return record;
   }
 
+  // Door check-in of a specific attendee (event managers) — e.g. tapping a name
+  // in the roster.
+  async checkInAttendee(actorToken: string, eventId: string, targetUserId: string) {
+    const actor = await this.actor(actorToken);
+    await this.requireEventManager(actor.id, eventId);
+    const record = await this.eventsRepository.checkIn(eventId, targetUserId, 'door');
+    if (!record) throw new BadRequestException('event_unavailable_for_checkin');
+    return record;
+  }
+
+  // Door check-in by ticket code or scanned QR payload (event managers).
+  async doorCheckIn(actorToken: string, eventId: string, code: string) {
+    const actor = await this.actor(actorToken);
+    await this.requireEventManager(actor.id, eventId);
+    const trimmed = String(code ?? '').trim();
+    if (!trimmed) throw new BadRequestException('ticket_code_required');
+    const record = await this.eventsRepository.checkInByCode(eventId, trimmed);
+    if (!record) throw new NotFoundException('ticket_not_found');
+    return record;
+  }
+
   async registrations(token: string, eventId: string) {
     const actor = await this.actor(token);
     await this.requireEventManager(actor.id, eventId);

@@ -1079,6 +1079,51 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
     }
   }
 
+  Future<void> _checkInAttendee(String userId) async {
+    if (widget.session == null) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.checkInAttendee(widget.session!.token, widget.eventId, userId);
+      await _load();
+    } catch (err) {
+      _toast(err.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _doorCheckIn() async {
+    if (widget.session == null) return;
+    final codeC = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Door check-in'),
+        content: TextField(
+          controller: codeC,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(labelText: 'Ticket code (TKT-…)', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, codeC.text.trim()), child: const Text('Check in')),
+        ],
+      ),
+    );
+    if (code == null || code.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      final res = await widget.apiClient.doorCheckIn(widget.session!.token, widget.eventId, code);
+      await _load();
+      _toast('${res['userFullName'] ?? 'Attendee'} checked in.');
+    } catch (err) {
+      _toast(err.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   void _toast(String m) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
   }
@@ -1146,7 +1191,14 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
           ],
           if (widget.canManage) ...[
             const SizedBox(height: 26),
-            Text('Registrations ($regCount)', style: Theme.of(context).textTheme.titleMedium),
+            Row(children: [
+              Expanded(child: Text('Registrations ($regCount)', style: Theme.of(context).textTheme.titleMedium)),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _doorCheckIn,
+                icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                label: const Text('By code'),
+              ),
+            ]),
             const SizedBox(height: 4),
             if (_registrations.isEmpty)
               Padding(
@@ -1156,6 +1208,7 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
             else
               ..._registrations.map((r) {
                 final done = r['checkedInAt'] != null || '${r['status']}' == 'checked_in';
+                final uid = '${r['userId'] ?? ''}';
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: CircleAvatar(
@@ -1165,7 +1218,12 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
                   ),
                   title: Text('${r['userFullName'] ?? 'Member'}'),
                   subtitle: Text(_regStatusLabel('${r['status']}', r['checkedInAt'])),
-                  trailing: done ? Icon(Icons.check_circle_rounded, color: colors.primary) : null,
+                  trailing: done
+                      ? Icon(Icons.check_circle_rounded, color: colors.primary)
+                      : FilledButton.tonal(
+                          onPressed: _busy || uid.isEmpty ? null : () => _checkInAttendee(uid),
+                          child: const Text('Check in'),
+                        ),
                 );
               }),
           ],

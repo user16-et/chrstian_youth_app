@@ -746,6 +746,25 @@ class ApiClient {
     );
   }
 
+  // Manager door check-in of a specific attendee.
+  Future<dynamic> checkInAttendee(String token, String eventId, String userId) {
+    return _postJson(
+      '/events/$eventId/attendees/$userId/check-in',
+      const {},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
+  // Manager door check-in by ticket code / scanned QR payload.
+  Future<Map<String, dynamic>> doorCheckIn(String token, String eventId, String code) async {
+    final response = await _postJson(
+      '/events/$eventId/door-check-in',
+      {'code': code},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return response as Map<String, dynamic>;
+  }
+
   Future<dynamic> saveEvent({required String token, required String eventId}) {
     return _postJson('/events/$eventId/save', const {},
         headers: {'Authorization': 'Bearer $token'});
