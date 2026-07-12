@@ -395,9 +395,9 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     final bodyC = TextEditingController(text: editing ? '${existing['body'] ?? ''}' : '');
     var pinned = existing?['pinned'] == true;
     final noun = isAnnouncement ? 'announcement' : 'post';
-    // Posts carry one or more images (media_urls); announcements are text-only.
+    // Posts and announcements both carry one or more images (media_urls).
     final media = <String>[
-      if (editing && !isAnnouncement)
+      if (editing)
         ...((existing['media_urls'] as List?)?.map((e) => '$e').where((s) => s.isNotEmpty) ?? const <String>[]),
     ];
     var uploading = false;
@@ -425,7 +425,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(labelText: 'Message', border: OutlineInputBorder(), alignLabelWithHint: true),
               ),
-              if (!isAnnouncement) ...[
+              ...[
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text('Photos', style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
@@ -508,7 +508,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
       return; // a post needs text or at least one photo
     }
     final input = isAnnouncement
-        ? {'title': title.isEmpty ? body : title, 'body': body, 'pinned': pinned}
+        ? {'title': title.isEmpty ? body : title, 'body': body, 'pinned': pinned, 'mediaUrls': media}
         : {'body': body, 'mediaUrls': media};
     if (editing) {
       await _run(
@@ -1742,18 +1742,43 @@ class _PinnedAnnouncements extends StatelessWidget {
       empty: 'No announcements published yet.',
       child: Column(
         children: visible.take(4).map((item) {
-          return _DenseRow(
-            icon: item['pinned'] == true
-                ? Icons.push_pin_rounded
-                : Icons.campaign_rounded,
-            title: item['title']?.toString() ?? '',
-            subtitle: item['body']?.toString() ?? '',
-            trailing: _managerMenu(item, onEdit, onDelete),
-          );
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _DenseRow(
+              icon: item['pinned'] == true ? Icons.push_pin_rounded : Icons.campaign_rounded,
+              title: item['title']?.toString() ?? '',
+              subtitle: item['body']?.toString() ?? '',
+              trailing: _managerMenu(item, onEdit, onDelete),
+            ),
+            _mediaStrip(item),
+          ]);
         }).toList(),
       ),
     );
   }
+}
+
+// Horizontal thumbnail strip for a post/announcement's media_urls (empty if none).
+Widget _mediaStrip(Map<String, dynamic> item) {
+  final media = (item['media_urls'] as List?)?.map((e) => '$e').where((s) => s.isNotEmpty).toList() ?? const <String>[];
+  if (media.isEmpty) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.only(left: 52, bottom: 10),
+    child: SizedBox(
+      height: 96,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: media.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) => ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            onTap: () => _openExternalUrl(media[i]),
+            child: Image.network(media[i], width: 128, height: 96, fit: BoxFit.cover),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 // Per-item Edit / Delete menu, shown only when management callbacks are wired.
@@ -1904,7 +1929,6 @@ class _PostSection extends StatelessWidget {
         empty: 'No official church posts yet.',
         child: Column(
           children: items.take(5).map((item) {
-            final media = (item['media_urls'] as List?)?.map((e) => '$e').where((s) => s.isNotEmpty).toList() ?? const <String>[];
             return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               _DenseRow(
                 icon: Icons.post_add_rounded,
@@ -1912,25 +1936,7 @@ class _PostSection extends StatelessWidget {
                 subtitle: item['created_at']?.toString() ?? '',
                 trailing: _managerMenu(item, onEdit, onDelete),
               ),
-              if (media.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(left: 52, bottom: 10),
-                  child: SizedBox(
-                    height: 96,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: media.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) => ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: InkWell(
-                          onTap: () => _openExternalUrl(media[i]),
-                          child: Image.network(media[i], width: 128, height: 96, fit: BoxFit.cover),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+              _mediaStrip(item),
             ]);
           }).toList(),
         ),
