@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
@@ -7,6 +9,7 @@ import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 
 import 'live_chat_panel.dart';
+import 'qr_scan_screen.dart';
 
 Future<void> _openExternalUrl(String url) async {
   final trimmed = url.trim();
@@ -392,6 +395,12 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     final bodyC = TextEditingController(text: editing ? '${existing['body'] ?? ''}' : '');
     var pinned = existing?['pinned'] == true;
     final noun = isAnnouncement ? 'announcement' : 'post';
+    // Posts carry one or more images (media_urls); announcements are text-only.
+    final media = <String>[
+      if (editing && !isAnnouncement)
+        ...((existing['media_urls'] as List?)?.map((e) => '$e').where((s) => s.isNotEmpty) ?? const <String>[]),
+    ];
+    var uploading = false;
     final submitted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -416,6 +425,66 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(labelText: 'Message', border: OutlineInputBorder(), alignLabelWithHint: true),
               ),
+              if (!isAnnouncement) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Photos', style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 84,
+                  child: ListView(scrollDirection: Axis.horizontal, children: [
+                    for (var idx = 0; idx < media.length; idx++)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Stack(children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(media[idx], width: 84, height: 84, fit: BoxFit.cover),
+                          ),
+                          Positioned(
+                            top: 2,
+                            right: 2,
+                            child: InkWell(
+                              onTap: () => setSheet(() => media.removeAt(idx)),
+                              child: const CircleAvatar(
+                                radius: 12,
+                                backgroundColor: Colors.black54,
+                                child: Icon(Icons.close_rounded, size: 15, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    InkWell(
+                      onTap: uploading
+                          ? null
+                          : () async {
+                              setSheet(() => uploading = true);
+                              final url = await pickAndUploadImage(context,
+                                  apiClient: widget.apiClient, token: widget.session!.token, usage: 'post_media');
+                              setSheet(() {
+                                uploading = false;
+                                if (url != null && url.isNotEmpty) media.add(url);
+                              });
+                            },
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        width: 84,
+                        height: 84,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                        ),
+                        child: uploading
+                            ? const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+                            : const Icon(Icons.add_a_photo_rounded),
+                      ),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+              ],
               if (isAnnouncement)
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
@@ -433,10 +502,14 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     if (submitted != true) return;
     final body = bodyC.text.trim();
     final title = titleC.text.trim();
-    if (body.isEmpty && title.isEmpty) return;
+    if (isAnnouncement) {
+      if (body.isEmpty && title.isEmpty) return;
+    } else if (body.isEmpty && media.isEmpty) {
+      return; // a post needs text or at least one photo
+    }
     final input = isAnnouncement
         ? {'title': title.isEmpty ? body : title, 'body': body, 'pinned': pinned}
-        : {'body': body};
+        : {'body': body, 'mediaUrls': media};
     if (editing) {
       await _run(
         () => widget.apiClient.updateChurchContent(widget.session!.token, widget.church.id, kind, '${existing['id']}', input),
@@ -1092,6 +1165,22 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
     }
   }
 
+  Future<void> _scanCheckIn() async {
+    if (widget.session == null) return;
+    final code = await scanQrCode(context);
+    if (code == null || code.isEmpty || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final res = await widget.apiClient.doorCheckIn(widget.session!.token, widget.eventId, code);
+      await _load();
+      _toast('${res['userFullName'] ?? 'Attendee'} checked in.');
+    } catch (err) {
+      _toast(err.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _doorCheckIn() async {
     if (widget.session == null) return;
     final codeC = TextEditingController();
@@ -1188,16 +1277,36 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
               )
             else if (checkedIn)
               _statusBanner(colors, Icons.verified_rounded, 'Checked in', colors.tertiaryContainer, colors.onTertiaryContainer),
+            if (registered) ...[
+              const SizedBox(height: 18),
+              Center(
+                child: Column(children: [
+                  Text('Show this at the door', style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                    child: QrImageView(
+                      data: 'event:${widget.eventId}:user:$_myId',
+                      size: 168,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                ]),
+              ),
+            ],
           ],
           if (widget.canManage) ...[
             const SizedBox(height: 26),
             Row(children: [
               Expanded(child: Text('Registrations ($regCount)', style: Theme.of(context).textTheme.titleMedium)),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _doorCheckIn,
-                icon: const Icon(Icons.qr_code_2_rounded, size: 18),
-                label: const Text('By code'),
-              ),
+              if (!kIsWeb)
+                IconButton.filledTonal(
+                  onPressed: _busy ? null : _scanCheckIn,
+                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+                  tooltip: 'Scan ticket',
+                ),
+              TextButton(onPressed: _busy ? null : _doorCheckIn, child: const Text('By code')),
             ]),
             const SizedBox(height: 4),
             if (_registrations.isEmpty)
@@ -1795,12 +1904,34 @@ class _PostSection extends StatelessWidget {
         empty: 'No official church posts yet.',
         child: Column(
           children: items.take(5).map((item) {
-            return _DenseRow(
-              icon: Icons.post_add_rounded,
-              title: item['body']?.toString() ?? '',
-              subtitle: item['created_at']?.toString() ?? '',
-              trailing: _managerMenu(item, onEdit, onDelete),
-            );
+            final media = (item['media_urls'] as List?)?.map((e) => '$e').where((s) => s.isNotEmpty).toList() ?? const <String>[];
+            return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              _DenseRow(
+                icon: Icons.post_add_rounded,
+                title: item['body']?.toString() ?? '',
+                subtitle: item['created_at']?.toString() ?? '',
+                trailing: _managerMenu(item, onEdit, onDelete),
+              ),
+              if (media.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 52, bottom: 10),
+                  child: SizedBox(
+                    height: 96,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: media.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) => ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: InkWell(
+                          onTap: () => _openExternalUrl(media[i]),
+                          child: Image.network(media[i], width: 128, height: 96, fit: BoxFit.cover),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ]);
           }).toList(),
         ),
       );
