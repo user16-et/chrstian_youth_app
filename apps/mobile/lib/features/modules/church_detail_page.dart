@@ -339,8 +339,11 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                   widget.onDataChanged();
                 },
               ),
-              // Community panel: members-only group chat + audio conference.
+              // Community panel: the official church group — members, shared
+              // media, live voice chat, and the full chat box.
               _tab('community', [
+                _communityHeader(profile, canManage),
+                const SizedBox(height: 12),
                 if (membership != null && (profile['conferenceActive'] == true || canManage))
                   _conferenceCard(profile, canManage),
                 LiveChatPanel(
@@ -726,6 +729,100 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
         '$label added.',
       );
     }
+  }
+
+  // Official-group header: identity, member count, and quick access to the
+  // member roster and shared media.
+  Widget _communityHeader(Map<String, dynamic> profile, bool canManage) {
+    final colors = Theme.of(context).colorScheme;
+    final memberCount = profile['memberCount'] ?? 0;
+    final logo = '${profile['logoUrl'] ?? ''}';
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: .5)),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(children: [
+        Row(children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: colors.surfaceContainerHighest,
+            backgroundImage: logo.isNotEmpty ? NetworkImage(logo) : null,
+            child: logo.isEmpty ? Icon(Icons.groups_rounded, color: colors.onSurfaceVariant) : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${profile['name'] ?? widget.church.name}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              Text('Official group · $memberCount members', style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () => _openCommunityMembers(canManage),
+              icon: const Icon(Icons.people_alt_rounded, size: 18),
+              label: const Text('Members'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _openSharedMedia,
+              icon: const Icon(Icons.perm_media_rounded, size: 18),
+              label: const Text('Shared media'),
+            ),
+          ),
+        ]),
+      ]),
+    );
+  }
+
+  void _openCommunityMembers(bool canManage) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.72,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(children: [
+            const Align(alignment: Alignment.centerLeft, child: Padding(padding: EdgeInsets.only(bottom: 4), child: Text('Members', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)))),
+            Expanded(
+              child: _ChurchMembersPanel(
+                apiClient: widget.apiClient,
+                session: widget.session,
+                churchId: widget.church.id,
+                canManage: canManage,
+                onChanged: () {
+                  setState(_reload);
+                  widget.onDataChanged();
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  void _openSharedMedia() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _SharedMediaSheet(
+        apiClient: widget.apiClient,
+        token: widget.session?.token ?? '',
+        churchId: widget.church.id,
+      ),
+    );
   }
 
   Widget _conferenceCard(Map<String, dynamic> profile, bool canManage) {
@@ -1132,6 +1229,93 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first.characters.first.toUpperCase();
     return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+  }
+}
+
+// Shared-media gallery for the church community chat.
+class _SharedMediaSheet extends StatefulWidget {
+  const _SharedMediaSheet({required this.apiClient, required this.token, required this.churchId});
+  final ApiClient apiClient;
+  final String token;
+  final String churchId;
+
+  @override
+  State<_SharedMediaSheet> createState() => _SharedMediaSheetState();
+}
+
+class _SharedMediaSheetState extends State<_SharedMediaSheet> {
+  List<String> _images = const [];
+  bool _loading = true;
+
+  static bool _isImage(Map<String, dynamic> m) {
+    final url = '${m['attachmentUrl'] ?? ''}';
+    if (url.isEmpty) return false;
+    final type = '${m['attachmentType'] ?? ''}'.toLowerCase();
+    if (type.contains('image')) return true;
+    final lower = url.toLowerCase();
+    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (widget.token.isEmpty) {
+      setState(() => _loading = false);
+      return;
+    }
+    try {
+      final conv = await widget.apiClient.openScopedConversation(widget.token, scopeType: 'church', scopeId: widget.churchId);
+      final convId = '${conv['id'] ?? conv['conversationId'] ?? ''}';
+      if (convId.isEmpty) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      final msgs = await widget.apiClient.fetchConversationMessages(widget.token, convId, limit: 100);
+      final imgs = msgs.where(_isImage).map((m) => '${m['attachmentUrl']}').toList().reversed.toList();
+      if (mounted) setState(() { _images = imgs; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.95,
+      builder: (context, scroll) => Column(children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Align(alignment: Alignment.centerLeft, child: Text('Shared media', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700))),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _images.isEmpty
+                  ? Center(child: Text('No media shared yet.', style: TextStyle(color: colors.onSurfaceVariant)))
+                  : GridView.builder(
+                      controller: scroll,
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 6, mainAxisSpacing: 6),
+                      itemCount: _images.length,
+                      itemBuilder: (context, i) => InkWell(
+                        onTap: () => _openExternalUrl(_images[i]),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(_images[i], fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(color: colors.surfaceContainerHighest, child: Icon(Icons.broken_image_rounded, color: colors.onSurfaceVariant))),
+                        ),
+                      ),
+                    ),
+        ),
+      ]),
+    );
   }
 }
 
