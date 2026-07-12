@@ -263,7 +263,8 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     try {
       await widget.apiClient.startGroupMeeting(_token, widget.groupId, title: '${_detail['name'] ?? ''}');
       if (!mounted) return;
-      CallScope.maybeOf(context)?.joinGroupAudio(groupId: widget.groupId, title: '${_detail['name'] ?? 'Meeting'}');
+      CallScope.maybeOf(context)?.joinGroupAudio(
+          groupId: widget.groupId, title: '${_detail['name'] ?? 'Meeting'}', canManageRoom: _isManager);
     } catch (error) {
       if (mounted) _toast(_clean(error));
     }

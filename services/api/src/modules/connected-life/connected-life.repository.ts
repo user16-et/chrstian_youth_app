@@ -75,6 +75,16 @@ export class ConnectedLifeRepository {
       .query(`SELECT 1 FROM church_memberships WHERE church_id=$1 AND user_id=$2 AND status IN ('active','approved')`, [churchId, userId])
       .then((result) => (result.rowCount ?? 0) >= 1);
   }
+  isChurchManager(userId: string, churchId: string) {
+    return this.pool
+      .query(`SELECT 1 FROM church_memberships WHERE church_id=$1 AND user_id=$2 AND status IN ('active','approved') AND role IN ('pastor','church_admin','elder','branch_admin')`, [churchId, userId])
+      .then((result) => (result.rowCount ?? 0) >= 1);
+  }
+  isGroupAdmin(userId: string, groupId: string) {
+    return this.pool
+      .query(`SELECT 1 FROM group_memberships WHERE group_id=$1 AND user_id=$2 AND status='active' AND role IN ('owner','admin')`, [groupId, userId])
+      .then((result) => (result.rowCount ?? 0) >= 1);
+  }
   postGroup(userId: string, groupId: string, body: string) {
     return this.pool.query('INSERT INTO group_posts(group_id,author_id,body) VALUES($1,$2,$3) RETURNING *',
       [groupId,userId,body]).then((result) => result.rows[0]);

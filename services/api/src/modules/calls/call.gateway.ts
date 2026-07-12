@@ -160,6 +160,28 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { ok: true };
   }
 
+  // Room moderators (church leaders / group admins) can mute a participant.
+  @SubscribeMessage('room:mute')
+  async roomMute(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = client.data.user;
+    const groupId = String(body?.groupId ?? '').trim();
+    const targetId = String(body?.targetId ?? '').trim();
+    if (!user || !groupId || !targetId) return { ok: false, error: 'invalid_request' };
+    if (!(await this.service.canManageRoom(user.id, groupId))) return { ok: false, error: 'not_room_manager' };
+    this.server.to(this.userRoom(targetId)).emit('mute:request', { groupId, by: user });
+    return { ok: true };
+  }
+
+  // A participant broadcasts their own mic state so others can show it.
+  @SubscribeMessage('room:mic')
+  roomMic(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = client.data.user;
+    const groupId = String(body?.groupId ?? '').trim();
+    if (!user || !groupId) return { ok: false };
+    client.to(this.groupRoom(groupId)).emit('peer:mic', { groupId, peerId: user.id, enabled: body?.enabled === true });
+    return { ok: true };
+  }
+
   // ---- Shared SDP/ICE relay ----
 
   @SubscribeMessage('signal')

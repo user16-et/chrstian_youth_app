@@ -45,6 +45,12 @@ export class CallService {
     return this.canUseGroup(userId, roomId);
   }
 
+  // Can this user moderate the room (mute others): a church leader or group admin.
+  canManageRoom(userId: string, roomId: string) {
+    if (roomId.startsWith('church:')) return this.life.isChurchManager(userId, roomId.slice('church:'.length));
+    return this.life.isGroupAdmin(userId, roomId);
+  }
+
   /**
    * ICE servers for peer-to-peer connectivity. A public STUN server is enough
    * for NAT discovery; a TURN relay (configured via env) is optional but

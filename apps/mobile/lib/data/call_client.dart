@@ -39,6 +39,9 @@ class CallClient {
   final Map<String, RTCPeerConnection> _peers = {};
   final Map<String, MediaStream> _remoteStreams = {};
   final Map<String, String> _participants = {}; // peerId -> display name (others)
+  final Set<String> _mutedPeers = {}; // peers whose mic is off
+  final Set<String> _speaking = {}; // ids currently speaking (incl. self)
+  Timer? _speakingTimer;
   MediaStream? _localStream;
 
   String _selfId = '';
@@ -62,13 +65,15 @@ class CallClient {
   Map<String, MediaStream> get remoteStreams => Map.unmodifiable(_remoteStreams);
   bool get connected => _socket?.connected == true;
 
-  /// Everyone in the group audio room, self first ('You').
-  List<({String id, String name, bool isSelf})> get participants {
-    final list = <({String id, String name, bool isSelf})>[
-      (id: _selfId, name: 'You', isSelf: true),
+  /// Everyone in the group audio room, self first ('You'), with mic + speaking.
+  List<({String id, String name, bool isSelf, bool muted, bool speaking})> get participants {
+    final list = <({String id, String name, bool isSelf, bool muted, bool speaking})>[
+      (id: _selfId, name: 'You', isSelf: true, muted: !_micEnabled, speaking: _speaking.contains(_selfId)),
     ];
     _participants.forEach((id, name) {
-      if (id != _selfId) list.add((id: id, name: name, isSelf: false));
+      if (id != _selfId) {
+        list.add((id: id, name: name, isSelf: false, muted: _mutedPeers.contains(id), speaking: _speaking.contains(id)));
+      }
     });
     return list;
   }
@@ -101,6 +106,8 @@ class CallClient {
     socket.on('call:ended', (_) => _onRemoteEnded('ended'));
     socket.on('peer:joined', (data) => _onPeerJoined(_map(data)));
     socket.on('peer:left', (data) => _onPeerLeft(_map(data)));
+    socket.on('peer:mic', (data) => _onPeerMic(_map(data)));
+    socket.on('mute:request', (_) => _onMuteRequest());
     socket.on('signal', (data) => _onSignal(_map(data)));
     socket.connect();
     _socket = socket;
@@ -184,6 +191,7 @@ class CallClient {
       }
       onParticipantsChanged?.call();
       _setState(CallState.active);
+      _startSpeakingMonitor();
       // We wait for existing peers to send us offers (they get peer:joined).
     });
   }
@@ -202,7 +210,81 @@ class CallClient {
     for (final track in _localStream?.getAudioTracks() ?? const []) {
       track.enabled = _micEnabled;
     }
+    if (_groupId.isNotEmpty) {
+      _socket?.emit('room:mic', {'groupId': _groupId, 'enabled': _micEnabled});
+    }
+    onParticipantsChanged?.call();
   }
+
+  /// Room moderators mute a participant; the server relays to that peer.
+  void muteParticipant(String peerId) {
+    if (_groupId.isEmpty || peerId.isEmpty) return;
+    _socket?.emit('room:mute', {'groupId': _groupId, 'targetId': peerId});
+  }
+
+  void _onMuteRequest() {
+    if (_groupId.isNotEmpty && _micEnabled) toggleMic();
+  }
+
+  void _onPeerMic(Map<String, dynamic> data) {
+    final peerId = data['peerId']?.toString() ?? '';
+    if (peerId.isEmpty) return;
+    if (data['enabled'] == true) {
+      _mutedPeers.remove(peerId);
+    } else {
+      _mutedPeers.add(peerId);
+    }
+    onParticipantsChanged?.call();
+  }
+
+  // ---- Speaking (voice activity) detection via WebRTC stats ----
+
+  void _startSpeakingMonitor() {
+    _speakingTimer?.cancel();
+    _speakingTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _pollSpeaking());
+  }
+
+  Future<void> _pollSpeaking() async {
+    if (_peers.isEmpty) {
+      if (_speaking.isNotEmpty) {
+        _speaking.clear();
+        onParticipantsChanged?.call();
+      }
+      return;
+    }
+    const threshold = 0.02;
+    final speaking = <String>{};
+    for (final entry in _peers.entries) {
+      List<StatsReport> reports;
+      try {
+        reports = await entry.value.getStats();
+      } catch (_) {
+        continue;
+      }
+      for (final report in reports) {
+        final values = report.values;
+        final raw = values['audioLevel'];
+        if (raw is! num) continue;
+        final level = raw.toDouble();
+        final kind = (values['kind'] ?? values['mediaType'])?.toString();
+        if (kind != null && kind != 'audio') continue;
+        final type = report.type;
+        if (type.contains('inbound') || type == 'ssrc') {
+          if (level > threshold) speaking.add(entry.key);
+        } else if (type.contains('media-source') || type.contains('outbound')) {
+          if (level > threshold && _micEnabled) speaking.add(_selfId);
+        }
+      }
+    }
+    if (!_sameIds(speaking, _speaking)) {
+      _speaking
+        ..clear()
+        ..addAll(speaking);
+      onParticipantsChanged?.call();
+    }
+  }
+
+  bool _sameIds(Set<String> a, Set<String> b) => a.length == b.length && a.every(b.contains);
 
   bool _cameraEnabled = true;
   bool get cameraEnabled => _cameraEnabled;
@@ -379,9 +461,13 @@ class CallClient {
     for (final pc in _peers.values) {
       pc.close();
     }
+    _speakingTimer?.cancel();
+    _speakingTimer = null;
     _peers.clear();
     _remoteStreams.clear();
     _participants.clear();
+    _mutedPeers.clear();
+    _speaking.clear();
     onParticipantsChanged?.call();
     for (final track in _localStream?.getTracks() ?? const []) {
       track.stop();

@@ -11,11 +11,13 @@ class CallScreen extends StatefulWidget {
     required this.client,
     required this.title,
     required this.isGroup,
+    this.canManageRoom = false,
   });
 
   final CallClient client;
   final String title;
   final bool isGroup;
+  final bool canManageRoom;
 
   @override
   State<CallScreen> createState() => _CallScreenState();
@@ -170,22 +172,52 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
-  Widget _participantTile(({String id, String name, bool isSelf}) p) {
+  Widget _participantTile(({String id, String name, bool isSelf, bool muted, bool speaking}) p) {
+    // Admins can mute other (unmuted) participants.
+    final canMute = widget.canManageRoom && !p.isSelf && !p.muted;
+    final ringColor = p.speaking
+        ? Colors.greenAccent
+        : (p.isSelf ? Colors.tealAccent.withValues(alpha: .8) : Colors.white24);
     return SizedBox(
-      width: 78,
+      width: 82,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: p.isSelf ? Colors.tealAccent.withValues(alpha: .8) : Colors.white24, width: 2),
+        Stack(clipBehavior: Clip.none, children: [
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: ringColor, width: p.speaking ? 3 : 2),
+            ),
+            child: CircleAvatar(
+              radius: 30,
+              backgroundColor: Colors.white12,
+              child: Text(_initials(p.name),
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+            ),
           ),
-          child: CircleAvatar(
-            radius: 30,
-            backgroundColor: Colors.white12,
-            child: Text(_initials(p.name),
-                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
-          ),
-        ),
+          if (p.muted)
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: CircleAvatar(
+                radius: 12,
+                backgroundColor: Colors.black87,
+                child: const Icon(Icons.mic_off_rounded, size: 14, color: Colors.white),
+              ),
+            ),
+          if (canMute)
+            Positioned(
+              right: -6,
+              top: -6,
+              child: GestureDetector(
+                onTap: () => widget.client.muteParticipant(p.id),
+                child: const CircleAvatar(
+                  radius: 12,
+                  backgroundColor: Colors.redAccent,
+                  child: Icon(Icons.mic_off_rounded, size: 13, color: Colors.white),
+                ),
+              ),
+            ),
+        ]),
         const SizedBox(height: 8),
         Text(p.name,
             maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,

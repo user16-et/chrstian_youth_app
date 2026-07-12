@@ -55,11 +55,11 @@ class CallController {
     _openCallScreen(title: title, isGroup: false);
   }
 
-  Future<void> joinGroupAudio({required String groupId, required String title}) async {
+  Future<void> joinGroupAudio({required String groupId, required String title, bool canManageRoom = false}) async {
     final client = _client;
     if (client == null || _inCall || groupId.isEmpty) return;
     await client.joinGroupAudio(groupId);
-    _openCallScreen(title: title, isGroup: true);
+    _openCallScreen(title: title, isGroup: true, canManageRoom: canManageRoom);
   }
 
   Future<void> _handleIncoming(IncomingCall call) async {
@@ -78,7 +78,7 @@ class CallController {
     }
   }
 
-  void _openCallScreen({required String title, required bool isGroup}) {
+  void _openCallScreen({required String title, required bool isGroup, bool canManageRoom = false}) {
     final client = _client;
     final navigator = rootNavigatorKey.currentState;
     if (client == null || navigator == null) return;
@@ -86,7 +86,7 @@ class CallController {
     navigator
         .push(MaterialPageRoute(
           fullscreenDialog: true,
-          builder: (_) => CallScreen(client: client, title: title, isGroup: isGroup),
+          builder: (_) => CallScreen(client: client, title: title, isGroup: isGroup, canManageRoom: canManageRoom),
         ))
         .whenComplete(() => _inCall = false);
   }

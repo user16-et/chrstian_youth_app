@@ -842,10 +842,10 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
             ? '$count ${count == 1 ? 'person' : 'people'} in the call'
             : (canManage ? 'Start a voice chat for members' : 'No live voice chat')),
         trailing: FilledButton(
-          onPressed: active ? _joinConference : (canManage ? _startConference : null),
+          onPressed: active ? () => _joinConference(canManage) : (canManage ? _startConference : null),
           child: Text(active ? 'Join' : 'Start'),
         ),
-        onTap: active ? _joinConference : (canManage ? _startConference : null),
+        onTap: active ? () => _joinConference(canManage) : (canManage ? _startConference : null),
       ),
     );
   }
@@ -863,17 +863,18 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     try {
       final res = await widget.apiClient.startChurchConference(session.token, widget.church.id, title: title);
       if (!mounted) return;
-      await call.joinGroupAudio(groupId: '${res['roomId'] ?? room}', title: title);
+      await call.joinGroupAudio(groupId: '${res['roomId'] ?? room}', title: title, canManageRoom: true);
     } catch (error) {
       if (mounted) setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
     }
   }
 
   // Any member: join an already-live voice chat.
-  Future<void> _joinConference() async {
+  Future<void> _joinConference(bool canManage) async {
     final call = CallScope.maybeOf(context);
     if (call == null || widget.session == null) return;
-    await call.joinGroupAudio(groupId: 'church:${widget.church.id}', title: '${widget.church.name} voice chat');
+    await call.joinGroupAudio(
+        groupId: 'church:${widget.church.id}', title: '${widget.church.name} voice chat', canManageRoom: canManage);
   }
 
   Future<void> _openEvent(Map<String, dynamic> item, bool canManage) async {
