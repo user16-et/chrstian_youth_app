@@ -143,17 +143,20 @@ export class GroupRepository {
     );
   }
 
-  listPosts(groupId: string, limit = 50) {
+  listPosts(groupId: string, viewerId: string | null = null, limit = 50) {
     return this.db
       .query(
         `SELECT p.id, p.author_id AS "authorId", u.full_name AS "authorName",
                 COALESCE(NULLIF(u.profile_image,''),'') AS "authorAvatar",
-                p.body, p.media_url AS "mediaUrl", p.pinned, p.edited_at AS "editedAt", p.created_at AS "createdAt"
+                p.body, p.media_url AS "mediaUrl", p.pinned, p.edited_at AS "editedAt", p.created_at AS "createdAt",
+                (SELECT count(*)::int FROM group_post_likes l WHERE l.post_id=p.id) AS "likeCount",
+                (SELECT count(*)::int FROM group_post_comments c WHERE c.post_id=p.id) AS "commentCount",
+                EXISTS(SELECT 1 FROM group_post_likes l WHERE l.post_id=p.id AND l.user_id=$3) AS "likedByMe"
          FROM group_posts p JOIN users u ON u.id=p.author_id
          WHERE p.group_id=$1 AND p.removed_at IS NULL
          ORDER BY p.pinned DESC, p.created_at DESC
          LIMIT $2`,
-        [groupId, limit],
+        [groupId, limit, viewerId],
       )
       .then((r) => r.rows);
   }
@@ -178,6 +181,47 @@ export class GroupRepository {
     return this.one('SELECT author_id FROM group_posts WHERE id=$1', [postId]).then(
       (r) => (r?.author_id as string | undefined) ?? null,
     );
+  }
+
+  postGroupId(postId: string): Promise<string | null> {
+    return this.one('SELECT group_id FROM group_posts WHERE id=$1 AND removed_at IS NULL', [postId]).then(
+      (r) => (r?.group_id as string | undefined) ?? null,
+    );
+  }
+
+  // ---- Post likes & comments ----
+
+  likePost(postId: string, userId: string) {
+    return this.db
+      .query('INSERT INTO group_post_likes (post_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [postId, userId])
+      .then((r) => ({ changed: (r.rowCount ?? 0) > 0, liked: true }));
+  }
+
+  unlikePost(postId: string, userId: string) {
+    return this.db
+      .query('DELETE FROM group_post_likes WHERE post_id=$1 AND user_id=$2', [postId, userId])
+      .then((r) => ({ changed: (r.rowCount ?? 0) > 0, liked: false }));
+  }
+
+  addComment(postId: string, authorId: string, body: string) {
+    return this.one(
+      `INSERT INTO group_post_comments (id, post_id, author_id, body)
+       VALUES (gen_random_uuid(), $1, $2, $3)
+       RETURNING id, post_id AS "postId", author_id AS "authorId", body, created_at AS "createdAt"`,
+      [postId, authorId, body],
+    );
+  }
+
+  listComments(postId: string, limit = 100) {
+    return this.db
+      .query(
+        `SELECT c.id, c.author_id AS "authorId", u.full_name AS "authorName",
+                COALESCE(NULLIF(u.profile_image,''),'') AS "authorAvatar", c.body, c.created_at AS "createdAt"
+         FROM group_post_comments c JOIN users u ON u.id=c.author_id
+         WHERE c.post_id=$1 ORDER BY c.created_at ASC LIMIT $2`,
+        [postId, limit],
+      )
+      .then((r) => r.rows);
   }
 
   // ---- Polls ----

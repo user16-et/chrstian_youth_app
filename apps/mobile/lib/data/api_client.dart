@@ -626,6 +626,24 @@ class ApiClient {
     return _deleteJson('/groups/$groupId/posts/$postId', headers: {'Authorization': 'Bearer $token'});
   }
 
+  Future<dynamic> likeGroupPost(String token, String groupId, String postId, bool like) {
+    final path = '/groups/$groupId/posts/$postId/like';
+    final headers = {'Authorization': 'Bearer $token'};
+    return like ? _postJson(path, const {}, headers: headers) : _deleteJson(path, headers: headers);
+  }
+
+  Future<List<Map<String, dynamic>>> fetchGroupPostComments(String token, String groupId, String postId) async {
+    final response = await _getJson('/groups/$groupId/posts/$postId/comments',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> addGroupPostComment(String token, String groupId, String postId, String body) async {
+    final response = await _postJson('/groups/$groupId/posts/$postId/comments', {'body': body},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> startGroupMeeting(String token, String groupId, {String title = ''}) async {
     final response = await _postJson('/groups/$groupId/meeting', {'title': title},
         headers: {'Authorization': 'Bearer $token'});

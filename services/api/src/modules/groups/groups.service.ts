@@ -193,7 +193,37 @@ export class GroupsService {
     const group = await this.detail(token, groupId);
     // Private groups: only members read the wall.
     if (group.visibility === 'private' && !group.myRole) throw new ForbiddenException('group_members_only');
-    return this.groups.listPosts(groupId);
+    const viewer = token ? await this.userRepository.authenticate(token) : null;
+    return this.groups.listPosts(groupId, viewer?.id ?? null);
+  }
+
+  // ---- Post likes & comments (members) ----
+
+  private async requirePostMember(token: string, groupId: string, postId: string) {
+    const user = await this.actor(token);
+    const role = await this.groups.memberRole(user.id, groupId);
+    if (!role) throw new ForbiddenException('join_group_first');
+    const owner = await this.groups.postGroupId(postId);
+    if (owner !== groupId) throw new NotFoundException('post_not_found');
+    return user;
+  }
+
+  async likePost(token: string, groupId: string, postId: string, like: boolean) {
+    const user = await this.requirePostMember(token, groupId, postId);
+    return like ? this.groups.likePost(postId, user.id) : this.groups.unlikePost(postId, user.id);
+  }
+
+  async listPostComments(token: string, groupId: string, postId: string) {
+    await this.requirePostMember(token, groupId, postId);
+    return this.groups.listComments(postId);
+  }
+
+  async commentOnPost(token: string, groupId: string, postId: string, body: string) {
+    const user = await this.requirePostMember(token, groupId, postId);
+    const text = String(body ?? '').trim();
+    if (!text) throw new BadRequestException('comment_body_required');
+    const comment = await this.groups.addComment(postId, user.id, text);
+    return { ...comment, authorName: user.fullName };
   }
 
   async createPost(token: string, groupId: string, input: Record<string, unknown>) {

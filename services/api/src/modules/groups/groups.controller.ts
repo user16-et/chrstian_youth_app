@@ -137,6 +137,39 @@ export class GroupsController {
     return this.groupsService.removePost(requireBearerToken(h), id, postId);
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Like a post' })
+  @Post('/:id/posts/:postId/like')
+  likePost(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Param('postId') postId: string) {
+    return this.groupsService.likePost(requireBearerToken(h), id, postId, true);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Unlike a post' })
+  @Delete('/:id/posts/:postId/like')
+  unlikePost(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Param('postId') postId: string) {
+    return this.groupsService.likePost(requireBearerToken(h), id, postId, false);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List comments on a post' })
+  @Get('/:id/posts/:postId/comments')
+  postComments(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Param('postId') postId: string) {
+    return this.groupsService.listPostComments(requireBearerToken(h), id, postId);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Comment on a post' })
+  @Post('/:id/posts/:postId/comments')
+  commentOnPost(
+    @Headers('authorization') h: string | undefined,
+    @Param('id') id: string,
+    @Param('postId') postId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.groupsService.commentOnPost(requireBearerToken(h), id, postId, String(body?.body ?? ''));
+  }
+
   @ApiOperation({ summary: 'List polls in a group/channel' })
   @Get('/:id/polls')
   polls(@Headers('authorization') h: string | undefined, @Param('id') id: string) {

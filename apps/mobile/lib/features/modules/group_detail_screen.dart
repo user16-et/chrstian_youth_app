@@ -536,6 +536,10 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   Widget _postCard(Map<String, dynamic> post, ColorScheme colors) {
     final pinned = post['pinned'] == true;
     final media = '${post['mediaUrl'] ?? ''}';
+    final liked = post['likedByMe'] == true;
+    final likeCount = _asInt(post['likeCount']);
+    final commentCount = _asInt(post['commentCount']);
+    final authorId = '${post['authorId'] ?? ''}';
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -547,14 +551,24 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            CircleAvatar(
-              radius: 15,
-              backgroundColor: colors.surfaceContainerHighest,
-              backgroundImage: '${post['authorAvatar'] ?? ''}'.isNotEmpty ? NetworkImage('${post['authorAvatar']}') : null,
-              child: '${post['authorAvatar'] ?? ''}'.isEmpty ? Icon(Icons.person_rounded, size: 16, color: colors.onSurfaceVariant) : null,
+            Expanded(
+              child: InkWell(
+                onTap: authorId.isEmpty
+                    ? null
+                    : () => showUserProfileSheet(context,
+                        apiClient: widget.apiClient, userId: authorId, token: _token.isEmpty ? null : _token),
+                child: Row(children: [
+                  CircleAvatar(
+                    radius: 15,
+                    backgroundColor: colors.surfaceContainerHighest,
+                    backgroundImage: '${post['authorAvatar'] ?? ''}'.isNotEmpty ? NetworkImage('${post['authorAvatar']}') : null,
+                    child: '${post['authorAvatar'] ?? ''}'.isEmpty ? Icon(Icons.person_rounded, size: 16, color: colors.onSurfaceVariant) : null,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('${post['authorName'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w700))),
+                ]),
+              ),
             ),
-            const SizedBox(width: 8),
-            Expanded(child: Text('${post['authorName'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w700))),
             if (pinned) Icon(Icons.push_pin_rounded, size: 16, color: colors.primary),
             if (_signedIn)
               PopupMenuButton<String>(
@@ -576,7 +590,78 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
             const SizedBox(height: 10),
             ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(media, fit: BoxFit.cover)),
           ],
+          const SizedBox(height: 8),
+          Divider(height: 1, color: colors.outlineVariant.withValues(alpha: .5)),
+          Row(children: [
+            _postAction(
+              liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              likeCount > 0 ? '$likeCount' : _t(lang, 'Like', 'ውደድ'),
+              liked ? colors.error : colors.onSurfaceVariant,
+              _isMember ? () => _toggleLike(post) : null,
+            ),
+            _postAction(
+              Icons.mode_comment_outlined,
+              commentCount > 0 ? '$commentCount' : _t(lang, 'Comment', 'አስተያየት'),
+              colors.onSurfaceVariant,
+              _isMember ? () => _openPostComments(post) : null,
+            ),
+          ]),
         ]),
+      ),
+    );
+  }
+
+  Widget _postAction(IconData icon, String label, Color color, VoidCallback? onTap) => Expanded(
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(icon, size: 19, color: color),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+            ]),
+          ),
+        ),
+      );
+
+  int _asInt(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+
+  void _updatePost(String id, Map<String, dynamic> Function(Map<String, dynamic>) update) {
+    if (!mounted) return;
+    setState(() {
+      _posts = _posts.map((p) => '${p['id']}' == id ? update({...p}) : p).toList();
+    });
+  }
+
+  Future<void> _toggleLike(Map<String, dynamic> post) async {
+    final id = '${post['id']}';
+    final liked = post['likedByMe'] == true;
+    _updatePost(id, (p) => {...p, 'likedByMe': !liked, 'likeCount': _asInt(p['likeCount']) + (liked ? -1 : 1)});
+    try {
+      await widget.apiClient.likeGroupPost(_token, widget.groupId, id, !liked);
+    } catch (error) {
+      _updatePost(id, (p) => {...p, 'likedByMe': liked, 'likeCount': _asInt(p['likeCount']) + (liked ? 1 : -1)});
+      if (mounted) _toast(_clean(error));
+    }
+  }
+
+  Future<void> _openPostComments(Map<String, dynamic> post) async {
+    final id = '${post['id']}';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: _GroupPostCommentsSheet(
+          apiClient: widget.apiClient,
+          token: _token,
+          groupId: widget.groupId,
+          postId: id,
+          language: lang,
+          onCommentAdded: () => _updatePost(id, (p) => {...p, 'commentCount': _asInt(p['commentCount']) + 1}),
+        ),
       ),
     );
   }
@@ -1197,6 +1282,153 @@ class _ResourcesSheetState extends State<_ResourcesSheet> {
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// Comments on a group post.
+class _GroupPostCommentsSheet extends StatefulWidget {
+  const _GroupPostCommentsSheet({
+    required this.apiClient,
+    required this.token,
+    required this.groupId,
+    required this.postId,
+    required this.language,
+    this.onCommentAdded,
+  });
+  final ApiClient apiClient;
+  final String token;
+  final String groupId;
+  final String postId;
+  final AppLanguage language;
+  final VoidCallback? onCommentAdded;
+
+  @override
+  State<_GroupPostCommentsSheet> createState() => _GroupPostCommentsSheetState();
+}
+
+class _GroupPostCommentsSheetState extends State<_GroupPostCommentsSheet> {
+  List<Map<String, dynamic>> _comments = const [];
+  bool _loading = true;
+  bool _sending = false;
+  final TextEditingController _input = TextEditingController();
+  AppLanguage get lang => widget.language;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final c = await widget.apiClient.fetchGroupPostComments(widget.token, widget.groupId, widget.postId);
+      if (mounted) setState(() { _comments = c; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final body = _input.text.trim();
+    if (body.isEmpty || widget.token.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      final added = await widget.apiClient.addGroupPostComment(widget.token, widget.groupId, widget.postId, body);
+      _input.clear();
+      if (mounted) setState(() => _comments = [..._comments, added]);
+      widget.onCommentAdded?.call();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_clean(error))));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.95,
+      builder: (context, scroll) => Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(_t(lang, 'Comments', 'አስተያየቶች'), style: Theme.of(context).textTheme.titleLarge),
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _comments.isEmpty
+                  ? Center(child: Text(_t(lang, 'No comments yet.', 'ገና አስተያየት የለም።'), style: TextStyle(color: colors.onSurfaceVariant)))
+                  : ListView.builder(
+                      controller: scroll,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _comments.length,
+                      itemBuilder: (context, i) {
+                        final c = _comments[i];
+                        final uid = '${c['authorId'] ?? ''}';
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          onTap: uid.isEmpty
+                              ? null
+                              : () => showUserProfileSheet(context,
+                                  apiClient: widget.apiClient, userId: uid, token: widget.token.isEmpty ? null : widget.token),
+                          leading: CircleAvatar(
+                            backgroundColor: colors.surfaceContainerHighest,
+                            backgroundImage: '${c['authorAvatar'] ?? ''}'.isNotEmpty ? NetworkImage('${c['authorAvatar']}') : null,
+                            child: '${c['authorAvatar'] ?? ''}'.isEmpty
+                                ? Icon(Icons.person_rounded, size: 18, color: colors.onSurfaceVariant)
+                                : null,
+                          ),
+                          title: Text('${c['authorName'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('${c['body'] ?? ''}'),
+                        );
+                      },
+                    ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _input,
+                  minLines: 1,
+                  maxLines: 4,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    hintText: _t(lang, 'Write a comment…', 'አስተያየት ይጻፉ…'),
+                    filled: true,
+                    fillColor: colors.surfaceContainerHighest,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                  ),
+                  onSubmitted: (_) => _send(),
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton.filled(
+                onPressed: _sending ? null : _send,
+                icon: _sending
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.send_rounded),
+              ),
+            ]),
+          ),
+        ),
+      ]),
     );
   }
 }
