@@ -2091,6 +2091,7 @@ class NotificationItem {
     required this.targetId,
     required this.readAt,
     required this.createdAt,
+    this.actorId,
   });
 
   final String id;
@@ -2101,6 +2102,7 @@ class NotificationItem {
   final String? targetId;
   final String? readAt;
   final String createdAt;
+  final String? actorId;
 
   bool get isRead => readAt != null;
 
@@ -2114,6 +2116,7 @@ class NotificationItem {
       targetId: json['targetId'] as String?,
       readAt: json['readAt'] as String?,
       createdAt: json['createdAt'] as String? ?? '',
+      actorId: json['actorId'] as String?,
     );
   }
 }

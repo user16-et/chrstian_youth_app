@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../i18n/app_i18n.dart';
 import 'group_detail_screen.dart';
+import 'user_profile_sheet.dart';
 
 class GlobalSearchScreen extends StatefulWidget {
   const GlobalSearchScreen({
@@ -197,22 +198,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
-  // Notifications targeting a group/channel open it directly.
-  bool _canOpen(NotificationItem item) {
+  bool _isGroupTarget(NotificationItem item) {
     final tt = item.targetType ?? '';
     return (item.targetId ?? '').isNotEmpty && (tt == 'group' || tt == 'group_meeting');
   }
 
+  // A group notification opens the group; a person notification (follow, comment,
+  // reaction, membership) opens the actor's profile.
+  bool _canOpen(NotificationItem item) => _isGroupTarget(item) || (item.actorId ?? '').isNotEmpty;
+
   void _openTarget(NotificationItem item) {
-    if (!_canOpen(item)) return;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => GroupChannelScreen(
-        apiClient: widget.apiClient,
-        token: widget.token,
-        groupId: item.targetId!,
-        language: widget.language,
-      ),
-    ));
+    if (_isGroupTarget(item)) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => GroupChannelScreen(
+          apiClient: widget.apiClient,
+          token: widget.token,
+          groupId: item.targetId!,
+          language: widget.language,
+        ),
+      ));
+    } else if ((item.actorId ?? '').isNotEmpty) {
+      showUserProfileSheet(context, apiClient: widget.apiClient, userId: item.actorId!, token: widget.token);
+    }
   }
 
   IconData _notificationIcon(String type) {
