@@ -33,6 +33,9 @@ class _CallScreenState extends State<CallScreen> {
     client.onStateChanged = _onStateChanged;
     client.onRemoteStream = _attachRemote;
     client.onRemoteStreamRemoved = _detachRemote;
+    client.onParticipantsChanged = () {
+      if (mounted) setState(() {});
+    };
     _bindLocal();
   }
 
@@ -73,6 +76,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    widget.client.onParticipantsChanged = null;
     _localRenderer.dispose();
     for (final renderer in _remoteRenderers.values) {
       renderer.dispose();
@@ -125,23 +129,10 @@ class _CallScreenState extends State<CallScreen> {
   Widget _stage(bool isVideo) {
     final renderers = _remoteRenderers.values.toList();
     if (!isVideo || renderers.isEmpty) {
-      // Audio call / not yet connected: avatar-style placeholder.
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: 54,
-              backgroundColor: Colors.white12,
-              child: Icon(widget.isGroup ? Icons.groups_rounded : Icons.person_rounded, size: 56, color: Colors.white70),
-            ),
-            if (widget.isGroup) ...[
-              const SizedBox(height: 16),
-              Text('${renderers.length + 1} in the room',
-                  style: const TextStyle(color: Colors.white70)),
-            ],
-          ],
-        ),
+      if (widget.isGroup) return _participantStage();
+      // 1:1 audio: avatar-style placeholder.
+      return const Center(
+        child: CircleAvatar(radius: 54, backgroundColor: Colors.white12, child: Icon(Icons.person_rounded, size: 56, color: Colors.white70)),
       );
     }
     if (renderers.length == 1) {
@@ -151,6 +142,64 @@ class _CallScreenState extends State<CallScreen> {
       crossAxisCount: 2,
       children: [for (final r in renderers) RTCVideoView(r, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)],
     );
+  }
+
+  // Group audio: a grid of everyone in the call.
+  Widget _participantStage() {
+    final people = widget.client.participants;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 96, 20, 130),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('${people.length} ${people.length == 1 ? 'person' : 'people'} in the call',
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 22),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: 18,
+                runSpacing: 20,
+                alignment: WrapAlignment.center,
+                children: [for (final p in people) _participantTile(p)],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _participantTile(({String id, String name, bool isSelf}) p) {
+    return SizedBox(
+      width: 78,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: p.isSelf ? Colors.tealAccent.withValues(alpha: .8) : Colors.white24, width: 2),
+          ),
+          child: CircleAvatar(
+            radius: 30,
+            backgroundColor: Colors.white12,
+            child: Text(_initials(p.name),
+                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(p.name,
+            maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+      ]),
+    );
+  }
+
+  String _initials(String name) {
+    if (name == 'You') return 'You';
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
   }
 
   Widget _controls(bool isVideo) {

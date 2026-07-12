@@ -38,6 +38,7 @@ class CallClient {
   io.Socket? _socket;
   final Map<String, RTCPeerConnection> _peers = {};
   final Map<String, MediaStream> _remoteStreams = {};
+  final Map<String, String> _participants = {}; // peerId -> display name (others)
   MediaStream? _localStream;
 
   String _selfId = '';
@@ -53,12 +54,24 @@ class CallClient {
   void Function(String peerId, MediaStream stream)? onRemoteStream;
   void Function(String peerId)? onRemoteStreamRemoved;
   void Function(String reason)? onError;
+  void Function()? onParticipantsChanged;
 
   CallState get state => _state;
   CallMedia get media => _media;
   MediaStream? get localStream => _localStream;
   Map<String, MediaStream> get remoteStreams => Map.unmodifiable(_remoteStreams);
   bool get connected => _socket?.connected == true;
+
+  /// Everyone in the group audio room, self first ('You').
+  List<({String id, String name, bool isSelf})> get participants {
+    final list = <({String id, String name, bool isSelf})>[
+      (id: _selfId, name: 'You', isSelf: true),
+    ];
+    _participants.forEach((id, name) {
+      if (id != _selfId) list.add((id: id, name: name, isSelf: false));
+    });
+    return list;
+  }
 
   Map<String, dynamic> get _rtcConfig => {
         'iceServers': iceServers.isNotEmpty
@@ -161,6 +174,15 @@ class CallClient {
         _fail(map['error']?.toString() ?? 'group_access_denied');
         return;
       }
+      // Seed the participant list with peers already in the room.
+      for (final raw in (map['peers'] as List? ?? const [])) {
+        final p = _map(raw);
+        final id = p['id']?.toString() ?? p['peerId']?.toString() ?? '';
+        if (id.isNotEmpty && id != _selfId) {
+          _participants[id] = p['fullName']?.toString() ?? p['name']?.toString() ?? 'Member';
+        }
+      }
+      onParticipantsChanged?.call();
       _setState(CallState.active);
       // We wait for existing peers to send us offers (they get peer:joined).
     });
@@ -251,6 +273,9 @@ class CallClient {
   Future<void> _onPeerJoined(Map<String, dynamic> data) async {
     final peerId = data['peerId']?.toString() ?? '';
     if (peerId.isEmpty || peerId == _selfId) return;
+    final user = _map(data['user']);
+    _participants[peerId] = user['fullName']?.toString() ?? user['name']?.toString() ?? 'Member';
+    onParticipantsChanged?.call();
     // Existing member initiates the offer toward the newcomer.
     final pc = await _createPeer(peerId, groupId: _groupId);
     final offer = await pc.createOffer();
@@ -260,6 +285,8 @@ class CallClient {
 
   void _onPeerLeft(Map<String, dynamic> data) {
     final peerId = data['peerId']?.toString() ?? '';
+    _participants.remove(peerId);
+    onParticipantsChanged?.call();
     _closePeer(peerId);
   }
 
@@ -354,6 +381,8 @@ class CallClient {
     }
     _peers.clear();
     _remoteStreams.clear();
+    _participants.clear();
+    onParticipantsChanged?.call();
     for (final track in _localStream?.getTracks() ?? const []) {
       track.stop();
     }

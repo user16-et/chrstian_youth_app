@@ -178,14 +178,18 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { ok: true };
   }
 
-  private async peerIds(room: string, selfId: string): Promise<string[]> {
+  private async peerIds(room: string, selfId: string): Promise<CallUser[]> {
     const sockets = await this.server.in(room).fetchSockets();
-    const ids = new Set<string>();
+    const seen = new Set<string>();
+    const peers: CallUser[] = [];
     for (const socket of sockets) {
       const peer = (socket.data as { user?: CallUser }).user;
-      if (peer && peer.id !== selfId) ids.add(peer.id);
+      if (peer && peer.id !== selfId && !seen.has(peer.id)) {
+        seen.add(peer.id);
+        peers.push(peer);
+      }
     }
-    return [...ids];
+    return peers;
   }
 
   private extractToken(client: Socket) {
