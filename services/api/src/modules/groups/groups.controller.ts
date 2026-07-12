@@ -138,10 +138,15 @@ export class GroupsController {
   }
 
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Like a post' })
+  @ApiOperation({ summary: 'Like or react to a post' })
   @Post('/:id/posts/:postId/like')
-  likePost(@Headers('authorization') h: string | undefined, @Param('id') id: string, @Param('postId') postId: string) {
-    return this.groupsService.likePost(requireBearerToken(h), id, postId, true);
+  likePost(
+    @Headers('authorization') h: string | undefined,
+    @Param('id') id: string,
+    @Param('postId') postId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.groupsService.likePost(requireBearerToken(h), id, postId, true, body?.reaction ? String(body.reaction) : '👍');
   }
 
   @ApiBearerAuth()

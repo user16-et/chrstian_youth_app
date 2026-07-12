@@ -208,9 +208,9 @@ export class GroupsService {
     return user;
   }
 
-  async likePost(token: string, groupId: string, postId: string, like: boolean) {
+  async likePost(token: string, groupId: string, postId: string, like: boolean, reaction = '👍') {
     const user = await this.requirePostMember(token, groupId, postId);
-    return like ? this.groups.likePost(postId, user.id) : this.groups.unlikePost(postId, user.id);
+    return like ? this.groups.likePost(postId, user.id, reaction) : this.groups.unlikePost(postId, user.id);
   }
 
   async listPostComments(token: string, groupId: string, postId: string) {

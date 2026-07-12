@@ -638,10 +638,10 @@ class ApiClient {
     return _deleteJson('/groups/$groupId/posts/$postId', headers: {'Authorization': 'Bearer $token'});
   }
 
-  Future<dynamic> likeGroupPost(String token, String groupId, String postId, bool like) {
+  Future<dynamic> likeGroupPost(String token, String groupId, String postId, bool like, {String reaction = '👍'}) {
     final path = '/groups/$groupId/posts/$postId/like';
     final headers = {'Authorization': 'Bearer $token'};
-    return like ? _postJson(path, const {}, headers: headers) : _deleteJson(path, headers: headers);
+    return like ? _postJson(path, {'reaction': reaction}, headers: headers) : _deleteJson(path, headers: headers);
   }
 
   Future<List<Map<String, dynamic>>> fetchGroupPostComments(String token, String groupId, String postId) async {

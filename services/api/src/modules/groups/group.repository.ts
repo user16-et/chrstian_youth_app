@@ -151,7 +151,9 @@ export class GroupRepository {
                 p.body, p.media_url AS "mediaUrl", p.pinned, p.edited_at AS "editedAt", p.created_at AS "createdAt",
                 (SELECT count(*)::int FROM group_post_likes l WHERE l.post_id=p.id) AS "likeCount",
                 (SELECT count(*)::int FROM group_post_comments c WHERE c.post_id=p.id) AS "commentCount",
-                EXISTS(SELECT 1 FROM group_post_likes l WHERE l.post_id=p.id AND l.user_id=$3) AS "likedByMe"
+                EXISTS(SELECT 1 FROM group_post_likes l WHERE l.post_id=p.id AND l.user_id=$3) AS "likedByMe",
+                COALESCE((SELECT json_object_agg(reaction,total) FROM (SELECT reaction,count(*)::int total FROM group_post_likes WHERE post_id=p.id GROUP BY reaction) x), '{}'::json) AS "reactionCounts",
+                COALESCE((SELECT reaction FROM group_post_likes l WHERE l.post_id=p.id AND l.user_id=$3), '') AS "myReaction"
          FROM group_posts p JOIN users u ON u.id=p.author_id
          WHERE p.group_id=$1 AND p.removed_at IS NULL
          ORDER BY p.pinned DESC, p.created_at DESC
@@ -191,10 +193,14 @@ export class GroupRepository {
 
   // ---- Post likes & comments ----
 
-  likePost(postId: string, userId: string) {
+  likePost(postId: string, userId: string, reaction = '👍') {
     return this.db
-      .query('INSERT INTO group_post_likes (post_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [postId, userId])
-      .then((r) => ({ changed: (r.rowCount ?? 0) > 0, liked: true }));
+      .query(
+        `INSERT INTO group_post_likes (post_id, user_id, reaction) VALUES ($1,$2,$3)
+         ON CONFLICT (post_id, user_id) DO UPDATE SET reaction=EXCLUDED.reaction`,
+        [postId, userId, reaction],
+      )
+      .then(() => ({ liked: true, reaction }));
   }
 
   unlikePost(postId: string, userId: string) {

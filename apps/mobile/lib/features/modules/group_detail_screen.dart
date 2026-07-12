@@ -591,13 +591,32 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
             ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(media, fit: BoxFit.cover)),
           ],
           const SizedBox(height: 8),
+          Builder(builder: (context) {
+            final rc = post['reactionCounts'];
+            final keys = rc is Map ? rc.keys.map((e) => '$e').toList() : const <String>[];
+            final total = rc is Map ? rc.values.fold<int>(0, (a, b) => a + (b as num).toInt()) : 0;
+            if (keys.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                for (final e in keys.take(4)) Padding(padding: const EdgeInsets.only(right: 2), child: Text(e, style: const TextStyle(fontSize: 15))),
+                const SizedBox(width: 6),
+                Text('$total', style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+              ]),
+            );
+          }),
           Divider(height: 1, color: colors.outlineVariant.withValues(alpha: .5)),
           Row(children: [
             _postAction(
-              liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              likeCount > 0 ? '$likeCount' : _t(lang, 'Like', 'ውደድ'),
-              liked ? colors.error : colors.onSurfaceVariant,
+              '${post['myReaction'] ?? ''}'.isNotEmpty
+                  ? Icons.emoji_emotions_rounded
+                  : (liked ? Icons.favorite_rounded : Icons.favorite_border_rounded),
+              '${post['myReaction'] ?? ''}'.isNotEmpty
+                  ? '${post['myReaction']}'
+                  : (likeCount > 0 ? '$likeCount' : _t(lang, 'Like', 'ውደድ')),
+              (liked || '${post['myReaction'] ?? ''}'.isNotEmpty) ? colors.error : colors.onSurfaceVariant,
               _isMember ? () => _toggleLike(post) : null,
+              onLongPress: _isMember ? () => _showReactionBar(post) : null,
             ),
             _postAction(
               Icons.mode_comment_outlined,
@@ -611,9 +630,10 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     );
   }
 
-  Widget _postAction(IconData icon, String label, Color color, VoidCallback? onTap) => Expanded(
+  Widget _postAction(IconData icon, String label, Color color, VoidCallback? onTap, {VoidCallback? onLongPress}) => Expanded(
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -643,6 +663,64 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     } catch (error) {
       _updatePost(id, (p) => {...p, 'likedByMe': liked, 'likeCount': _asInt(p['likeCount']) + (liked ? 1 : -1)});
       if (mounted) _toast(_clean(error));
+    }
+  }
+
+  static const List<String> _reactionEmojis = ['👍', '❤️', '🙏', '🎉', '😊', '😢'];
+
+  Future<void> _showReactionBar(Map<String, dynamic> post) async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              for (final e in _reactionEmojis)
+                InkWell(
+                  borderRadius: BorderRadius.circular(28),
+                  onTap: () => Navigator.pop(context, e),
+                  child: Padding(padding: const EdgeInsets.all(8), child: Text(e, style: const TextStyle(fontSize: 30))),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (chosen != null) await _reactPost(post, chosen);
+  }
+
+  Future<void> _reactPost(Map<String, dynamic> post, String emoji) async {
+    final id = '${post['id']}';
+    final prev = '${post['myReaction'] ?? ''}';
+    final wasLiked = post['likedByMe'] == true;
+    final counts = <String, int>{};
+    final rc = post['reactionCounts'];
+    if (rc is Map) rc.forEach((k, v) => counts['$k'] = (v as num).toInt());
+    if (prev.isNotEmpty) {
+      final n = (counts[prev] ?? 1) - 1;
+      if (n <= 0) {
+        counts.remove(prev);
+      } else {
+        counts[prev] = n;
+      }
+    }
+    counts[emoji] = (counts[emoji] ?? 0) + 1;
+    _updatePost(id, (p) => {
+          ...p,
+          'likedByMe': true,
+          'myReaction': emoji,
+          'reactionCounts': counts,
+          'likeCount': wasLiked ? _asInt(p['likeCount']) : _asInt(p['likeCount']) + 1,
+        });
+    try {
+      await widget.apiClient.likeGroupPost(_token, widget.groupId, id, true, reaction: emoji);
+    } catch (error) {
+      if (mounted) {
+        _toast(_clean(error));
+        await _load();
+      }
     }
   }
 
