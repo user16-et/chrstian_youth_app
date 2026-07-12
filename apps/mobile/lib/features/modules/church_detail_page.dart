@@ -274,8 +274,14 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                 const SizedBox(height: 14),
                 _PostSection(
                   items: posts,
+                  apiClient: widget.apiClient,
+                  token: widget.session?.token ?? '',
+                  churchName: '${profile['name'] ?? widget.church.name}',
+                  churchLogo: '${profile['logoUrl'] ?? ''}',
                   onEdit: canManage ? (item) => _compose('posts', existing: item) : null,
                   onDelete: canManage ? (item) => _deleteContent('posts', item) : null,
+                  onOpenProfile: (userId) => showUserProfileSheet(context,
+                      apiClient: widget.apiClient, userId: userId, token: widget.session?.token),
                 ),
               ]),
               // About panel: the static profile.
@@ -1765,11 +1771,11 @@ class _PinnedAnnouncements extends StatelessWidget {
 }
 
 // Horizontal thumbnail strip for a post/announcement's media_urls (empty if none).
-Widget _mediaStrip(Map<String, dynamic> item) {
+Widget _mediaStrip(Map<String, dynamic> item, {double indent = 52}) {
   final media = (item['media_urls'] as List?)?.map((e) => '$e').where((s) => s.isNotEmpty).toList() ?? const <String>[];
   if (media.isEmpty) return const SizedBox.shrink();
   return Padding(
-    padding: const EdgeInsets.only(left: 52, bottom: 10),
+    padding: EdgeInsets.only(left: indent, bottom: 10),
     child: SizedBox(
       height: 96,
       child: ListView.separated(
@@ -1924,10 +1930,24 @@ class _SermonCard extends StatelessWidget {
 }
 
 class _PostSection extends StatelessWidget {
-  const _PostSection({required this.items, this.onEdit, this.onDelete});
+  const _PostSection({
+    required this.items,
+    required this.apiClient,
+    required this.token,
+    required this.churchName,
+    required this.churchLogo,
+    this.onEdit,
+    this.onDelete,
+    this.onOpenProfile,
+  });
   final List<Map<String, dynamic>> items;
+  final ApiClient apiClient;
+  final String token;
+  final String churchName;
+  final String churchLogo;
   final void Function(Map<String, dynamic> item)? onEdit;
   final void Function(Map<String, dynamic> item)? onDelete;
+  final void Function(String userId)? onOpenProfile;
 
   @override
   Widget build(BuildContext context) => _SectionPanel(
@@ -1935,19 +1955,353 @@ class _PostSection extends StatelessWidget {
         icon: Icons.article_rounded,
         empty: 'No official church posts yet.',
         child: Column(
-          children: items.take(5).map((item) {
-            return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              _DenseRow(
-                icon: Icons.post_add_rounded,
-                title: item['body']?.toString() ?? '',
-                subtitle: item['created_at']?.toString() ?? '',
-                trailing: _managerMenu(item, onEdit, onDelete),
-              ),
-              _mediaStrip(item),
-            ]);
+          children: items.take(8).map((item) {
+            return _ChurchPostCard(
+              key: ValueKey(item['id']),
+              item: item,
+              apiClient: apiClient,
+              token: token,
+              churchName: churchName,
+              churchLogo: churchLogo,
+              onEdit: onEdit,
+              onDelete: onDelete,
+              onOpenProfile: onOpenProfile,
+            );
           }).toList(),
         ),
       );
+}
+
+/// A social-standard post card: church header, body, media, and a like / comment
+/// / share action bar with live counts.
+class _ChurchPostCard extends StatefulWidget {
+  const _ChurchPostCard({
+    super.key,
+    required this.item,
+    required this.apiClient,
+    required this.token,
+    required this.churchName,
+    required this.churchLogo,
+    this.onEdit,
+    this.onDelete,
+    this.onOpenProfile,
+  });
+  final Map<String, dynamic> item;
+  final ApiClient apiClient;
+  final String token;
+  final String churchName;
+  final String churchLogo;
+  final void Function(Map<String, dynamic> item)? onEdit;
+  final void Function(Map<String, dynamic> item)? onDelete;
+  final void Function(String userId)? onOpenProfile;
+
+  @override
+  State<_ChurchPostCard> createState() => _ChurchPostCardState();
+}
+
+class _ChurchPostCardState extends State<_ChurchPostCard> {
+  late bool _liked = widget.item['likedByMe'] == true;
+  late int _likes = _asInt(widget.item['like_count']);
+  late int _comments = _asInt(widget.item['comment_count']);
+  late int _shares = _asInt(widget.item['share_count']);
+  bool _busy = false;
+
+  static int _asInt(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+  String get _postId => '${widget.item['id'] ?? ''}';
+  bool get _signedIn => widget.token.isNotEmpty;
+
+  void _toast(String m) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<void> _toggleLike() async {
+    if (!_signedIn) return _toast('Sign in to react.');
+    final wasLiked = _liked;
+    setState(() {
+      _liked = !wasLiked;
+      _likes += _liked ? 1 : -1;
+    });
+    try {
+      if (wasLiked) {
+        await widget.apiClient.unlikePost(token: widget.token, postId: _postId);
+      } else {
+        await widget.apiClient.likePost(token: widget.token, postId: _postId);
+      }
+    } catch (err) {
+      if (mounted) {
+        setState(() {
+          _liked = wasLiked;
+          _likes += wasLiked ? 1 : -1;
+        });
+        _toast(err.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
+  }
+
+  Future<void> _share() async {
+    if (!_signedIn) return _toast('Sign in to share.');
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.sharePost(token: widget.token, postId: _postId);
+      if (mounted) setState(() => _shares += 1);
+      _toast('Shared to your profile.');
+    } catch (err) {
+      _toast(err.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openComments() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: _PostCommentsSheet(
+          apiClient: widget.apiClient,
+          token: widget.token,
+          postId: _postId,
+          onOpenProfile: widget.onOpenProfile,
+          onCommentAdded: () {
+            if (mounted) setState(() => _comments += 1);
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final body = '${widget.item['body'] ?? ''}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outlineVariant.withValues(alpha: .5)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 4, 6),
+          child: Row(children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: colors.surfaceContainerHighest,
+              backgroundImage: widget.churchLogo.isNotEmpty ? NetworkImage(widget.churchLogo) : null,
+              child: widget.churchLogo.isEmpty ? Icon(Icons.church_rounded, size: 20, color: colors.onSurfaceVariant) : null,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(widget.churchName.isEmpty ? 'Church' : widget.churchName,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                Text(_postTime('${widget.item['created_at'] ?? ''}'),
+                    style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+              ]),
+            ),
+            if (widget.onEdit != null || widget.onDelete != null)
+              _managerMenu(widget.item, widget.onEdit, widget.onDelete) ?? const SizedBox.shrink(),
+          ]),
+        ),
+        if (body.isNotEmpty)
+          Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 10), child: Text(body)),
+        _mediaStrip(widget.item, indent: 14),
+        const Divider(height: 1),
+        // Action bar
+        Row(children: [
+          _action(
+            _liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            _likes > 0 ? '$_likes' : 'Like',
+            _liked ? colors.error : colors.onSurfaceVariant,
+            _toggleLike,
+          ),
+          _action(Icons.mode_comment_outlined, _comments > 0 ? '$_comments' : 'Comment', colors.onSurfaceVariant, _openComments),
+          _action(Icons.share_outlined, _shares > 0 ? '$_shares' : 'Share', colors.onSurfaceVariant, _busy ? null : _share),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _action(IconData icon, String label, Color color, VoidCallback? onTap) => Expanded(
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// Comments list + composer for a post.
+class _PostCommentsSheet extends StatefulWidget {
+  const _PostCommentsSheet({
+    required this.apiClient,
+    required this.token,
+    required this.postId,
+    this.onOpenProfile,
+    this.onCommentAdded,
+  });
+  final ApiClient apiClient;
+  final String token;
+  final String postId;
+  final void Function(String userId)? onOpenProfile;
+  final VoidCallback? onCommentAdded;
+
+  @override
+  State<_PostCommentsSheet> createState() => _PostCommentsSheetState();
+}
+
+class _PostCommentsSheetState extends State<_PostCommentsSheet> {
+  List<PostCommentItem> _comments = const [];
+  bool _loading = true;
+  bool _sending = false;
+  final TextEditingController _input = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final c = await widget.apiClient.fetchPostComments(widget.postId);
+      if (mounted) setState(() { _comments = c; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final body = _input.text.trim();
+    if (body.isEmpty || widget.token.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      final added = await widget.apiClient.createPostComment(token: widget.token, postId: widget.postId, body: body);
+      _input.clear();
+      if (mounted) setState(() => _comments = [..._comments, added]);
+      widget.onCommentAdded?.call();
+    } catch (err) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err.toString().replaceFirst('HttpException: ', ''))));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.95,
+      builder: (context, scroll) => Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Comments', style: Theme.of(context).textTheme.titleLarge),
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _comments.isEmpty
+                  ? Center(child: Text('No comments yet. Be the first.', style: TextStyle(color: colors.onSurfaceVariant)))
+                  : ListView.builder(
+                      controller: scroll,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _comments.length,
+                      itemBuilder: (context, i) {
+                        final c = _comments[i];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          onTap: widget.onOpenProfile == null || c.authorId.isEmpty ? null : () => widget.onOpenProfile!(c.authorId),
+                          leading: CircleAvatar(
+                            backgroundColor: colors.surfaceContainerHighest,
+                            child: Text(_initials(c.authorName), style: TextStyle(fontSize: 14, color: colors.onSurfaceVariant)),
+                          ),
+                          title: Text(c.authorName.isEmpty ? 'Member' : c.authorName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(c.body),
+                          trailing: Text(_postTime(c.createdAt), style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
+                        );
+                      },
+                    ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+            child: widget.token.isEmpty
+                ? Text('Sign in to comment.', style: TextStyle(color: colors.onSurfaceVariant))
+                : Row(children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _input,
+                        minLines: 1,
+                        maxLines: 4,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: 'Write a comment…',
+                          filled: true,
+                          fillColor: colors.surfaceContainerHighest,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                        ),
+                        onSubmitted: (_) => _send(),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton.filled(
+                      onPressed: _sending ? null : _send,
+                      icon: _sending
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.send_rounded),
+                    ),
+                  ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+  }
+}
+
+// Relative "time ago" for post/comment timestamps.
+String _postTime(String raw) {
+  final dt = DateTime.tryParse(raw)?.toLocal();
+  if (dt == null) return '';
+  final diff = DateTime.now().difference(dt);
+  if (diff.inMinutes < 1) return 'now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m';
+  if (diff.inHours < 24) return '${diff.inHours}h';
+  if (diff.inDays < 7) return '${diff.inDays}d';
+  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${m[dt.month - 1]} ${dt.day}';
 }
 
 class _InfoGrid extends StatelessWidget {
