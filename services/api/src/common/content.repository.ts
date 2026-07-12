@@ -755,9 +755,12 @@ export interface BibleDailyVerseViewRecord {
   id: string;
   reference: string;
   verseText: string;
+  referenceAm: string;
+  verseTextAm: string;
   language: 'en' | 'am';
   theme: string;
   createdAt: string;
+  dayOffset?: number;
 }
 
 export interface BibleReadingPlanRecord {
@@ -2226,8 +2229,21 @@ export class ContentRepository implements OnModuleInit {
   }
 
   async listDailyVerses() {
-    const result = await this.pool.query('SELECT id, reference, verse_text, language, theme, created_at FROM bible_daily_verses ORDER BY created_at DESC');
-    return result.rows.map((row) => this.mapBibleDailyVerseView(row));
+    const result = await this.pool.query('SELECT id, reference, verse_text, reference_am, verse_text_am, language, theme, created_at FROM bible_daily_verses ORDER BY created_at ASC, id ASC');
+    const pool = result.rows.map((row) => this.mapBibleDailyVerseView(row));
+    const size = pool.length;
+    if (size === 0) {
+      return [];
+    }
+    // Deterministically pick today's verse and the two days before it, so the
+    // list changes every day and always shows exactly today + the last 2 days.
+    const epochDay = Math.floor(Date.now() / 86_400_000);
+    const selected: BibleDailyVerseViewRecord[] = [];
+    for (let offset = 0; offset < Math.min(3, size); offset += 1) {
+      const index = (((epochDay - offset) % size) + size) % size;
+      selected.push({ ...pool[index], dayOffset: offset });
+    }
+    return selected;
   }
 
   async listReadingPlans() {
@@ -3576,6 +3592,8 @@ export class ContentRepository implements OnModuleInit {
       id: String(row.id),
       reference: String(row.reference),
       verseText: String(row.verse_text),
+      referenceAm: row.reference_am ? String(row.reference_am) : '',
+      verseTextAm: row.verse_text_am ? String(row.verse_text_am) : '',
       language: row.language === 'am' ? 'am' : 'en',
       theme: String(row.theme),
       createdAt: String(row.created_at),

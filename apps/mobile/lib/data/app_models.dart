@@ -1076,26 +1076,48 @@ class BibleDailyVerseItem {
     required this.id,
     required this.reference,
     required this.verseText,
+    required this.referenceAm,
+    required this.verseTextAm,
     required this.language,
     required this.theme,
     required this.createdAt,
+    required this.dayOffset,
   });
 
   final String id;
   final String reference;
   final String verseText;
+  final String referenceAm;
+  final String verseTextAm;
   final String language;
   final String theme;
   final String createdAt;
+
+  /// 0 = today, 1 = yesterday, 2 = two days ago.
+  final int dayOffset;
+
+  /// Reference in the requested [langCode], falling back to English.
+  String referenceFor(String langCode) =>
+      langCode == 'am' && referenceAm.isNotEmpty ? referenceAm : reference;
+
+  /// Verse text in the requested [langCode], falling back to English.
+  String textFor(String langCode) =>
+      langCode == 'am' && verseTextAm.isNotEmpty ? verseTextAm : verseText;
+
+  /// Whether an Amharic rendering exists for this verse.
+  bool get hasAmharic => verseTextAm.isNotEmpty;
 
   factory BibleDailyVerseItem.fromJson(Map<String, dynamic> json) {
     return BibleDailyVerseItem(
       id: json['id'] as String? ?? '',
       reference: json['reference'] as String? ?? '',
       verseText: json['verseText'] as String? ?? '',
+      referenceAm: json['referenceAm'] as String? ?? '',
+      verseTextAm: json['verseTextAm'] as String? ?? '',
       language: json['language'] as String? ?? 'en',
       theme: json['theme'] as String? ?? '',
       createdAt: json['createdAt'] as String? ?? '',
+      dayOffset: (json['dayOffset'] as num?)?.toInt() ?? 0,
     );
   }
 }

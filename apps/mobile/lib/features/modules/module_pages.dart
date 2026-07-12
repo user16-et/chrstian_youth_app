@@ -2278,6 +2278,7 @@ class _BibleScreenState extends State<BibleScreen> {
   final TextEditingController _highlightNoteController =
       TextEditingController();
   int _selectedVerseIndex = 0;
+  String? _verseLang; // null = follow app language; else 'en' / 'am'
   String _selectedHighlightColor = 'gold';
   String _readerVersion = 'kjv';
   String _readerBook = 'Romans';
@@ -2285,12 +2286,6 @@ class _BibleScreenState extends State<BibleScreen> {
   bool _busy = false;
   String _status = '';
   int _libraryTab = 0; // 0 = notes, 1 = bookmarks, 2 = highlights
-
-  static const List<(String, String)> _presetVerses = [
-    ('Psalm 23:1', 'The Lord is my shepherd; I shall not want.'),
-    ('Proverbs 3:5', 'Trust in the Lord with all your heart.'),
-    ('Romans 12:2', 'Be transformed by the renewing of your mind.'),
-  ];
 
   static const List<String> _highlightColors = [
     'gold',
@@ -2381,6 +2376,58 @@ class _BibleScreenState extends State<BibleScreen> {
 
   String _tr(String en, String am) =>
       widget.language == AppLanguage.english ? en : am;
+
+  String _dayLabel(int offset) {
+    switch (offset) {
+      case 0:
+        return _tr('Today', 'ዛሬ');
+      case 1:
+        return _tr('Yesterday', 'ትናንት');
+      case 2:
+        return _tr('2 days ago', 'ከ2 ቀን በፊት');
+      default:
+        return '';
+    }
+  }
+
+  // Local bilingual fallback used only when the API returns no daily verses,
+  // so the card is never empty. Mirrors the today / last-2-days shape.
+  List<BibleDailyVerseItem> _fallbackDailyItems() {
+    const seed = [
+      (
+        'Psalm 23:1',
+        'The Lord is my shepherd; I shall not want.',
+        'መዝሙር 23፥1',
+        'እግዚአብሔር እረኛዬ ነው፤ የሚያሳጣኝ የለም።'
+      ),
+      (
+        'Philippians 4:13',
+        'I can do all things through Christ who strengthens me.',
+        'ፊልጵስዩስ 4፥13',
+        'ኃይል በሚሰጠኝ በክርስቶስ ሁሉን እችላለሁ።'
+      ),
+      (
+        'Proverbs 3:5',
+        'Trust in the Lord with all your heart.',
+        'ምሳሌ 3፥5',
+        'በፍጹም ልብህ በእግዚአብሔር ታመን።'
+      ),
+    ];
+    return [
+      for (var i = 0; i < seed.length; i++)
+        BibleDailyVerseItem(
+          id: 'fallback-$i',
+          reference: seed[i].$1,
+          verseText: seed[i].$2,
+          referenceAm: seed[i].$3,
+          verseTextAm: seed[i].$4,
+          language: 'en',
+          theme: '',
+          createdAt: '',
+          dayOffset: i,
+        ),
+    ];
+  }
 
   // A shared, keyboard-aware editor sheet used for notes, bookmarks and
   // highlights so the hub page itself stays clean instead of stacking several
@@ -2879,13 +2926,15 @@ class _BibleScreenState extends State<BibleScreen> {
         final topics = _list(ecosystem, 'topics');
         final memory = _list(ecosystem, 'memory');
         final analytics = _map(ecosystem, 'analytics');
-        final verses = data.dailyVerses.isEmpty
-            ? _presetVerses.map((verse) => (verse.$1, verse.$2)).toList()
-            : data.dailyVerses
-                .map((verse) => (verse.reference, verse.verseText))
-                .toList();
-        final selectedVerse =
-            verses[_selectedVerseIndex.clamp(0, verses.length - 1)];
+        final dailyItems =
+            data.dailyVerses.isNotEmpty ? data.dailyVerses : _fallbackDailyItems();
+        final selectedItem =
+            dailyItems[_selectedVerseIndex.clamp(0, dailyItems.length - 1)];
+        // Which language the verse is currently shown in (defaults to the app
+        // language). The user can flip it per verse with the toggle.
+        final verseLang = _verseLang ?? language.code;
+        final selRef = selectedItem.referenceFor(verseLang);
+        final selText = selectedItem.textFor(verseLang);
         final colors = Theme.of(context).colorScheme;
         final notesCount = data.notes.length;
         final bookmarksCount = data.bookmarks.length;
@@ -2930,16 +2979,16 @@ class _BibleScreenState extends State<BibleScreen> {
               _SectionCard(
                 title: AppStrings.of(language, 'scripture_of_day'),
                 children: [
-                  if (verses.length > 1)
+                  if (dailyItems.length > 1)
                     SizedBox(
-                      height: 46,
+                      height: 40,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
-                        itemCount: verses.length,
+                        itemCount: dailyItems.length,
                         separatorBuilder: (_, __) => const SizedBox(width: 8),
                         itemBuilder: (context, index) => Center(
                           child: ChoiceChip(
-                            label: Text(verses[index].$1),
+                            label: Text(_dayLabel(dailyItems[index].dayOffset)),
                             selected: _selectedVerseIndex == index,
                             onSelected: (_) =>
                                 setState(() => _selectedVerseIndex = index),
@@ -2947,9 +2996,26 @@ class _BibleScreenState extends State<BibleScreen> {
                         ),
                       ),
                     ),
-                  if (verses.length > 1) const SizedBox(height: 12),
-                  _VerseCard(
-                      reference: selectedVerse.$1, text: selectedVerse.$2),
+                  if (dailyItems.length > 1) const SizedBox(height: 12),
+                  // Language toggle — shown only when an Amharic rendering
+                  // exists for the selected verse.
+                  if (selectedItem.hasAmharic)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _LanguageToggle(
+                        colors: colors,
+                        current: verseLang,
+                        onChanged: (code) =>
+                            setState(() => _verseLang = code),
+                      ),
+                    ),
+                  if (selectedItem.hasAmharic) const SizedBox(height: 10),
+                  _FullVerseCard(
+                    colors: colors,
+                    reference: selRef,
+                    text: selText,
+                    theme: selectedItem.theme,
+                  ),
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -2960,8 +3026,8 @@ class _BibleScreenState extends State<BibleScreen> {
                           onTap: _busy
                               ? null
                               : () => _openBookmarkEditor(
-                                  reference: selectedVerse.$1,
-                                  verseText: selectedVerse.$2),
+                                  reference: selRef,
+                                  verseText: selText),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -2972,8 +3038,8 @@ class _BibleScreenState extends State<BibleScreen> {
                           onTap: _busy
                               ? null
                               : () => _openNoteEditor(
-                                  reference: selectedVerse.$1,
-                                  verseText: selectedVerse.$2),
+                                  reference: selRef,
+                                  verseText: selText),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -2984,8 +3050,8 @@ class _BibleScreenState extends State<BibleScreen> {
                           onTap: _busy
                               ? null
                               : () => _openHighlightEditor(
-                                  reference: selectedVerse.$1,
-                                  verseText: selectedVerse.$2),
+                                  reference: selRef,
+                                  verseText: selText),
                         ),
                       ),
                     ],
@@ -3002,8 +3068,8 @@ class _BibleScreenState extends State<BibleScreen> {
                               : () => _bibleAction((token) =>
                                   widget.apiClient.addMemoryVerse(
                                       token: token,
-                                      reference: selectedVerse.$1,
-                                      verseText: selectedVerse.$2)),
+                                      reference: selRef,
+                                      verseText: selText)),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -3016,8 +3082,8 @@ class _BibleScreenState extends State<BibleScreen> {
                               : () => _bibleAction((token) =>
                                   widget.apiClient.shareBibleVerse(
                                       token: token,
-                                      reference: selectedVerse.$1,
-                                      verseText: selectedVerse.$2,
+                                      reference: selRef,
+                                      verseText: selText,
                                       channel: 'story')),
                         ),
                       ),
@@ -3031,8 +3097,8 @@ class _BibleScreenState extends State<BibleScreen> {
                               : () => _bibleAction((token) =>
                                   widget.apiClient.createVerseCard(
                                       token: token,
-                                      reference: selectedVerse.$1,
-                                      verseText: selectedVerse.$2,
+                                      reference: selRef,
+                                      verseText: selText,
                                       language: language.code)),
                         ),
                       ),
@@ -3198,6 +3264,131 @@ class _BibleScreenState extends State<BibleScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+// A compact EN / አማርኛ segmented toggle for the verse of the day.
+class _LanguageToggle extends StatelessWidget {
+  const _LanguageToggle({
+    required this.colors,
+    required this.current,
+    required this.onChanged,
+  });
+
+  final ColorScheme colors;
+  final String current;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget seg(String code, String label) {
+      final selected = current == code;
+      return GestureDetector(
+        onTap: () => onChanged(code),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? colors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: selected
+                      ? colors.onPrimary
+                      : colors.onSurface.withValues(alpha: .6))),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .6),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        seg('en', 'EN'),
+        seg('am', 'አማርኛ'),
+      ]),
+    );
+  }
+}
+
+// The verse of the day, shown in full (no truncation) with its theme.
+class _FullVerseCard extends StatelessWidget {
+  const _FullVerseCard({
+    required this.colors,
+    required this.reference,
+    required this.text,
+    required this.theme,
+  });
+
+  final ColorScheme colors;
+  final String reference;
+  final String text;
+  final String theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colors.primaryContainer.withValues(alpha: .55),
+            colors.tertiaryContainer.withValues(alpha: .4),
+          ],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.format_quote_rounded,
+                  size: 22, color: colors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(reference,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800)),
+              ),
+              if (theme.isNotEmpty)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: colors.primary.withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(theme,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: colors.primary)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Full verse text — deliberately not clamped so long verses are
+          // shown in their entirety.
+          Text(text,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    height: 1.5,
+                    color: colors.onSurface.withValues(alpha: .92),
+                  )),
+        ],
+      ),
     );
   }
 }
@@ -10092,33 +10283,6 @@ class _ListTileRow extends StatelessWidget {
                 size: 19, color: colors.secondary),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         onTap: onTap,
-      ),
-    );
-  }
-}
-
-class _VerseCard extends StatelessWidget {
-  const _VerseCard({required this.reference, required this.text});
-
-  final String reference;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(reference,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(text, maxLines: 4, overflow: TextOverflow.ellipsis),
-          ],
-        ),
       ),
     );
   }
