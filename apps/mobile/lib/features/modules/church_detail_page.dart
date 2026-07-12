@@ -341,20 +341,8 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
               ),
               // Community panel: members-only group chat + audio conference.
               _tab('community', [
-                if (membership != null)
-                  Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                        child: Icon(Icons.headset_mic_rounded, color: Theme.of(context).colorScheme.onPrimaryContainer),
-                      ),
-                      title: const Text('Audio conference'),
-                      subtitle: const Text('Talk live with members'),
-                      trailing: FilledButton(onPressed: _startConference, child: const Text('Join')),
-                      onTap: _startConference,
-                    ),
-                  ),
+                if (membership != null && (profile['conferenceActive'] == true || canManage))
+                  _conferenceCard(profile, canManage),
                 LiveChatPanel(
                   apiClient: widget.apiClient,
                   session: widget.session,
@@ -740,24 +728,55 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     }
   }
 
+  Widget _conferenceCard(Map<String, dynamic> profile, bool canManage) {
+    final colors = Theme.of(context).colorScheme;
+    final active = profile['conferenceActive'] == true;
+    final count = profile['conferenceCount'] is num ? (profile['conferenceCount'] as num).toInt() : 0;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: active ? colors.errorContainer : colors.primaryContainer,
+          child: Icon(active ? Icons.graphic_eq_rounded : Icons.headset_mic_rounded,
+              color: active ? colors.onErrorContainer : colors.onPrimaryContainer),
+        ),
+        title: Text(active ? 'Live voice chat' : 'Voice chat'),
+        subtitle: Text(active
+            ? '$count ${count == 1 ? 'person' : 'people'} in the call'
+            : (canManage ? 'Start a voice chat for members' : 'No live voice chat')),
+        trailing: FilledButton(
+          onPressed: active ? _joinConference : (canManage ? _startConference : null),
+          child: Text(active ? 'Join' : 'Start'),
+        ),
+        onTap: active ? _joinConference : (canManage ? _startConference : null),
+      ),
+    );
+  }
+
+  // Admin-only: notify members and join the church audio room.
   Future<void> _startConference() async {
     final session = widget.session;
     final call = CallScope.maybeOf(context);
     if (session == null || call == null) {
-      setState(() => _status = 'Sign in to join the conference.');
+      setState(() => _status = 'Sign in to start the voice chat.');
       return;
     }
-    final churchName = widget.church.name;
+    final title = '${widget.church.name} voice chat';
     final room = 'church:${widget.church.id}';
-    final title = '$churchName conference';
-    // Notify members (best-effort), then join the audio room either way.
     try {
       final res = await widget.apiClient.startChurchConference(session.token, widget.church.id, title: title);
       if (!mounted) return;
       await call.joinGroupAudio(groupId: '${res['roomId'] ?? room}', title: title);
-    } catch (_) {
-      if (mounted) await call.joinGroupAudio(groupId: room, title: title);
+    } catch (error) {
+      if (mounted) setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
     }
+  }
+
+  // Any member: join an already-live voice chat.
+  Future<void> _joinConference() async {
+    final call = CallScope.maybeOf(context);
+    if (call == null || widget.session == null) return;
+    await call.joinGroupAudio(groupId: 'church:${widget.church.id}', title: '${widget.church.name} voice chat');
   }
 
   Future<void> _openEvent(Map<String, dynamic> item, bool canManage) async {

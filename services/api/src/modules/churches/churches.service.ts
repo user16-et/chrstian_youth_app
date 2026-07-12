@@ -3,18 +3,19 @@ import { AuthorizationService, PLATFORM_ADMIN_ROLES } from '../../common/authori
 import { ContentRepository } from '../../common/content.repository';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
+import { ConferenceRegistry } from '../../common/conference-registry';
 import { NotificationsService } from '../platform/notifications.service';
 import { ChurchOperationsRepository } from './church-operations.repository';
 
 @Injectable()
 export class ChurchesService {
-  constructor(private readonly operations:ChurchOperationsRepository,private readonly users:UserRepository,private readonly content:ContentRepository,private readonly queues:QueueProducer,private readonly authorization:AuthorizationService,private readonly notifications:NotificationsService){}
+  constructor(private readonly operations:ChurchOperationsRepository,private readonly users:UserRepository,private readonly content:ContentRepository,private readonly queues:QueueProducer,private readonly authorization:AuthorizationService,private readonly notifications:NotificationsService,private readonly conferences:ConferenceRegistry){}
 
-  // Start (or announce) a church audio conference. Any active member may start;
-  // other members are notified so they can join the church:<id> audio room.
+  // Start a church audio conference — admins only. Members are notified so they
+  // can join the live church:<id> audio room.
   async startConference(token:string,id:string,input:Record<string,unknown>){
     const u=await this.actor(token);
-    if(!await this.operations.isMember(u.id,id))throw new ForbiddenException('church_members_only');
+    await this.manager(u.id,id);
     const title=String(input.title??'').trim()||'Church conference';
     const recipients=await this.operations.conferenceMemberIds(id,u.id);
     for(const userId of recipients){
@@ -24,7 +25,7 @@ export class ChurchesService {
   }
   status(){return {module:'churches',ready:true};}
   list(input:{query?:string;city?:string;churchType?:string;verified?:boolean;limit?:number;offset?:number;paginated?:boolean}={}){return this.operations.list(input);}
-  async profile(id:string,token?:string){const user=token?await this.authorization.authenticate(token):null;const p=await this.operations.profile(id,user?.id);if(!p)throw new NotFoundException('church_not_found');return p;}
+  async profile(id:string,token?:string){const user=token?await this.authorization.authenticate(token):null;const p=await this.operations.profile(id,user?.id);if(!p)throw new NotFoundException('church_not_found');const room=`church:${id}`;return {...p,conferenceActive:this.conferences.isActive(room),conferenceCount:this.conferences.count(room)};}
   async create(token:string,input:Record<string,unknown>){const u=await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);this.text(input.name,'church_name_required');this.text(input.city,'church_city_required');const r=await this.operations.create(u.id,input);void this.queues.searchIndexing({entityType:'church',entityId:r.id,operation:'upsert'});return r;}
   async assignManager(token:string,id:string,input:Record<string,unknown>){const u=await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);this.text(input.userId,'church_manager_user_required');const role=String(input.role??'church_admin');if(!['pastor','church_admin','elder'].includes(role))throw new BadRequestException('invalid_church_manager_role');const existing=await this.operations.currentMembership(String(input.userId),id);if(existing)throw new BadRequestException('user_already_has_church_membership');const r=await this.operations.assignManager(u.id,id,{...input,role});if(!r)throw new NotFoundException('church_or_user_not_found');return r;}
   async assignBranchAdmin(token:string,id:string,branchId:string,input:Record<string,unknown>){const u=await this.actor(token);await this.manager(u.id,id);this.text(input.userId,'branch_admin_user_required');const existing=await this.operations.currentMembership(String(input.userId),id);if(existing)throw new BadRequestException('user_already_has_church_membership');const r=await this.operations.assignBranchAdmin(u.id,id,branchId,input);if(!r)throw new NotFoundException('church_branch_or_user_not_found');return r;}

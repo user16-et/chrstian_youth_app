@@ -4,16 +4,18 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
+import { ConferenceRegistry } from '../../common/conference-registry';
 import { CallService } from './call.service';
 
 type CallUser = { id: string; fullName: string; username: string };
-type AuthedSocket = Socket & { data: { user?: CallUser } };
+type AuthedSocket = Socket & { data: { user?: CallUser; conferenceRooms?: Set<string> } };
 
 /**
  * Signaling for WebRTC calls. This gateway carries invitations, presence, and
@@ -21,13 +23,26 @@ type AuthedSocket = Socket & { data: { user?: CallUser } };
  * never through the server. Used for 1:1 audio/video calls and group audio rooms.
  */
 @WebSocketGateway({ namespace: 'calls', cors: { origin: true, credentials: true } })
-export class CallGateway implements OnGatewayConnection {
+export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(CallGateway.name);
 
-  constructor(private readonly service: CallService) {}
+  constructor(
+    private readonly service: CallService,
+    private readonly conferences: ConferenceRegistry,
+  ) {}
+
+  handleDisconnect(client: AuthedSocket) {
+    const user = client.data.user;
+    const rooms = client.data.conferenceRooms;
+    if (!user || !rooms) return;
+    for (const groupId of rooms) {
+      this.conferences.leave(groupId, user.id);
+      client.to(this.groupRoom(groupId)).emit('peer:left', { groupId, peerId: user.id });
+    }
+  }
 
   async handleConnection(client: AuthedSocket) {
     const token = this.extractToken(client);
@@ -125,6 +140,8 @@ export class CallGateway implements OnGatewayConnection {
     const room = this.groupRoom(groupId);
     const peers = await this.peerIds(room, user.id);
     await client.join(room);
+    this.conferences.join(groupId, user.id);
+    (client.data.conferenceRooms ??= new Set()).add(groupId);
     // Existing peers initiate the offer toward the newcomer (avoids glare).
     client.to(room).emit('peer:joined', { groupId, peerId: user.id, user });
     return { ok: true, groupId, peers };
@@ -137,6 +154,8 @@ export class CallGateway implements OnGatewayConnection {
     if (!user || !groupId) return { ok: false, error: 'room_invalid' };
     const room = this.groupRoom(groupId);
     await client.leave(room);
+    this.conferences.leave(groupId, user.id);
+    client.data.conferenceRooms?.delete(groupId);
     client.to(room).emit('peer:left', { groupId, peerId: user.id });
     return { ok: true };
   }
