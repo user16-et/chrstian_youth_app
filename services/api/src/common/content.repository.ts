@@ -218,6 +218,7 @@ export interface PostViewRecord {
   shareCount: number;
   likedByMe: boolean;
   savedByMe: boolean;
+  authorFollowedByMe: boolean;
   hashtags: string[];
   mentions: string[];
   postType: string;
@@ -1232,6 +1233,7 @@ export class ContentRepository implements OnModuleInit {
               CASE WHEN $1::uuid IS NOT NULL AND EXISTS (
                 SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$1
               ) THEN true ELSE false END AS saved_by_me,
+              CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$1 AND uf.following_id=p.author_id) THEN true ELSE false END AS author_followed_by_me,
               CASE WHEN $1::uuid IS NULL THEN 0 ELSE
                 (CASE WHEN p.author_id=$1 THEN 100 ELSE 0 END) +
                 (CASE WHEN EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$1 AND uf.following_id=p.author_id) THEN 40 ELSE 0 END) +
@@ -1278,7 +1280,8 @@ export class ContentRepository implements OnModuleInit {
               COALESCE(fe.created_at,p.created_at) AS feed_created_at,
               p.created_at,p.like_count,p.comment_count,p.share_count,
               CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id=p.id AND pl.user_id=$1) THEN true ELSE false END AS liked_by_me,
-              CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$1) THEN true ELSE false END AS saved_by_me
+              CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$1) THEN true ELSE false END AS saved_by_me,
+              CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$1 AND uf.following_id=p.author_id) THEN true ELSE false END AS author_followed_by_me
        FROM feed_events fe
        JOIN posts p ON p.id=fe.source_id AND fe.source_type='post'
        JOIN users u ON u.id=p.author_id
@@ -1308,7 +1311,8 @@ export class ContentRepository implements OnModuleInit {
               COALESCE((SELECT reaction FROM post_reactions WHERE post_id=p.id AND $5::uuid IS NOT NULL AND user_id=$5), '') AS my_reaction,p.created_at AS feed_created_at,
               p.created_at,p.like_count,p.comment_count,p.share_count,
               CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id=p.id AND pl.user_id=$5) THEN true ELSE false END AS liked_by_me,
-              CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$5) THEN true ELSE false END AS saved_by_me
+              CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$5) THEN true ELSE false END AS saved_by_me,
+              CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$5 AND uf.following_id=p.author_id) THEN true ELSE false END AS author_followed_by_me
        FROM posts p
        JOIN users u ON u.id=p.author_id
        WHERE p.removed_at IS NULL AND ($1::text IS NULL OR p.language=$1)
@@ -3921,6 +3925,7 @@ export class ContentRepository implements OnModuleInit {
       shareCount: Number(row.share_count ?? 0),
       likedByMe: row.liked_by_me === true,
       savedByMe: row.saved_by_me === true,
+      authorFollowedByMe: row.author_followed_by_me === true,
       hashtags: this.extractTokens(String(row.body), /#[\p{L}\p{N}_]+/gu),
       mentions: this.extractTokens(String(row.body), /@[\p{L}\p{N}_]+/gu),
       postType: String(row.post_type ?? 'text'),

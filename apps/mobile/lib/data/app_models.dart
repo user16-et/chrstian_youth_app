@@ -1763,6 +1763,7 @@ class FeedItem {
     required this.shareCount,
     required this.likedByMe,
     this.savedByMe = false,
+    this.authorFollowedByMe = false,
     required this.hashtags,
     required this.mentions,
     this.postType = 'text',
@@ -1787,6 +1788,7 @@ class FeedItem {
   final int shareCount;
   final bool likedByMe;
   final bool savedByMe;
+  final bool authorFollowedByMe;
   final List<String> hashtags;
   final List<String> mentions;
   final String postType;
@@ -1810,6 +1812,7 @@ class FeedItem {
     int? shareCount,
     bool? likedByMe,
     bool? savedByMe,
+    bool? authorFollowedByMe,
     List<String>? hashtags,
     List<String>? mentions,
     String? postType,
@@ -1834,6 +1837,7 @@ class FeedItem {
       shareCount: shareCount ?? this.shareCount,
       likedByMe: likedByMe ?? this.likedByMe,
       savedByMe: savedByMe ?? this.savedByMe,
+      authorFollowedByMe: authorFollowedByMe ?? this.authorFollowedByMe,
       hashtags: hashtags ?? this.hashtags,
       mentions: mentions ?? this.mentions,
       postType: postType ?? this.postType,
@@ -1861,6 +1865,7 @@ class FeedItem {
       shareCount: json['shareCount'] as int? ?? 0,
       likedByMe: json['likedByMe'] == true,
       savedByMe: json['savedByMe'] == true,
+      authorFollowedByMe: json['authorFollowedByMe'] == true,
       hashtags: (json['hashtags'] as List<dynamic>? ?? const [])
           .map((value) => value.toString())
           .toList(),

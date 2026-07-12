@@ -358,6 +358,26 @@ class _FeedScreenState extends State<FeedScreen> {
         apiClient: widget.apiClient, userId: item.authorId, token: (token ?? '').isEmpty ? null : token);
   }
 
+  bool _showFollow(FeedItem item) {
+    final me = widget.session?.user.id ?? '';
+    return me.isNotEmpty && item.authorId.isNotEmpty && item.authorId != me && !_effective(item).authorFollowedByMe;
+  }
+
+  Future<void> _toggleFollowAuthor(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final current = _effective(item);
+    setState(() => _feedOverrides[item.id] = current.copyWith(authorFollowedByMe: true));
+    try {
+      await widget.apiClient.followUser(token: token, userId: item.authorId);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _feedOverrides[item.id] = current);
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
+  }
+
   static const List<String> _reactionEmojis = ['👍', '❤️', '🙏', '🎉', '😊', '😢'];
 
   Future<void> _showReactionBar(FeedItem item) async {
@@ -824,6 +844,12 @@ class _FeedScreenState extends State<FeedScreen> {
                                                   ]),
                                                 ),
                                               ),
+                                              if (_showFollow(item))
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      _toggleFollowAuthor(item),
+                                                  child: const Text('Follow'),
+                                                ),
                                               IconButton(
                                                 tooltip: item.savedByMe
                                                     ? 'Remove saved post'

@@ -52,6 +52,7 @@ export class FeedService {
         shareCount: post.shareCount,
         likedByMe: post.likedByMe,
         savedByMe: post.savedByMe,
+        authorFollowedByMe: post.authorFollowedByMe,
         hashtags: post.hashtags,
         mentions: post.mentions,
         postType: post.postType,
