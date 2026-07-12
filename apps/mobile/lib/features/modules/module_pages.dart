@@ -18,10 +18,42 @@ import 'live_chat_panel.dart';
 import 'prayer_growth_pages.dart';
 import 'relationship_social.dart';
 import 'stories_feed.dart';
+import 'user_profile_sheet.dart';
 
 String _shortDate(String value) {
   if (value.isEmpty) return '';
   return value.length >= 10 ? value.substring(0, 10) : value;
+}
+
+String _initialsOf(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return '?';
+  if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+  return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+}
+
+/// An inline feed action button (like / comment / share).
+class _FeedAction extends StatelessWidget {
+  const _FeedAction({required this.icon, required this.label, required this.color, required this.onTap});
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+            ]),
+          ),
+        ),
+      );
 }
 
 class ChurchScreen extends StatefulWidget {
@@ -268,6 +300,61 @@ class _FeedScreenState extends State<FeedScreen> {
   bool _savedOnly = false;
   bool _busy = false;
   String _status = '';
+  // Inline optimistic like/share overrides, keyed by post id, cleared on refresh.
+  final Map<String, FeedItem> _feedOverrides = {};
+
+  FeedItem _effective(FeedItem item) => _feedOverrides[item.id] ?? item;
+
+  Future<void> _toggleFeedLike(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final current = _effective(item);
+    final liked = current.likedByMe;
+    setState(() => _feedOverrides[item.id] = current.copyWith(
+          likedByMe: !liked,
+          likeCount: liked ? (current.likeCount > 0 ? current.likeCount - 1 : 0) : current.likeCount + 1,
+        ));
+    try {
+      if (liked) {
+        await widget.apiClient.unlikePost(token: token, postId: item.id);
+      } else {
+        await widget.apiClient.likePost(token: token, postId: item.id);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _feedOverrides[item.id] = current); // revert
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
+  }
+
+  Future<void> _shareFeed(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final current = _effective(item);
+    setState(() => _feedOverrides[item.id] = current.copyWith(shareCount: current.shareCount + 1));
+    try {
+      await widget.apiClient.sharePost(token: token, postId: item.id);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _feedOverrides[item.id] = current);
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
+  }
+
+  void _openAuthor(FeedItem item) {
+    if (item.authorId.isEmpty) return;
+    final token = widget.session?.token;
+    showUserProfileSheet(context,
+        apiClient: widget.apiClient, userId: item.authorId, token: (token ?? '').isEmpty ? null : token);
+  }
 
   @override
   void dispose() {
@@ -435,7 +522,10 @@ class _FeedScreenState extends State<FeedScreen> {
                         mention.toLowerCase().contains(_query.toLowerCase())))
                 .toList();
         return RefreshIndicator(
-          onRefresh: widget.onDataChanged,
+          onRefresh: () async {
+            setState(_feedOverrides.clear);
+            await widget.onDataChanged();
+          },
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(20),
@@ -618,46 +708,64 @@ class _FeedScreenState extends State<FeedScreen> {
                                         children: [
                                           Row(
                                             children: [
-                                              CircleAvatar(
-                                                radius: 20,
-                                                backgroundColor:
-                                                    Theme.of(context)
-                                                        .colorScheme
-                                                        .primaryContainer,
-                                                child: Icon(
-                                                  item.language == 'am'
-                                                      ? Icons.translate_rounded
-                                                      : Icons
-                                                          .dynamic_feed_rounded,
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .onPrimaryContainer,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 12),
                                               Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(item.author,
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: Theme.of(context)
-                                                            .textTheme
-                                                            .titleMedium),
-                                                    const SizedBox(height: 2),
-                                                    Text(
-                                                      item.createdAt.isEmpty
-                                                          ? item.language
-                                                              .toUpperCase()
-                                                          : '${_shortDate(item.createdAt)} • ${item.language.toUpperCase()}',
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
+                                                child: InkWell(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  onTap: item.authorId.isEmpty
+                                                      ? null
+                                                      : () => _openAuthor(item),
+                                                  child: Row(children: [
+                                                    CircleAvatar(
+                                                      radius: 20,
+                                                      backgroundColor: Theme.of(
+                                                              context)
+                                                          .colorScheme
+                                                          .primaryContainer,
+                                                      child: Text(
+                                                        _initialsOf(item.author),
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: Theme.of(context)
+                                                              .colorScheme
+                                                              .onPrimaryContainer,
+                                                        ),
+                                                      ),
                                                     ),
-                                                  ],
+                                                    const SizedBox(width: 12),
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(item.author,
+                                                              maxLines: 1,
+                                                              overflow:
+                                                                  TextOverflow
+                                                                      .ellipsis,
+                                                              style: Theme.of(
+                                                                      context)
+                                                                  .textTheme
+                                                                  .titleMedium),
+                                                          const SizedBox(
+                                                              height: 2),
+                                                          Text(
+                                                            item.createdAt
+                                                                    .isEmpty
+                                                                ? item.language
+                                                                    .toUpperCase()
+                                                                : '${_shortDate(item.createdAt)} • ${item.language.toUpperCase()}',
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ]),
                                                 ),
                                               ),
                                               IconButton(
@@ -759,27 +867,51 @@ class _FeedScreenState extends State<FeedScreen> {
                                               ],
                                             ),
                                           ],
-                                          const SizedBox(height: 12),
-                                          Row(
-                                            children: [
-                                              _SocialStat(
-                                                  icon: item.likedByMe
-                                                      ? Icons.favorite_rounded
-                                                      : Icons
-                                                          .favorite_border_rounded,
-                                                  label: '${item.likeCount}'),
-                                              const SizedBox(width: 10),
-                                              _SocialStat(
-                                                  icon: Icons
-                                                      .mode_comment_outlined,
-                                                  label:
-                                                      '${item.commentCount}'),
-                                              const SizedBox(width: 10),
-                                              _SocialStat(
-                                                  icon: Icons.ios_share_rounded,
-                                                  label: '${item.shareCount}'),
-                                            ],
-                                          ),
+                                          const SizedBox(height: 6),
+                                          const Divider(height: 1),
+                                          Builder(builder: (context) {
+                                            final eff = _effective(item);
+                                            final onSurfaceVariant =
+                                                Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurfaceVariant;
+                                            return Row(children: [
+                                              _FeedAction(
+                                                icon: eff.likedByMe
+                                                    ? Icons.favorite_rounded
+                                                    : Icons
+                                                        .favorite_border_rounded,
+                                                label: eff.likeCount > 0
+                                                    ? '${eff.likeCount}'
+                                                    : 'Like',
+                                                color: eff.likedByMe
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .error
+                                                    : onSurfaceVariant,
+                                                onTap: () =>
+                                                    _toggleFeedLike(item),
+                                              ),
+                                              _FeedAction(
+                                                icon:
+                                                    Icons.mode_comment_outlined,
+                                                label: eff.commentCount > 0
+                                                    ? '${eff.commentCount}'
+                                                    : 'Comment',
+                                                color: onSurfaceVariant,
+                                                onTap: () => _openPostActions(
+                                                    context, item),
+                                              ),
+                                              _FeedAction(
+                                                icon: Icons.ios_share_rounded,
+                                                label: eff.shareCount > 0
+                                                    ? '${eff.shareCount}'
+                                                    : 'Share',
+                                                color: onSurfaceVariant,
+                                                onTap: () => _shareFeed(item),
+                                              ),
+                                            ]);
+                                          }),
                                         ],
                                       ),
                                     ),
@@ -9413,32 +9545,6 @@ class _VerseCard extends StatelessWidget {
             Text(text, maxLines: 4, overflow: TextOverflow.ellipsis),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SocialStat extends StatelessWidget {
-  const _SocialStat({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 6),
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        ],
       ),
     );
   }
