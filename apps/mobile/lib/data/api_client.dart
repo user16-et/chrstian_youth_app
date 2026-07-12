@@ -398,6 +398,13 @@ class ApiClient {
     );
   }
 
+  // Announce a church audio conference (notifies members); returns { roomId, title }.
+  Future<Map<String, dynamic>> startChurchConference(String token, String churchId, {String title = ''}) async {
+    final response = await _postJson('/churches/$churchId/conference', {'title': title},
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
   Future<List<ChurchMemberItem>> fetchChurchMembers(String churchId) async {
     final response = await _getJson('/churches/$churchId/members');
     return (response as List<dynamic>)

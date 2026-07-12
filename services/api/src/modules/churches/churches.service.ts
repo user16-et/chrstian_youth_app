@@ -3,11 +3,25 @@ import { AuthorizationService, PLATFORM_ADMIN_ROLES } from '../../common/authori
 import { ContentRepository } from '../../common/content.repository';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
+import { NotificationsService } from '../platform/notifications.service';
 import { ChurchOperationsRepository } from './church-operations.repository';
 
 @Injectable()
 export class ChurchesService {
-  constructor(private readonly operations:ChurchOperationsRepository,private readonly users:UserRepository,private readonly content:ContentRepository,private readonly queues:QueueProducer,private readonly authorization:AuthorizationService){}
+  constructor(private readonly operations:ChurchOperationsRepository,private readonly users:UserRepository,private readonly content:ContentRepository,private readonly queues:QueueProducer,private readonly authorization:AuthorizationService,private readonly notifications:NotificationsService){}
+
+  // Start (or announce) a church audio conference. Any active member may start;
+  // other members are notified so they can join the church:<id> audio room.
+  async startConference(token:string,id:string,input:Record<string,unknown>){
+    const u=await this.actor(token);
+    if(!await this.operations.isMember(u.id,id))throw new ForbiddenException('church_members_only');
+    const title=String(input.title??'').trim()||'Church conference';
+    const recipients=await this.operations.conferenceMemberIds(id,u.id);
+    for(const userId of recipients){
+      void this.notifications.send({userId,actorId:u.id,type:'church_conference',title:'Church conference',body:`${u.fullName} started an audio conference. Tap to join.`,targetType:'church',targetId:id,priority:'high',channels:['in_app','push'],dedupeKey:`church_conference:${id}:${userId}:${Math.floor(Date.now()/300000)}`}).catch(()=>undefined);
+    }
+    return {roomId:`church:${id}`,kind:'church_audio',title};
+  }
   status(){return {module:'churches',ready:true};}
   list(input:{query?:string;city?:string;churchType?:string;verified?:boolean;limit?:number;offset?:number;paginated?:boolean}={}){return this.operations.list(input);}
   async profile(id:string,token?:string){const user=token?await this.authorization.authenticate(token):null;const p=await this.operations.profile(id,user?.id);if(!p)throw new NotFoundException('church_not_found');return p;}

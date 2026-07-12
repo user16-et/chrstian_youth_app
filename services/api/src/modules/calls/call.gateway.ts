@@ -119,7 +119,7 @@ export class CallGateway implements OnGatewayConnection {
   async roomJoin(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
     const user = client.data.user;
     const groupId = String(body?.groupId ?? '').trim();
-    if (!user || !groupId || !(await this.service.canUseGroup(user.id, groupId))) {
+    if (!user || !groupId || !(await this.service.canUseRoom(user.id, groupId))) {
       return { ok: false, error: 'group_access_denied' };
     }
     const room = this.groupRoom(groupId);

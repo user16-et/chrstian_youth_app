@@ -35,6 +35,16 @@ export class CallService {
     return this.life.isGroupMember(userId, groupId);
   }
 
+  canUseChurch(userId: string, churchId: string) {
+    return this.life.isChurchMember(userId, churchId);
+  }
+
+  // A conference room id is either a plain group id or a scoped "church:<id>".
+  canUseRoom(userId: string, roomId: string) {
+    if (roomId.startsWith('church:')) return this.canUseChurch(userId, roomId.slice('church:'.length));
+    return this.canUseGroup(userId, roomId);
+  }
+
   /**
    * ICE servers for peer-to-peer connectivity. A public STUN server is enough
    * for NAT discovery; a TURN relay (configured via env) is optional but

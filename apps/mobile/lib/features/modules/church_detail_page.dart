@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/call_controller.dart';
 import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 
@@ -338,8 +339,22 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                   widget.onDataChanged();
                 },
               ),
-              // Community panel: members-only group chat (any active member posts).
+              // Community panel: members-only group chat + audio conference.
               _tab('community', [
+                if (membership != null)
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                        child: Icon(Icons.headset_mic_rounded, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                      ),
+                      title: const Text('Audio conference'),
+                      subtitle: const Text('Talk live with members'),
+                      trailing: FilledButton(onPressed: _startConference, child: const Text('Join')),
+                      onTap: _startConference,
+                    ),
+                  ),
                 LiveChatPanel(
                   apiClient: widget.apiClient,
                   session: widget.session,
@@ -722,6 +737,26 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
         () => widget.apiClient.createChurchContent(widget.session!.token, widget.church.id, kind, input),
         '$label added.',
       );
+    }
+  }
+
+  Future<void> _startConference() async {
+    final session = widget.session;
+    final call = CallScope.maybeOf(context);
+    if (session == null || call == null) {
+      setState(() => _status = 'Sign in to join the conference.');
+      return;
+    }
+    final churchName = widget.church.name;
+    final room = 'church:${widget.church.id}';
+    final title = '$churchName conference';
+    // Notify members (best-effort), then join the audio room either way.
+    try {
+      final res = await widget.apiClient.startChurchConference(session.token, widget.church.id, title: title);
+      if (!mounted) return;
+      await call.joinGroupAudio(groupId: '${res['roomId'] ?? room}', title: title);
+    } catch (_) {
+      if (mounted) await call.joinGroupAudio(groupId: room, title: title);
     }
   }
 

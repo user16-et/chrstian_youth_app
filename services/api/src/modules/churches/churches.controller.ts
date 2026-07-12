@@ -49,6 +49,7 @@ export class ChurchesController {
   @ApiBearerAuth() @Post('/:id/attendance-sessions') attendance(@Headers('authorization')h:string|undefined,@Param('id')id:string,@Body()b:Record<string,unknown>){return this.service.manage(token(h),id,'attendance-sessions',b??{});}
   @ApiBearerAuth() @Patch('/:id/members/:userId/role') setMemberRole(@Headers('authorization')h:string|undefined,@Param('id')id:string,@Param('userId')userId:string,@Body()b:Record<string,unknown>){return this.service.setMemberRole(token(h),id,userId,String(b?.role??''));}
   @ApiBearerAuth() @Delete('/:id/members/:userId') removeMember(@Headers('authorization')h:string|undefined,@Param('id')id:string,@Param('userId')userId:string){return this.service.removeMember(token(h),id,userId);}
+  @ApiBearerAuth() @Post('/:id/conference') conference(@Headers('authorization')h:string|undefined,@Param('id')id:string,@Body()b:Record<string,unknown>){return this.service.startConference(token(h),id,b??{});}
   @ApiBearerAuth() @Patch('/:id/:kind/:itemId') updateManaged(@Headers('authorization')h:string|undefined,@Param('id')id:string,@Param('kind')kind:string,@Param('itemId')itemId:string,@Body()b:Record<string,unknown>){return this.service.updateManaged(token(h),id,kind,itemId,b??{});}
   @ApiBearerAuth() @Delete('/:id/:kind/:itemId') deleteManaged(@Headers('authorization')h:string|undefined,@Param('id')id:string,@Param('kind')kind:string,@Param('itemId')itemId:string){return this.service.deleteManaged(token(h),id,kind,itemId);}
 }
