@@ -599,35 +599,10 @@ class PillarDetailScreen extends StatelessWidget {
           _x(
               en ? 'Bible study hub' : 'የመጽሐፍ ቅዱስ ጥናት',
               en
-                  ? 'Verses, plans, search, notes and highlights'
-                  : 'ጥቅሶች፣ እቅዶች፣ ፍለጋ፣ ማስታወሻ እና ማድመቂያ',
+                  ? 'Verses, reading plans, study groups, notes and highlights'
+                  : 'ጥቅሶች፣ የንባብ እቅዶች፣ የጥናት ቡድኖች፣ ማስታወሻ እና ማድመቂያ',
               Icons.auto_stories_rounded,
               bible),
-          _x(
-              en ? 'Testimonies' : 'ምስክርነቶች',
-              en
-                  ? 'Share and discover stories of faith'
-                  : 'የእምነት ታሪኮችን አጋራ እና ፈልግ',
-              Icons.record_voice_over_rounded,
-              () => StoriesScreen(
-                  language: language,
-                  apiClient: apiClient,
-                  session: session,
-                  onDataChanged: onDataChanged)),
-          _x(
-              en ? 'Sermons and media' : 'ስብከቶች እና ሚዲያ',
-              en
-                  ? 'Video, audio and teaching resources'
-                  : 'ቪዲዮ፣ ድምጽ እና የትምህርት ግብዓቶች',
-              Icons.play_circle_rounded,
-              media),
-          _x(
-              en ? 'Shared studies' : 'የጋራ ጥናት',
-              en
-                  ? 'Group plans, shared notes and discussions'
-                  : 'የቡድን እቅዶች፣ ማስታወሻ እና ውይይት',
-              Icons.groups_rounded,
-              session == null ? null : connected),
         ],
       AppPillar.community => [
           _x(
@@ -649,6 +624,17 @@ class PillarDetailScreen extends StatelessWidget {
                   : 'ማህበረሰቦችን ተቀላቀል እና አማኞችን አግኝ',
               Icons.groups_rounded,
               groups),
+          _x(
+              en ? 'Testimonies' : 'ምስክርነቶች',
+              en
+                  ? 'Share and discover stories of faith'
+                  : 'የእምነት ታሪኮችን አጋራ እና ፈልግ',
+              Icons.record_voice_over_rounded,
+              () => StoriesScreen(
+                  language: language,
+                  apiClient: apiClient,
+                  session: session,
+                  onDataChanged: onDataChanged)),
           _x(
               en ? 'Prayer network' : 'የጸሎት መረብ',
               en
