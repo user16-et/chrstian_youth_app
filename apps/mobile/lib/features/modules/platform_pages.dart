@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../i18n/app_i18n.dart';
+import 'group_detail_screen.dart';
 
 class GlobalSearchScreen extends StatefulWidget {
   const GlobalSearchScreen({
@@ -196,6 +197,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
+  // Notifications targeting a group/channel open it directly.
+  bool _canOpen(NotificationItem item) {
+    final tt = item.targetType ?? '';
+    return (item.targetId ?? '').isNotEmpty && (tt == 'group' || tt == 'group_meeting');
+  }
+
+  void _openTarget(NotificationItem item) {
+    if (!_canOpen(item)) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => GroupChannelScreen(
+        apiClient: widget.apiClient,
+        token: widget.token,
+        groupId: item.targetId!,
+        language: widget.language,
+      ),
+    ));
+  }
+
   IconData _notificationIcon(String type) {
     if (type.contains('message')) return Icons.chat_bubble_rounded;
     if (type.contains('friend')) return Icons.handshake_rounded;
@@ -308,9 +327,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ],
                         ),
                         trailing: item.isRead
-                            ? null
+                            ? (_canOpen(item) ? const Icon(Icons.chevron_right_rounded) : null)
                             : const Icon(Icons.circle, size: 10),
-                        onTap: () => _markRead(item),
+                        onTap: () {
+                          _markRead(item);
+                          _openTarget(item);
+                        },
                       ),
                     );
                   },
