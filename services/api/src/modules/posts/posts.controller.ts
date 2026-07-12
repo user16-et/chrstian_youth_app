@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Headers, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import { requireBearerToken } from '../../common/request-auth';
+import { parseBearerToken, requireBearerToken } from '../../common/request-auth';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
 
@@ -19,6 +19,12 @@ export class PostsController {
   @Get()
   list(@Headers('authorization') authorization?: string) {
     return this.postsService.list(authorization ? requireBearerToken(authorization) : undefined);
+  }
+
+  @ApiOperation({ summary: 'Get a single post' })
+  @Get('/:id')
+  getById(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.postsService.getById(parseBearerToken(authorization) ?? undefined, id);
   }
 
   @ApiBearerAuth()

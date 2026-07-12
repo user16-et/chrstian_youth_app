@@ -54,6 +54,12 @@ class ApiClient {
     return items.cast<Map<String, dynamic>>().map(FeedItem.fromJson).toList();
   }
 
+  Future<FeedItem> fetchPostById(String postId, {String? token}) async {
+    final response = await _getJson('/posts/$postId',
+        headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});
+    return FeedItem.fromJson(response as Map<String, dynamic>);
+  }
+
   Future<List<PostCommentItem>> fetchPostComments(String postId) async {
     final response = await _getJson('/posts/$postId/comments');
     return (response as List<dynamic>)

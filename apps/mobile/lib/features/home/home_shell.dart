@@ -427,7 +427,8 @@ class _AppHeader extends StatelessWidget implements PreferredSizeWidget {
                       builder: (_) => NotificationsScreen(
                           language: language,
                           apiClient: apiClient,
-                          token: token)),
+                          token: token,
+                          session: session)),
                 )
                     .then((changed) {
                   if (changed == true) onNotificationsChanged();

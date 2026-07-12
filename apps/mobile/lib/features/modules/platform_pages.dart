@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../i18n/app_i18n.dart';
+import 'church_detail_page.dart';
 import 'group_detail_screen.dart';
+import 'module_pages.dart';
 import 'user_profile_sheet.dart';
 
 class GlobalSearchScreen extends StatefulWidget {
@@ -152,11 +154,13 @@ class NotificationsScreen extends StatefulWidget {
     required this.language,
     required this.apiClient,
     required this.token,
+    this.session,
   });
 
   final AppLanguage language;
   final ApiClient apiClient;
   final String token;
+  final AuthResult? session;
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -198,27 +202,62 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
-  bool _isGroupTarget(NotificationItem item) {
-    final tt = item.targetType ?? '';
-    return (item.targetId ?? '').isNotEmpty && (tt == 'group' || tt == 'group_meeting');
-  }
+  bool _isType(NotificationItem item, List<String> types) =>
+      (item.targetId ?? '').isNotEmpty && types.contains(item.targetType ?? '');
 
-  // A group notification opens the group; a person notification (follow, comment,
-  // reaction, membership) opens the actor's profile.
-  bool _canOpen(NotificationItem item) => _isGroupTarget(item) || (item.actorId ?? '').isNotEmpty;
+  // Route a notification to its subject: the group, church, post, or — failing a
+  // navigable target — the actor's profile.
+  bool _canOpen(NotificationItem item) =>
+      _isType(item, ['group', 'group_meeting', 'church', 'church_membership', 'post']) ||
+      (item.actorId ?? '').isNotEmpty;
 
   void _openTarget(NotificationItem item) {
-    if (_isGroupTarget(item)) {
+    final id = item.targetId ?? '';
+    if (_isType(item, ['group', 'group_meeting'])) {
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => GroupChannelScreen(
           apiClient: widget.apiClient,
           token: widget.token,
-          groupId: item.targetId!,
+          groupId: id,
           language: widget.language,
         ),
       ));
+    } else if (_isType(item, ['church', 'church_membership'])) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ChurchDetailScreen(
+          language: widget.language,
+          apiClient: widget.apiClient,
+          church: ChurchItem(id: id, name: item.title, city: '', verified: false),
+          session: widget.session,
+          onDataChanged: () async {},
+        ),
+      ));
+    } else if (_isType(item, ['post'])) {
+      _openPost(id);
     } else if ((item.actorId ?? '').isNotEmpty) {
       showUserProfileSheet(context, apiClient: widget.apiClient, userId: item.actorId!, token: widget.token);
+    }
+  }
+
+  Future<void> _openPost(String id) async {
+    try {
+      final post = await widget.apiClient.fetchPostById(id, token: widget.token);
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => PostDetailScreen(
+          language: widget.language,
+          item: post,
+          apiClient: widget.apiClient,
+          session: widget.session,
+          onReport: () async {},
+          onDataChanged: () async {},
+        ),
+      ));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
     }
   }
 

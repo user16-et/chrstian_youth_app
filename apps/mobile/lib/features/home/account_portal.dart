@@ -269,7 +269,8 @@ class _AccountPortalState extends State<AccountPortal> {
             onNotifications: () => _open(NotificationsScreen(
                 language: widget.language,
                 apiClient: widget.apiClient,
-                token: session.token)),
+                token: session.token,
+                session: session)),
             onSignOut: () {
               unawaited(
                   widget.apiClient.logout(session.token).catchError((_) {}));

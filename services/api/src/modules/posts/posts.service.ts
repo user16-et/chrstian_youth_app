@@ -22,6 +22,38 @@ export class PostsService {
     };
   }
 
+  // A single post in the same shape as feed items (for deep-links).
+  async getById(actorToken: string | undefined, postId: string) {
+    const viewer = actorToken ? await this.userRepository.authenticate(actorToken) : null;
+    const post = await this.contentRepository.getPostById(postId, viewer?.id ?? undefined);
+    if (!post) throw new NotFoundException('post_not_found');
+    return {
+      id: post.id,
+      author: post.authorName,
+      authorId: post.authorId,
+      title: post.body,
+      body: post.body,
+      language: post.language,
+      createdAt: post.createdAt,
+      likeCount: post.likeCount,
+      commentCount: post.commentCount,
+      shareCount: post.shareCount,
+      likedByMe: post.likedByMe,
+      savedByMe: post.savedByMe,
+      authorFollowedByMe: post.authorFollowedByMe,
+      hashtags: post.hashtags,
+      mentions: post.mentions,
+      postType: post.postType,
+      mediaUrls: post.mediaUrls,
+      mediaType: post.mediaType,
+      repostOf: post.repostOf,
+      reactionCounts: post.reactionCounts,
+      myReaction: post.myReaction,
+      pollQuestion: post.pollQuestion,
+      pollOptions: post.pollOptions,
+    };
+  }
+
   async list(actorToken?: string) {
     await (actorToken ? this.userRepository.authenticate(actorToken) : Promise.resolve(null));
     const rows = await this.contentRepository.listPublicFeedPage({ limit: 50 });

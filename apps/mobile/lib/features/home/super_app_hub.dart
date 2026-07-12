@@ -824,7 +824,8 @@ class PillarDetailScreen extends StatelessWidget {
                   : () => NotificationsScreen(
                       language: language,
                       apiClient: apiClient,
-                      token: session!.token)),
+                      token: session!.token,
+                      session: session)),
           _x(
               en ? 'Verification and devices' : 'ማረጋገጫ እና መሳሪያዎች',
               en
