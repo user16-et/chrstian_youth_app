@@ -9,6 +9,7 @@ import '../../data/call_client.dart';
 import '../../data/call_controller.dart';
 import '../../data/live_chat_client.dart';
 import '../../i18n/app_i18n.dart';
+import 'user_profile_sheet.dart';
 
 class LiveChatPanel extends StatefulWidget {
   const LiveChatPanel({
@@ -425,49 +426,8 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
 
   Future<void> _showProfile(String userId) async {
     if (userId.isEmpty) return;
-    try {
-      final profile = await widget.apiClient.fetchPublicProfile(userId);
-      if (!mounted) return;
-      final user = profile['user'] as Map? ?? profile;
-      final fullName = user['fullName']?.toString() ?? _t('Profile', 'መገለጫ');
-      final username = user['username']?.toString() ?? '';
-      final church = (profile['church'] as Map?)?['name']?.toString() ?? '';
-      await showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        builder: (context) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(fullName, style: Theme.of(context).textTheme.titleLarge),
-              if (username.isNotEmpty) Text('@$username'),
-              if (church.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Chip(
-                    label: Text(church,
-                        maxLines: 1, overflow: TextOverflow.ellipsis)),
-              ],
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _openDirectChat(userId, fullName);
-                },
-                icon: const Icon(Icons.chat_bubble_outline),
-                label: Text(_t('Chat', 'ቻት')),
-              ),
-            ],
-          ),
-        ),
-      );
-    } catch (error) {
-      if (mounted) {
-        setState(() =>
-            _status = error.toString().replaceFirst('HttpException: ', ''));
-      }
-    }
+    await showUserProfileSheet(context,
+        apiClient: widget.apiClient, userId: userId, token: widget.session?.token);
   }
 
   Future<void> _openDirectChat(String userId, String name) async {
@@ -723,6 +683,9 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
                               seenCount: mine ? _seenCount(message) : 0,
                               recipientCount: mine ? _recipientCount : 0,
                               onLongPress: () => _messageActions(message),
+                              onAuthorTap: mine
+                                  ? null
+                                  : () => _showProfile(message['authorId']?.toString() ?? ''),
                             );
                           },
                         ),
@@ -831,6 +794,7 @@ class _MessageBubble extends StatelessWidget {
     required this.seenCount,
     required this.recipientCount,
     required this.onLongPress,
+    this.onAuthorTap,
   });
 
   final Map<String, dynamic> message;
@@ -838,6 +802,7 @@ class _MessageBubble extends StatelessWidget {
   final int seenCount;
   final int recipientCount;
   final VoidCallback onLongPress;
+  final VoidCallback? onAuthorTap;
 
   @override
   Widget build(BuildContext context) {
@@ -873,13 +838,16 @@ class _MessageBubble extends StatelessWidget {
                     mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                 children: [
                   if (!mine && author.isNotEmpty) ...[
-                    Text(
-                      author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.primary,
-                        fontWeight: FontWeight.w700,
+                    GestureDetector(
+                      onTap: onAuthorTap,
+                      child: Text(
+                        author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 3),
