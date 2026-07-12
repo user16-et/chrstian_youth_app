@@ -34,16 +34,18 @@ String _initialsOf(String name) {
 
 /// An inline feed action button (like / comment / share).
 class _FeedAction extends StatelessWidget {
-  const _FeedAction({required this.icon, required this.label, required this.color, required this.onTap});
+  const _FeedAction({required this.icon, required this.label, required this.color, required this.onTap, this.onLongPress});
   final IconData icon;
   final String label;
   final Color color;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) => Expanded(
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -354,6 +356,60 @@ class _FeedScreenState extends State<FeedScreen> {
     final token = widget.session?.token;
     showUserProfileSheet(context,
         apiClient: widget.apiClient, userId: item.authorId, token: (token ?? '').isEmpty ? null : token);
+  }
+
+  static const List<String> _reactionEmojis = ['👍', '❤️', '🙏', '🎉', '😊', '😢'];
+
+  Future<void> _showReactionBar(FeedItem item) async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              for (final e in _reactionEmojis)
+                InkWell(
+                  borderRadius: BorderRadius.circular(28),
+                  onTap: () => Navigator.pop(context, e),
+                  child: Padding(padding: const EdgeInsets.all(8), child: Text(e, style: const TextStyle(fontSize: 30))),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (chosen != null) await _reactFeed(item, chosen);
+  }
+
+  Future<void> _reactFeed(FeedItem item, String emoji) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final current = _effective(item);
+    final counts = Map<String, int>.from(current.reactionCounts);
+    final prev = current.myReaction;
+    if (prev.isNotEmpty) {
+      final n = (counts[prev] ?? 1) - 1;
+      if (n <= 0) {
+        counts.remove(prev);
+      } else {
+        counts[prev] = n;
+      }
+    }
+    if (prev != emoji) counts[emoji] = (counts[emoji] ?? 0) + 1;
+    setState(() => _feedOverrides[item.id] = current.copyWith(myReaction: emoji, reactionCounts: counts));
+    try {
+      await widget.apiClient.reactToPost(token, item.id, emoji);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _feedOverrides[item.id] = current);
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
   }
 
   @override
@@ -868,29 +924,66 @@ class _FeedScreenState extends State<FeedScreen> {
                                             ),
                                           ],
                                           const SizedBox(height: 6),
-                                          const Divider(height: 1),
                                           Builder(builder: (context) {
                                             final eff = _effective(item);
                                             final onSurfaceVariant =
                                                 Theme.of(context)
                                                     .colorScheme
                                                     .onSurfaceVariant;
-                                            return Row(children: [
+                                            return Column(children: [
+                                              if (eff.reactionCounts.isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          bottom: 6),
+                                                  child: Row(children: [
+                                                    for (final e in eff
+                                                        .reactionCounts.keys
+                                                        .take(4))
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .only(right: 2),
+                                                        child: Text(e,
+                                                            style:
+                                                                const TextStyle(
+                                                                    fontSize:
+                                                                        15)),
+                                                      ),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                        '${eff.reactionCounts.values.fold<int>(0, (a, b) => a + b)}',
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color:
+                                                                onSurfaceVariant)),
+                                                  ]),
+                                                ),
+                                              const Divider(height: 1),
+                                              Row(children: [
                                               _FeedAction(
-                                                icon: eff.likedByMe
-                                                    ? Icons.favorite_rounded
-                                                    : Icons
-                                                        .favorite_border_rounded,
-                                                label: eff.likeCount > 0
-                                                    ? '${eff.likeCount}'
-                                                    : 'Like',
-                                                color: eff.likedByMe
+                                                icon: eff.myReaction.isNotEmpty
+                                                    ? Icons.emoji_emotions_rounded
+                                                    : (eff.likedByMe
+                                                        ? Icons.favorite_rounded
+                                                        : Icons
+                                                            .favorite_border_rounded),
+                                                label: eff.myReaction.isNotEmpty
+                                                    ? eff.myReaction
+                                                    : (eff.likeCount > 0
+                                                        ? '${eff.likeCount}'
+                                                        : 'Like'),
+                                                color: (eff.likedByMe ||
+                                                        eff.myReaction
+                                                            .isNotEmpty)
                                                     ? Theme.of(context)
                                                         .colorScheme
                                                         .error
                                                     : onSurfaceVariant,
                                                 onTap: () =>
                                                     _toggleFeedLike(item),
+                                                onLongPress: () =>
+                                                    _showReactionBar(item),
                                               ),
                                               _FeedAction(
                                                 icon:
@@ -910,6 +1003,7 @@ class _FeedScreenState extends State<FeedScreen> {
                                                 color: onSurfaceVariant,
                                                 onTap: () => _shareFeed(item),
                                               ),
+                                            ]),
                                             ]);
                                           }),
                                         ],
