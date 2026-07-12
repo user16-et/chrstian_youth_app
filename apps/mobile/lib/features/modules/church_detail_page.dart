@@ -251,7 +251,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                     Tab(icon: Icon(Icons.info_outline_rounded), text: 'About'),
                     Tab(icon: Icon(Icons.play_circle_outline_rounded), text: 'Sermons'),
                     Tab(icon: Icon(Icons.groups_rounded), text: 'Members'),
-                    Tab(icon: Icon(Icons.forum_outlined), text: 'Chat'),
+                    Tab(icon: Icon(Icons.forum_outlined), text: 'Community'),
                   ],
                 ),
               ),
@@ -291,6 +291,10 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                   branches: branches,
                   groups: groups,
                   resources: resources,
+                  canManage: canManage,
+                  onAdd: canManage ? (kind) => _manageItem(kind) : null,
+                  onEdit: canManage ? (kind, item) => _manageItem(kind, existing: item) : null,
+                  onDelete: canManage ? (kind, item) => _deleteContent(kind, item) : null,
                 ),
               ]),
               // Sermons panel.
@@ -323,15 +327,15 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
                   widget.onDataChanged();
                 },
               ),
-              // Chat panel.
-              _tab('chat', [
+              // Community panel: members-only group chat (any active member posts).
+              _tab('community', [
                 LiveChatPanel(
                   apiClient: widget.apiClient,
                   session: widget.session,
                   language: widget.language,
                   scopeType: 'church',
                   scopeId: widget.church.id,
-                  title: '${widget.church.name} chat',
+                  title: '${widget.church.name} community',
                 ),
               ]),
             ],
@@ -445,13 +449,20 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
     }
   }
 
+  String _kindNoun(String kind) => switch (kind) {
+        'announcements' => 'announcement',
+        'sermons' => 'sermon',
+        'service-schedules' => 'service time',
+        'ministries' => 'ministry',
+        'events' => 'event',
+        'branches' => 'branch',
+        'resources' => 'resource',
+        _ => 'post',
+      };
+
   Future<void> _deleteContent(String kind, Map<String, dynamic> item) async {
     if (widget.session == null) return;
-    final noun = switch (kind) {
-      'announcements' => 'announcement',
-      'sermons' => 'sermon',
-      _ => 'post',
-    };
+    final noun = _kindNoun(kind);
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -539,7 +550,168 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
       );
     }
   }
+
+  // Generic add/edit form for the About-tab managed sections.
+  Future<void> _manageItem(String kind, {Map<String, dynamic>? existing}) async {
+    if (widget.session == null) {
+      setState(() => _status = 'Log in to continue.');
+      return;
+    }
+    final specs = _churchFieldSpecs[kind];
+    if (specs == null) return;
+    final editing = existing != null;
+    final noun = _kindNoun(kind);
+    final controllers = {
+      for (final f in specs) f.key: TextEditingController(text: editing ? '${existing[f.from] ?? ''}' : ''),
+    };
+    final isEvent = kind == 'events';
+    DateTime? startsAt = isEvent && editing ? DateTime.tryParse('${existing['starts_at'] ?? ''}')?.toLocal() : null;
+    InputDecoration dec(String label) => InputDecoration(labelText: label, border: const OutlineInputBorder(), alignLabelWithHint: true);
+
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: StatefulBuilder(
+          builder: (context, setSheet) => SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('${editing ? 'Edit' : 'New'} $noun', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 14),
+                for (final f in specs) ...[
+                  TextField(
+                    controller: controllers[f.key],
+                    minLines: f.multiline ? 2 : 1,
+                    maxLines: f.multiline ? 5 : 1,
+                    keyboardType: f.number
+                        ? TextInputType.number
+                        : f.key.toLowerCase().contains('url')
+                            ? TextInputType.url
+                            : TextInputType.text,
+                    textCapitalization: f.multiline ? TextCapitalization.sentences : TextCapitalization.words,
+                    decoration: dec(f.required ? '${f.label} *' : f.label),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (isEvent) ...[
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await _pickDateTime(context, startsAt);
+                      if (picked != null) setSheet(() => startsAt = picked);
+                    },
+                    icon: const Icon(Icons.event_rounded, size: 18),
+                    label: Text(startsAt == null ? 'Pick date & time *' : _fmtDateTime(startsAt!)),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(editing ? 'Save' : 'Publish')),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (submitted != true) return;
+    for (final f in specs) {
+      if (f.required && controllers[f.key]!.text.trim().isEmpty) {
+        setState(() => _status = '${f.label} is required.');
+        return;
+      }
+    }
+    if (isEvent && startsAt == null) {
+      setState(() => _status = 'Pick the event date and time.');
+      return;
+    }
+    final input = <String, dynamic>{
+      for (final f in specs)
+        if (controllers[f.key]!.text.trim().isNotEmpty) f.key: controllers[f.key]!.text.trim(),
+    };
+    if (isEvent && startsAt != null) input['startsAt'] = startsAt!.toUtc().toIso8601String();
+    final label = '${noun[0].toUpperCase()}${noun.substring(1)}';
+    if (editing) {
+      await _run(
+        () => widget.apiClient.updateChurchContent(widget.session!.token, widget.church.id, kind, '${existing['id']}', input),
+        '$label updated.',
+      );
+    } else {
+      await _run(
+        () => widget.apiClient.createChurchContent(widget.session!.token, widget.church.id, kind, input),
+        '$label added.',
+      );
+    }
+  }
+
+  Future<DateTime?> _pickDateTime(BuildContext context, DateTime? initial) async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial ?? now,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (date == null || !context.mounted) return null;
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(initial ?? now));
+    if (time == null) return DateTime(date.year, date.month, date.day);
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  String _fmtDateTime(DateTime dt) {
+    const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final ap = dt.hour < 12 ? 'AM' : 'PM';
+    return '${m[dt.month - 1]} ${dt.day}, ${dt.year} · $h:${dt.minute.toString().padLeft(2, '0')} $ap';
+  }
 }
+
+// Field specs for the About-tab managed sections (input key, source key, label).
+class _ChurchField {
+  const _ChurchField(this.key, this.from, this.label,
+      {this.required = false, this.multiline = false, this.number = false});
+  final String key;
+  final String from;
+  final String label;
+  final bool required;
+  final bool multiline;
+  final bool number;
+}
+
+const _churchFieldSpecs = <String, List<_ChurchField>>{
+  'service-schedules': [
+    _ChurchField('title', 'title', 'Service title', required: true),
+    _ChurchField('dayOfWeek', 'day_of_week', 'Day (e.g. Sunday)'),
+    _ChurchField('startTime', 'start_time', 'Start time (e.g. 09:00)'),
+    _ChurchField('endTime', 'end_time', 'End time'),
+    _ChurchField('location', 'location', 'Location'),
+    _ChurchField('description', 'description', 'Description', multiline: true),
+  ],
+  'ministries': [
+    _ChurchField('name', 'name', 'Name', required: true),
+    _ChurchField('department', 'department', 'Department'),
+    _ChurchField('leadName', 'lead_name', 'Lead name'),
+    _ChurchField('description', 'description', 'Description', multiline: true),
+  ],
+  'events': [
+    _ChurchField('title', 'title', 'Title', required: true),
+    _ChurchField('location', 'location', 'Location'),
+    _ChurchField('capacity', 'capacity', 'Capacity', number: true),
+    _ChurchField('description', 'description', 'Description', multiline: true),
+  ],
+  'branches': [
+    _ChurchField('name', 'name', 'Name', required: true),
+    _ChurchField('city', 'city', 'City'),
+    _ChurchField('address', 'address', 'Address'),
+    _ChurchField('phone', 'phone', 'Phone'),
+  ],
+  'resources': [
+    _ChurchField('title', 'title', 'Title', required: true),
+    _ChurchField('resourceUrl', 'resource_url', 'Link (URL)', required: true),
+    _ChurchField('resourceType', 'resource_type', 'Type (e.g. pdf, link)'),
+    _ChurchField('description', 'description', 'Description', multiline: true),
+  ],
+};
 
 // Pins the church TabBar below the collapsing hero.
 class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
@@ -1355,6 +1527,10 @@ class _InfoGrid extends StatelessWidget {
     required this.branches,
     required this.groups,
     required this.resources,
+    this.canManage = false,
+    this.onAdd,
+    this.onEdit,
+    this.onDelete,
   });
 
   final List<Map<String, dynamic>> schedules;
@@ -1364,92 +1540,107 @@ class _InfoGrid extends StatelessWidget {
   final List<Map<String, dynamic>> branches;
   final List<Map<String, dynamic>> groups;
   final List<Map<String, dynamic>> resources;
+  final bool canManage;
+  final void Function(String kind)? onAdd;
+  final void Function(String kind, Map<String, dynamic> item)? onEdit;
+  final void Function(String kind, Map<String, dynamic> item)? onDelete;
 
   @override
   Widget build(BuildContext context) => Column(children: [
-        _SectionPanel(
-          title: 'Service times',
-          icon: Icons.schedule_rounded,
-          empty: 'No service times yet.',
-          child: Column(
-            children: schedules
-                .map((item) => _DenseRow(
-                      icon: Icons.schedule_rounded,
-                      title: item['title']?.toString().isNotEmpty == true
-                          ? item['title'].toString()
-                          : item['activity']?.toString() ?? '',
-                      subtitle:
-                          '${item['day_of_week'] ?? ''} ${item['start_time'] ?? ''} - ${item['end_time'] ?? ''}\n${item['location'] ?? ''}',
-                    ))
-                .toList(),
+        _managed('Service times', Icons.schedule_rounded, 'No service times yet.', 'service-schedules', schedules,
+            (item) => (
+                  Icons.schedule_rounded,
+                  item['title']?.toString().isNotEmpty == true ? item['title'].toString() : item['activity']?.toString() ?? '',
+                  '${item['day_of_week'] ?? ''} ${item['start_time'] ?? ''} - ${item['end_time'] ?? ''}\n${item['location'] ?? ''}',
+                  '',
+                )),
+        const SizedBox(height: 14),
+        _managed('Ministries', Icons.diversity_3_rounded, 'No ministries listed yet.', 'ministries', ministries,
+            (item) => (Icons.diversity_3_rounded, item['name']?.toString() ?? '', item['description']?.toString() ?? '', '')),
+        if (leaders.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _SectionPanel(
+            title: 'Leaders',
+            icon: Icons.supervisor_account_rounded,
+            empty: 'No leaders listed yet.',
+            child: Column(
+              children: leaders
+                  .map((item) => _DenseRow(
+                        icon: Icons.verified_user_rounded,
+                        title: item['name']?.toString() ?? item['title']?.toString() ?? '',
+                        subtitle: item['title']?.toString() ?? '',
+                      ))
+                  .toList(),
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 14),
-        _SectionPanel(
-          title: 'Leaders and ministries',
-          icon: Icons.supervisor_account_rounded,
-          empty: 'No leaders or ministries listed yet.',
-          child: Column(children: [
-            ...leaders.map((item) => _DenseRow(
-                  icon: Icons.verified_user_rounded,
-                  title: item['name']?.toString() ??
-                      item['title']?.toString() ??
-                      '',
-                  subtitle: item['title']?.toString() ?? '',
-                )),
-            ...ministries.map((item) => _DenseRow(
-                  icon: Icons.diversity_3_rounded,
-                  title: item['name']?.toString() ?? '',
-                  subtitle: item['description']?.toString() ?? '',
-                )),
-          ]),
-        ),
+        _managed('Events', Icons.celebration_rounded, 'No public events yet.', 'events', events,
+            (item) => (Icons.celebration_rounded, item['title']?.toString() ?? '', '${item['location'] ?? ''} • ${item['starts_at'] ?? ''}', '')),
         const SizedBox(height: 14),
-        _SectionPanel(
-          title: 'Events, branches and groups',
-          icon: Icons.hub_rounded,
-          empty: 'No public events, branches, or groups yet.',
-          child: Column(children: [
-            ...events.map((item) => _DenseRow(
-                  icon: Icons.celebration_rounded,
-                  title: item['title']?.toString() ?? '',
-                  subtitle:
-                      '${item['location'] ?? ''} • ${item['starts_at'] ?? ''}',
-                )),
-            ...branches.map((item) => _DenseRow(
-                  icon: Icons.account_tree_rounded,
-                  title: item['name']?.toString() ?? '',
-                  subtitle: '${item['city'] ?? ''} • ${item['address'] ?? ''}',
-                )),
-            ...groups.map((item) => _DenseRow(
-                  icon: Icons.forum_rounded,
-                  title: item['name']?.toString() ?? '',
-                  subtitle: item['visibility']?.toString() ?? '',
-                )),
-          ]),
-        ),
-        const SizedBox(height: 14),
-        _SectionPanel(
-          title: 'Resources',
-          icon: Icons.folder_copy_rounded,
-          empty: 'No resources published yet.',
-          child: Column(
-            children: resources
-                .map((item) => _DenseRow(
-                      icon: Icons.folder_rounded,
-                      title: item['title']?.toString() ?? '',
-                      subtitle:
-                          item['description']?.toString().isNotEmpty == true
-                              ? item['description'].toString()
-                              : item['resource_url']?.toString() ?? '',
-                      url: item['resource_url']?.toString() ??
-                          item['resourceUrl']?.toString() ??
-                          '',
-                    ))
-                .toList(),
+        _managed('Branches', Icons.account_tree_rounded, 'No branches yet.', 'branches', branches,
+            (item) => (Icons.account_tree_rounded, item['name']?.toString() ?? '', '${item['city'] ?? ''} • ${item['address'] ?? ''}', '')),
+        if (groups.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _SectionPanel(
+            title: 'Groups',
+            icon: Icons.forum_rounded,
+            empty: 'No groups yet.',
+            child: Column(
+              children: groups
+                  .map((item) => _DenseRow(
+                        icon: Icons.forum_rounded,
+                        title: item['name']?.toString() ?? '',
+                        subtitle: item['visibility']?.toString() ?? '',
+                      ))
+                  .toList(),
+            ),
           ),
-        ),
+        ],
+        const SizedBox(height: 14),
+        _managed('Resources', Icons.folder_copy_rounded, 'No resources published yet.', 'resources', resources,
+            (item) => (
+                  Icons.folder_rounded,
+                  item['title']?.toString() ?? '',
+                  item['description']?.toString().isNotEmpty == true ? item['description'].toString() : item['resource_url']?.toString() ?? '',
+                  item['resource_url']?.toString() ?? item['resourceUrl']?.toString() ?? '',
+                )),
       ]);
+
+  // A per-kind section with an Add header action and per-row edit/delete menus.
+  Widget _managed(
+    String title,
+    IconData icon,
+    String empty,
+    String kind,
+    List<Map<String, dynamic>> items,
+    (IconData, String, String, String) Function(Map<String, dynamic> item) row,
+  ) {
+    return _SectionPanel(
+      title: title,
+      icon: icon,
+      empty: empty,
+      onAdd: (canManage && onAdd != null) ? () => onAdd!(kind) : null,
+      child: Column(
+        children: items.map((item) {
+          final (rowIcon, rowTitle, rowSubtitle, rowUrl) = row(item);
+          return _DenseRow(
+            icon: rowIcon,
+            title: rowTitle,
+            subtitle: rowSubtitle,
+            url: rowUrl,
+            trailing: canManage
+                ? _managerMenu(
+                    item,
+                    onEdit == null ? null : (i) => onEdit!(kind, i),
+                    onDelete == null ? null : (i) => onDelete!(kind, i),
+                  )
+                : null,
+          );
+        }).toList(),
+      ),
+    );
+  }
 }
 
 class _SectionPanel extends StatelessWidget {
@@ -1458,12 +1649,14 @@ class _SectionPanel extends StatelessWidget {
     required this.icon,
     required this.empty,
     required this.child,
+    this.onAdd,
   });
 
   final String title;
   final IconData icon;
   final String empty;
   final Widget child;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -1487,6 +1680,13 @@ class _SectionPanel extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis),
             ),
+            if (onAdd != null)
+              IconButton.filledTonal(
+                visualDensity: VisualDensity.compact,
+                onPressed: onAdd,
+                icon: const Icon(Icons.add_rounded, size: 20),
+                tooltip: 'Add',
+              ),
           ]),
           const SizedBox(height: 10),
           if (isEmpty)
