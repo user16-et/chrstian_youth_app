@@ -2284,7 +2284,7 @@ class _BibleScreenState extends State<BibleScreen> {
   int _readerChapter = 8;
   bool _busy = false;
   String _status = '';
-  bool _seededVerse = false;
+  int _libraryTab = 0; // 0 = notes, 1 = bookmarks, 2 = highlights
 
   static const List<(String, String)> _presetVerses = [
     ('Psalm 23:1', 'The Lord is my shepherd; I shall not want.'),
@@ -2366,15 +2366,335 @@ class _BibleScreenState extends State<BibleScreen> {
     await future;
   }
 
-  void _applyVerse(String reference, String verseText) {
-    setState(() {
-      _referenceController.text = reference;
-      _verseController.text = verseText;
-      _bookmarkReferenceController.text = reference;
-      _bookmarkVerseController.text = verseText;
-      _highlightReferenceController.text = reference;
-      _highlightVerseController.text = verseText;
-    });
+  bool get _loggedIn {
+    final token = widget.session?.token;
+    return token != null && token.isNotEmpty;
+  }
+
+  bool _requireLogin() {
+    if (_loggedIn) return true;
+    setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(AppStrings.of(widget.language, 'login_required'))));
+    return false;
+  }
+
+  String _tr(String en, String am) =>
+      widget.language == AppLanguage.english ? en : am;
+
+  // A shared, keyboard-aware editor sheet used for notes, bookmarks and
+  // highlights so the hub page itself stays clean instead of stacking several
+  // always-open forms.
+  Future<void> _showEditorSheet({
+    required String title,
+    required List<Widget> fields,
+    required Future<void> Function() onSave,
+    String? saveLabel,
+  }) async {
+    final language = widget.language;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        bool saving = false;
+        return StatefulBuilder(
+          builder: (sheetContext, setSheet) => Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 4,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(title, style: Theme.of(sheetContext).textTheme.titleLarge),
+                const SizedBox(height: 16),
+                for (final field in fields) ...[field, const SizedBox(height: 12)],
+                const SizedBox(height: 4),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          setSheet(() => saving = true);
+                          await onSave();
+                          if (sheetContext.mounted) {
+                            Navigator.of(sheetContext).pop();
+                          }
+                        },
+                  child: Text(saving
+                      ? AppStrings.of(language, 'working')
+                      : (saveLabel ?? AppStrings.of(language, 'save_note'))),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openNoteEditor(
+      {BibleNoteItem? existing, String? reference, String? verseText}) async {
+    if (!_requireLogin()) return;
+    if (existing != null) {
+      _referenceController.text = existing.reference;
+      _verseController.text = existing.verseText;
+      _noteController.text = existing.note;
+    } else {
+      _referenceController.text = reference ?? '';
+      _verseController.text = verseText ?? '';
+      _noteController.clear();
+    }
+    await _showEditorSheet(
+      title: existing == null
+          ? _tr('New note', 'አዲስ ማስታወሻ')
+          : AppStrings.of(widget.language, 'edit_note'),
+      saveLabel: AppStrings.of(widget.language, 'save_note'),
+      fields: [
+        TextField(
+          controller: _referenceController,
+          decoration: InputDecoration(
+            labelText: AppStrings.of(widget.language, 'note_reference'),
+            hintText: _tr('e.g. John 3:16', 'ለምሳሌ ዮሐንስ 3:16'),
+          ),
+        ),
+        TextField(
+          controller: _verseController,
+          decoration: InputDecoration(
+              labelText: AppStrings.of(widget.language, 'verse_text')),
+          maxLines: 3,
+          minLines: 2,
+        ),
+        TextField(
+          controller: _noteController,
+          decoration: InputDecoration(
+              labelText: AppStrings.of(widget.language, 'note_body')),
+          maxLines: 5,
+          minLines: 3,
+        ),
+      ],
+      onSave: () => _saveNote(existing),
+    );
+  }
+
+  Future<void> _openBookmarkEditor(
+      {String? reference, String? verseText}) async {
+    if (!_requireLogin()) return;
+    _bookmarkReferenceController.text = reference ?? '';
+    _bookmarkVerseController.text = verseText ?? '';
+    await _showEditorSheet(
+      title: _tr('New bookmark', 'አዲስ ዕልባት'),
+      saveLabel: AppStrings.of(widget.language, 'save_bookmark'),
+      fields: [
+        TextField(
+          controller: _bookmarkReferenceController,
+          decoration: InputDecoration(
+            labelText: AppStrings.of(widget.language, 'note_reference'),
+            hintText: _tr('e.g. Psalm 23:1', 'ለምሳሌ መዝሙር 23:1'),
+          ),
+        ),
+        TextField(
+          controller: _bookmarkVerseController,
+          decoration: InputDecoration(
+              labelText: AppStrings.of(widget.language, 'verse_text')),
+          maxLines: 3,
+          minLines: 2,
+        ),
+      ],
+      onSave: _saveBookmark,
+    );
+  }
+
+  Future<void> _openHighlightEditor(
+      {String? reference, String? verseText}) async {
+    if (!_requireLogin()) return;
+    _highlightReferenceController.text = reference ?? '';
+    _highlightVerseController.text = verseText ?? '';
+    _highlightNoteController.clear();
+    await _showEditorSheet(
+      title: _tr('New highlight', 'አዲስ ማድመቅ'),
+      saveLabel: AppStrings.of(widget.language, 'save_highlight'),
+      fields: [
+        TextField(
+          controller: _highlightReferenceController,
+          decoration: InputDecoration(
+            labelText: AppStrings.of(widget.language, 'note_reference'),
+            hintText: _tr('e.g. Romans 8:28', 'ለምሳሌ ሮሜ 8:28'),
+          ),
+        ),
+        TextField(
+          controller: _highlightVerseController,
+          decoration: InputDecoration(
+              labelText: AppStrings.of(widget.language, 'verse_text')),
+          maxLines: 3,
+          minLines: 2,
+        ),
+        StatefulBuilder(
+          builder: (context, setInner) => Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final color in _highlightColors)
+                ChoiceChip(
+                  avatar: CircleAvatar(
+                      radius: 8, backgroundColor: _highlightSwatch(color)),
+                  label: Text(_highlightColorLabel(color)),
+                  selected: _selectedHighlightColor == color,
+                  onSelected: (_) {
+                    setInner(() => _selectedHighlightColor = color);
+                    setState(() {});
+                  },
+                ),
+            ],
+          ),
+        ),
+        TextField(
+          controller: _highlightNoteController,
+          decoration: InputDecoration(
+            labelText: AppStrings.of(widget.language, 'note_body'),
+            hintText: _tr('Optional', 'አማራጭ'),
+          ),
+          maxLines: 3,
+          minLines: 2,
+        ),
+      ],
+      onSave: _saveHighlight,
+    );
+  }
+
+  Color _highlightSwatch(String color) {
+    switch (color) {
+      case 'green':
+        return const Color(0xFF66BB6A);
+      case 'blue':
+        return const Color(0xFF42A5F5);
+      case 'rose':
+        return const Color(0xFFEC407A);
+      case 'gold':
+      default:
+        return const Color(0xFFFFC107);
+    }
+  }
+
+  String _highlightColorLabel(String color) {
+    switch (color) {
+      case 'green':
+        return _tr('Green', 'አረንጓዴ');
+      case 'blue':
+        return _tr('Blue', 'ሰማያዊ');
+      case 'rose':
+        return _tr('Rose', 'ሮዝ');
+      case 'gold':
+      default:
+        return _tr('Gold', 'ወርቃማ');
+    }
+  }
+
+  Future<void> _confirmDelete(Future<void> Function() action) async {
+    final language = widget.language;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(_tr('Delete this?', 'ይሰረዝ?')),
+        content: Text(
+            _tr('This cannot be undone.', 'ይህ እርምጃ መልሶ ማግኘት አይቻልም።')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(_tr('Cancel', 'ተወው'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(AppStrings.of(language, 'delete_note'))),
+        ],
+      ),
+    );
+    if (ok == true) await action();
+  }
+
+  List<Widget> _buildNotes(BuildContext context, List<BibleNoteItem> notes) {
+    if (notes.isEmpty) {
+      return [
+        _EmptyState(message: AppStrings.of(widget.language, 'no_bible_notes'))
+      ];
+    }
+    final colors = Theme.of(context).colorScheme;
+    return [
+      for (final note in notes)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _LibraryEntry(
+            colors: colors,
+            leadingColor: colors.primary,
+            icon: Icons.sticky_note_2_rounded,
+            title: note.reference,
+            verse: note.verseText,
+            body: note.note,
+            onEdit: _busy ? null : () => _openNoteEditor(existing: note),
+            onDelete:
+                _busy ? null : () => _confirmDelete(() => _deleteNote(note)),
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _buildBookmarks(
+      BuildContext context, List<BibleBookmarkItem> bookmarks) {
+    if (bookmarks.isEmpty) {
+      return [
+        _EmptyState(message: AppStrings.of(widget.language, 'no_bookmarks'))
+      ];
+    }
+    final colors = Theme.of(context).colorScheme;
+    return [
+      for (final bookmark in bookmarks)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _LibraryEntry(
+            colors: colors,
+            leadingColor: colors.secondary,
+            icon: Icons.bookmark_rounded,
+            title: bookmark.reference,
+            verse: bookmark.verseText,
+            body: null,
+            onEdit: null,
+            onDelete: _busy
+                ? null
+                : () => _confirmDelete(() => _deleteBookmark(bookmark.id)),
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _buildHighlights(
+      BuildContext context, List<BibleHighlightItem> highlights) {
+    if (highlights.isEmpty) {
+      return [
+        _EmptyState(message: AppStrings.of(widget.language, 'no_highlights'))
+      ];
+    }
+    final colors = Theme.of(context).colorScheme;
+    return [
+      for (final highlight in highlights)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _LibraryEntry(
+            colors: colors,
+            leadingColor: _highlightSwatch(highlight.color),
+            icon: Icons.format_paint_rounded,
+            title:
+                '${highlight.reference} · ${_highlightColorLabel(highlight.color)}',
+            verse: highlight.verseText,
+            body: highlight.note.isEmpty ? null : highlight.note,
+            onEdit: null,
+            onDelete: _busy
+                ? null
+                : () => _confirmDelete(() => _deleteHighlight(highlight.id)),
+          ),
+        ),
+    ];
   }
 
   Future<void> _runAction(Future<void> Function() action) async {
@@ -2528,26 +2848,6 @@ class _BibleScreenState extends State<BibleScreen> {
     });
   }
 
-  Future<void> _loadReader(
-      {String? version, String? book, int? chapter}) async {
-    final nextVersion = version ?? _readerVersion;
-    final nextBook = book ?? _readerBook;
-    final nextChapter = chapter ?? _readerChapter;
-    setState(() {
-      _readerVersion = nextVersion;
-      _readerBook = nextBook;
-      _readerChapter = nextChapter;
-    });
-    await _runAction(() async {
-      await widget.apiClient.fetchBibleChapter(
-        token: widget.session?.token,
-        version: nextVersion,
-        book: nextBook,
-        chapter: nextChapter,
-      );
-    });
-  }
-
   List<Map<String, dynamic>> _list(Map<String, dynamic> data, String key) {
     return ((data[key] as List<dynamic>?) ?? const <dynamic>[])
         .whereType<Map<String, dynamic>>()
@@ -2576,14 +2876,9 @@ class _BibleScreenState extends State<BibleScreen> {
         final ecosystem = data.ecosystem;
         final reader = _map(ecosystem, 'reader');
         final readerVerses = _list(reader, 'verses');
-        final comparison = _list(ecosystem, 'comparison');
-        final versions = _list(ecosystem, 'versions');
         final topics = _list(ecosystem, 'topics');
-        final groupStudies = _list(ecosystem, 'groupStudies');
         final memory = _list(ecosystem, 'memory');
-        final journal = _list(ecosystem, 'journal');
         final analytics = _map(ecosystem, 'analytics');
-        final settings = _map(ecosystem, 'settings');
         final verses = data.dailyVerses.isEmpty
             ? _presetVerses.map((verse) => (verse.$1, verse.$2)).toList()
             : data.dailyVerses
@@ -2591,14 +2886,11 @@ class _BibleScreenState extends State<BibleScreen> {
                 .toList();
         final selectedVerse =
             verses[_selectedVerseIndex.clamp(0, verses.length - 1)];
-        if (!_seededVerse && _referenceController.text.isEmpty) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_seededVerse) {
-              _seededVerse = true;
-              _applyVerse(selectedVerse.$1, selectedVerse.$2);
-            }
-          });
-        }
+        final colors = Theme.of(context).colorScheme;
+        final notesCount = data.notes.length;
+        final bookmarksCount = data.bookmarks.length;
+        final highlightsCount = data.highlights.length;
+
         return RefreshIndicator(
           onRefresh: _refreshHub,
           child: ListView(
@@ -2607,564 +2899,726 @@ class _BibleScreenState extends State<BibleScreen> {
             children: [
               _SectionHeader(
                   title: AppStrings.of(language, 'bible'),
-                  subtitle: AppStrings.of(language, 'bible_notes_subtitle')),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => BibleReaderScreen(
-                      apiClient: widget.apiClient,
-                      token: widget.session?.token,
-                      language: language,
-                      initialVersion: _readerVersion,
-                      initialBook: _readerBook,
-                      initialChapter: _readerChapter,
-                    ),
-                  )),
-                  icon: const Icon(Icons.menu_book_rounded),
-                  label: Text(language == AppLanguage.english
-                      ? 'Open full Bible reader'
-                      : 'ሙሉ መጽሐፍ ቅዱስ ንባብ ክፈት'),
-                ),
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: language == AppLanguage.english
-                    ? 'Bible reader and growth dashboard'
-                    : 'የመጽሐፍ ቅዱስ ንባብ እና እድገት',
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final version in versions)
-                        ChoiceChip(
-                          label: Text('${version['code']}'),
-                          selected: _readerVersion == version['code'],
-                          onSelected: (_) => _loadReader(
-                              version: '${version['code']}',
-                              book: _readerBook,
-                              chapter: _readerChapter),
-                        ),
-                      ChoiceChip(
-                        label: const Text('Romans 8'),
-                        selected: _readerBook == 'Romans',
-                        onSelected: (_) => _loadReader(
-                            book: 'Romans',
-                            chapter: 8,
-                            version: _readerVersion),
-                      ),
-                      ChoiceChip(
-                        label: const Text('John 3'),
-                        selected: _readerBook == 'John',
-                        onSelected: (_) => _loadReader(
-                            book: 'John', chapter: 3, version: _readerVersion),
-                      ),
-                    ],
+                  subtitle: _tr(
+                      'Read, reflect and grow — your verses, notes and reading plans in one place.',
+                      'አንብብ፣ አስተንትን እና እደግ — ቁጥሮችህ፣ ማስታወሻዎችህ እና የንባብ እቅዶችህ በአንድ ስፍራ።')),
+              const SizedBox(height: 18),
+
+              // Primary action: open the full reader.
+              _ReaderLauncher(
+                colors: colors,
+                title: _tr('Open the Bible', 'መጽሐፍ ቅዱስ ክፈት'),
+                subtitle: readerVerses.isNotEmpty
+                    ? '${_tr('Continue', 'ቀጥል')} · ${reader['book'] ?? _readerBook} ${reader['chapter'] ?? _readerChapter}'
+                    : _tr('Browse every book and chapter',
+                        'እያንዳንዱን መጽሐፍና ምዕራፍ ያስሱ'),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => BibleReaderScreen(
+                    apiClient: widget.apiClient,
+                    token: widget.session?.token,
+                    language: language,
+                    initialVersion: _readerVersion,
+                    initialBook: '${reader['book'] ?? _readerBook}',
+                    initialChapter:
+                        (reader['chapter'] as num?)?.toInt() ?? _readerChapter,
                   ),
-                  const SizedBox(height: 12),
-                  _MiniCard(
-                    icon: Icons.auto_stories_rounded,
-                    title:
-                        '${reader['book'] ?? _readerBook} ${reader['chapter'] ?? _readerChapter} • ${reader['version'] ?? _readerVersion}',
-                    body: readerVerses.isEmpty
-                        ? (language == AppLanguage.english
-                            ? 'Seeded offline-ready text appears here after migration. NIV remains metadata-only until licensed.'
-                            : 'የተዘጋጀ የኦፍላይን ጽሑፍ ከማይግሬሽን በኋላ እዚህ ይታያል። NIV ፈቃድ እስኪገኝ ድረስ ሜታዳታ ብቻ ነው።')
-                        : readerVerses
-                            .map((verse) =>
-                                '${verse['verse']}. ${verse['text']}')
-                            .join('\n'),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _BibleMetric(
-                          label: 'Chapters',
-                          value: '${analytics['chaptersRead'] ?? 0}'),
-                      _BibleMetric(
-                          label: 'Notes',
-                          value:
-                              '${analytics['notesWritten'] ?? data.notes.length}'),
-                      _BibleMetric(
-                          label: 'Memory',
-                          value:
-                              '${analytics['memorizedVerses'] ?? memory.length}'),
-                      _BibleMetric(
-                          label: 'Streak',
-                          value: '${analytics['currentStreak'] ?? 0}'),
-                    ],
-                  ),
-                ],
+                )),
               ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: language == AppLanguage.english
-                    ? 'Version comparison and sharing'
-                    : 'የትርጉም ንጽጽር እና ማጋራት',
-                children: [
-                  for (final item in comparison)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _MiniCard(
-                        icon: Icons.compare_arrows_rounded,
-                        title:
-                            '${item['name'] ?? item['version']} • ${item['reference']}',
-                        body: ('${item['text']}'.isEmpty)
-                            ? '${item['notice'] ?? item['licenseStatus'] ?? ''}'
-                            : '${item['text']}',
-                      ),
-                    ),
-                  Wrap(spacing: 8, runSpacing: 8, children: [
-                    FilledButton.tonal(
-                      onPressed: _busy
-                          ? null
-                          : () => _bibleAction((token) => widget.apiClient
-                              .createVerseCard(
-                                  token: token,
-                                  reference: selectedVerse.$1,
-                                  verseText: selectedVerse.$2,
-                                  language: language.code)),
-                      child: Text(language == AppLanguage.english
-                          ? 'Create verse card'
-                          : 'የቁጥር ካርድ ፍጠር'),
-                    ),
-                    FilledButton.tonal(
-                      onPressed: _busy
-                          ? null
-                          : () => _bibleAction((token) => widget.apiClient
-                              .shareBibleVerse(
-                                  token: token,
-                                  reference: selectedVerse.$1,
-                                  verseText: selectedVerse.$2,
-                                  channel: 'story')),
-                      child: Text(language == AppLanguage.english
-                          ? 'Share to story'
-                          : 'ወደ ስቶሪ አጋራ'),
-                    ),
-                  ]),
-                ],
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
+
+              // Verse of the day, with clear one-tap actions.
               _SectionCard(
                 title: AppStrings.of(language, 'scripture_of_day'),
                 children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (var index = 0; index < verses.length; index++)
-                        ChoiceChip(
-                          label: Text(verses[index].$1,
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          selected: _selectedVerseIndex == index,
-                          onSelected: (_) {
-                            setState(() => _selectedVerseIndex = index);
-                            _applyVerse(verses[index].$1, verses[index].$2);
-                          },
+                  if (verses.length > 1)
+                    SizedBox(
+                      height: 46,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: verses.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) => Center(
+                          child: ChoiceChip(
+                            label: Text(verses[index].$1),
+                            selected: _selectedVerseIndex == index,
+                            onSelected: (_) =>
+                                setState(() => _selectedVerseIndex = index),
+                          ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
+                      ),
+                    ),
+                  if (verses.length > 1) const SizedBox(height: 12),
                   _VerseCard(
                       reference: selectedVerse.$1, text: selectedVerse.$2),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   Row(
                     children: [
                       Expanded(
-                        child: Text(AppStrings.of(language, 'daily_verse'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium),
+                        child: _VerseActionButton(
+                          icon: Icons.bookmark_add_rounded,
+                          label: _tr('Bookmark', 'ዕልባት'),
+                          onTap: _busy
+                              ? null
+                              : () => _openBookmarkEditor(
+                                  reference: selectedVerse.$1,
+                                  verseText: selectedVerse.$2),
+                        ),
                       ),
-                      Text(data.dailyVerses.isEmpty
-                          ? AppStrings.of(language, 'not_ready')
-                          : '${data.dailyVerses.first.theme} • ${data.dailyVerses.first.language.toUpperCase()}'),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _VerseActionButton(
+                          icon: Icons.edit_note_rounded,
+                          label: _tr('Note', 'ማስታወሻ'),
+                          onTap: _busy
+                              ? null
+                              : () => _openNoteEditor(
+                                  reference: selectedVerse.$1,
+                                  verseText: selectedVerse.$2),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _VerseActionButton(
+                          icon: Icons.format_paint_rounded,
+                          label: _tr('Highlight', 'አድምቅ'),
+                          onTap: _busy
+                              ? null
+                              : () => _openHighlightEditor(
+                                  reference: selectedVerse.$1,
+                                  verseText: selectedVerse.$2),
+                        ),
+                      ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _VerseActionButton(
+                          icon: Icons.psychology_rounded,
+                          label: _tr('Memorize', 'በቃል ያዝ'),
+                          onTap: _busy
+                              ? null
+                              : () => _bibleAction((token) =>
+                                  widget.apiClient.addMemoryVerse(
+                                      token: token,
+                                      reference: selectedVerse.$1,
+                                      verseText: selectedVerse.$2)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _VerseActionButton(
+                          icon: Icons.ios_share_rounded,
+                          label: _tr('Share', 'አጋራ'),
+                          onTap: _busy
+                              ? null
+                              : () => _bibleAction((token) =>
+                                  widget.apiClient.shareBibleVerse(
+                                      token: token,
+                                      reference: selectedVerse.$1,
+                                      verseText: selectedVerse.$2,
+                                      channel: 'story')),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _VerseActionButton(
+                          icon: Icons.card_giftcard_rounded,
+                          label: _tr('Verse card', 'ካርድ'),
+                          onTap: _busy
+                              ? null
+                              : () => _bibleAction((token) =>
+                                  widget.apiClient.createVerseCard(
+                                      token: token,
+                                      reference: selectedVerse.$1,
+                                      verseText: selectedVerse.$2,
+                                      language: language.code)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_status.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _StatusBanner(status: _status, colors: colors),
+                  ],
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
+
+              // Growth snapshot.
+              _SectionCard(
+                title: _tr('Your growth', 'እድገትዎ'),
+                children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _BibleMetric(
+                          label: _tr('Chapters read', 'ምዕራፎች'),
+                          value: '${analytics['chaptersRead'] ?? 0}'),
+                      _BibleMetric(
+                          label: _tr('Day streak', 'ተከታታይ ቀናት'),
+                          value: '${analytics['currentStreak'] ?? 0}'),
+                      _BibleMetric(
+                          label: AppStrings.of(language, 'bible_notes'),
+                          value: '$notesCount'),
+                      _BibleMetric(
+                          label: _tr('Memorized', 'የተያዙ'),
+                          value:
+                              '${analytics['memorizedVerses'] ?? memory.length}'),
+                    ],
+                  ),
+                  if (topics.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(_tr('Explore by topic', 'በርዕስ ያስሱ'),
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final topic in topics.take(8))
+                          Chip(
+                            avatar: const Icon(Icons.local_offer_rounded,
+                                size: 15),
+                            label: Text(
+                                '${topic['name']} · ${topic['verseCount'] ?? 0}'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // Reading plans.
               _SectionCard(
                 title: AppStrings.of(language, 'reading_plans'),
                 children: data.readingPlans.isEmpty
-                    ? [Text(AppStrings.of(language, 'no_reading_plans'))]
+                    ? [
+                        _EmptyState(
+                            message:
+                                AppStrings.of(language, 'no_reading_plans'))
+                      ]
                     : [
                         for (final plan in data.readingPlans)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: _MiniCard(
+                            child: _ReadingPlanTile(
+                              colors: colors,
                               icon: plan.language == 'am'
                                   ? Icons.translate_rounded
                                   : Icons.menu_book_rounded,
                               title: plan.title,
-                              body:
-                                  '${plan.durationDays} ${AppStrings.of(language, 'days')} • ${plan.category} • ${plan.description}',
-                              trailing: Wrap(spacing: 6, children: [
-                                TextButton(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _bibleAction((token) =>
-                                          widget.apiClient.joinBiblePlan(
-                                              token: token, planId: plan.id)),
-                                  child: Text(language == AppLanguage.english
-                                      ? 'Join'
-                                      : 'ተቀላቀል'),
-                                ),
-                                TextButton(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _bibleAction((token) =>
-                                          widget.apiClient.completeBiblePlanDay(
-                                              token: token,
-                                              planId: plan.id,
-                                              dayNumber: 1)),
-                                  child: Text(language == AppLanguage.english
-                                      ? 'Day 1 done'
-                                      : 'ቀን 1 ተጠናቀቀ'),
-                                ),
-                              ]),
+                              meta:
+                                  '${plan.durationDays} ${AppStrings.of(language, 'days')} · ${plan.category}',
+                              description: plan.description,
+                              joinLabel: _tr('Join', 'ተቀላቀል'),
+                              doneLabel: _tr('Mark day 1', 'ቀን 1 ጨርስ'),
+                              onJoin: _busy
+                                  ? null
+                                  : () => _bibleAction((token) =>
+                                      widget.apiClient.joinBiblePlan(
+                                          token: token, planId: plan.id)),
+                              onDone: _busy
+                                  ? null
+                                  : () => _bibleAction((token) =>
+                                      widget.apiClient.completeBiblePlanDay(
+                                          token: token,
+                                          planId: plan.id,
+                                          dayNumber: 1)),
                             ),
                           ),
                       ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
+
+              // Library: notes / bookmarks / highlights in one tabbed card.
               _SectionCard(
-                title: language == AppLanguage.english
-                    ? 'Study journal, memory, and topics'
-                    : 'የጥናት ማስታወሻ፣ ትዝታ እና ርዕሶች',
+                title: _tr('Your library', 'የእርስዎ ስብስብ'),
                 children: [
-                  Wrap(spacing: 8, runSpacing: 8, children: [
-                    FilledButton.tonalIcon(
-                      onPressed: _busy
-                          ? null
-                          : () => _bibleAction((token) => widget.apiClient
-                              .createStudyJournal(
-                                  token: token,
-                                  title: 'Romans 8 reflection',
-                                  body:
-                                      'Main lesson: life in the Spirit and no condemnation in Christ.',
-                                  reference: 'Romans 8')),
-                      icon: const Icon(Icons.edit_note_rounded),
-                      label: Text(language == AppLanguage.english
-                          ? 'Save journal'
-                          : 'ማስታወሻ አስቀምጥ'),
-                    ),
-                    FilledButton.tonalIcon(
-                      onPressed: _busy
-                          ? null
-                          : () => _bibleAction((token) => widget.apiClient
-                              .addMemoryVerse(
-                                  token: token,
-                                  reference: selectedVerse.$1,
-                                  verseText: selectedVerse.$2)),
-                      icon: const Icon(Icons.psychology_rounded),
-                      label: Text(language == AppLanguage.english
-                          ? 'Memorize verse'
-                          : 'ቁጥሩን በቃል ያዝ'),
-                    ),
-                  ]),
-                  const SizedBox(height: 12),
-                  if (journal.isNotEmpty)
-                    _MiniCard(
-                      icon: Icons.history_edu_rounded,
-                      title: '${journal.first['title']}',
-                      body: '${journal.first['body']}',
-                    ),
-                  if (memory.isNotEmpty)
-                    _MiniCard(
-                      icon: Icons.memory_rounded,
-                      title:
-                          '${memory.first['reference']} • ${memory.first['status']}',
-                      body: '${memory.first['verseText']}',
-                    ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  Row(
                     children: [
-                      for (final topic in topics.take(10))
-                        Chip(
-                          avatar:
-                              const Icon(Icons.local_offer_rounded, size: 16),
-                          label: Text(
-                              '${topic['name']} (${topic['verseCount'] ?? 0})'),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: language == AppLanguage.english
-                    ? 'Group Bible study, audio, and settings'
-                    : 'የቡድን ጥናት፣ ድምፅ እና ቅንብሮች',
-                children: [
-                  for (final study in groupStudies.take(3))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _MiniCard(
-                        icon: Icons.groups_2_rounded,
-                        title: '${study['title']}',
-                        body: '${study['currentAssignment']}',
-                        trailing: TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () => _bibleAction((token) => widget.apiClient
-                                  .addGroupBibleStudyNote(
-                                      token: token,
-                                      studyId: '${study['id']}',
-                                      reference: selectedVerse.$1,
-                                      note:
-                                          'Shared note: this verse shaped my study today.')),
-                          child: Text(language == AppLanguage.english
-                              ? 'Add note'
-                              : 'ማስታወሻ ጨምር'),
-                        ),
+                      _LibraryTab(
+                        label: AppStrings.of(language, 'bible_notes'),
+                        count: notesCount,
+                        selected: _libraryTab == 0,
+                        onTap: () => setState(() => _libraryTab = 0),
                       ),
-                    ),
-                  FilledButton.tonalIcon(
-                    onPressed: _busy
-                        ? null
-                        : () => _bibleAction((token) => widget.apiClient
-                            .createGroupBibleStudy(
-                                token: token,
-                                title: 'Youth Romans Study',
-                                assignment:
-                                    'Read Romans 8 and share one promise.')),
-                    icon: const Icon(Icons.add_circle_outline_rounded),
-                    label: Text(language == AppLanguage.english
-                        ? 'Create group study'
-                        : 'የቡድን ጥናት ፍጠር'),
-                  ),
-                  const SizedBox(height: 12),
-                  _MiniCard(
-                    icon: Icons.settings_rounded,
-                    title: language == AppLanguage.english
-                        ? 'Bible settings'
-                        : 'የመጽሐፍ ቅዱስ ቅንብሮች',
-                    body:
-                        '${settings['defaultVersion'] ?? 'kjv'} • ${settings['theme'] ?? 'light'} • ${settings['fontSize'] ?? 18}px • ${settings['reminderTime'] ?? '07:00'}',
-                    trailing: TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _bibleAction((token) => widget.apiClient
-                              .updateBibleSettings(
-                                  token: token,
-                                  defaultVersion: _readerVersion,
-                                  preferredLanguage: language.code,
-                                  fontSize: 20,
-                                  theme: 'focus')),
-                      child: Text(
-                          language == AppLanguage.english ? 'Save' : 'አስቀምጥ'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: AppStrings.of(language, 'bible_notes'),
-                children: [
-                  TextField(
-                      controller: _referenceController,
-                      decoration: InputDecoration(
-                          labelText:
-                              AppStrings.of(language, 'note_reference'))),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _verseController,
-                      decoration: InputDecoration(
-                          labelText: AppStrings.of(language, 'verse_text')),
-                      maxLines: 3),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _noteController,
-                      decoration: InputDecoration(
-                          labelText: AppStrings.of(language, 'note_body')),
-                      maxLines: 4),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: _busy ? null : () => _saveNote(),
-                    child: Text(AppStrings.of(language, 'save_note')),
-                  ),
-                  if (_status.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: AppStrings.of(language, 'bookmarks'),
-                children: [
-                  TextField(
-                      controller: _bookmarkReferenceController,
-                      decoration: InputDecoration(
-                          labelText:
-                              AppStrings.of(language, 'note_reference'))),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _bookmarkVerseController,
-                      decoration: InputDecoration(
-                          labelText: AppStrings.of(language, 'verse_text')),
-                      maxLines: 3),
-                  const SizedBox(height: 12),
-                  FilledButton.tonal(
-                    onPressed: _busy ? null : _saveBookmark,
-                    child: Text(AppStrings.of(language, 'save_bookmark')),
-                  ),
-                  const SizedBox(height: 12),
-                  if (data.bookmarks.isEmpty)
-                    Text(AppStrings.of(language, 'no_bookmarks'))
-                  else
-                    ...data.bookmarks.map((bookmark) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _MiniCard(
-                            icon: Icons.bookmark_rounded,
-                            title: bookmark.reference,
-                            body: bookmark.verseText,
-                            trailing: TextButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _deleteBookmark(bookmark.id),
-                              child:
-                                  Text(AppStrings.of(language, 'delete_note')),
-                            ),
-                          ),
-                        )),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: AppStrings.of(language, 'highlights'),
-                children: [
-                  TextField(
-                      controller: _highlightReferenceController,
-                      decoration: InputDecoration(
-                          labelText:
-                              AppStrings.of(language, 'note_reference'))),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _highlightVerseController,
-                      decoration: InputDecoration(
-                          labelText: AppStrings.of(language, 'verse_text')),
-                      maxLines: 3),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: _highlightNoteController,
-                      decoration: InputDecoration(
-                          labelText: AppStrings.of(language, 'note_body')),
-                      maxLines: 3),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final color in _highlightColors)
-                        ChoiceChip(
-                          label: Text(color),
-                          selected: _selectedHighlightColor == color,
-                          onSelected: (_) =>
-                              setState(() => _selectedHighlightColor = color),
-                        ),
+                      const SizedBox(width: 8),
+                      _LibraryTab(
+                        label: AppStrings.of(language, 'bookmarks'),
+                        count: bookmarksCount,
+                        selected: _libraryTab == 1,
+                        onTap: () => setState(() => _libraryTab = 1),
+                      ),
+                      const SizedBox(width: 8),
+                      _LibraryTab(
+                        label: AppStrings.of(language, 'highlights'),
+                        count: highlightsCount,
+                        selected: _libraryTab == 2,
+                        onTap: () => setState(() => _libraryTab = 2),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: _busy ? null : _saveHighlight,
-                    child: Text(AppStrings.of(language, 'save_highlight')),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () {
+                              if (_libraryTab == 0) {
+                                _openNoteEditor();
+                              } else if (_libraryTab == 1) {
+                                _openBookmarkEditor();
+                              } else {
+                                _openHighlightEditor();
+                              }
+                            },
+                      icon: const Icon(Icons.add_rounded),
+                      label: Text(_libraryTab == 0
+                          ? _tr('Add note', 'ማስታወሻ ጨምር')
+                          : _libraryTab == 1
+                              ? _tr('Add bookmark', 'ዕልባት ጨምር')
+                              : _tr('Add highlight', 'ማድመቅ ጨምር')),
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  if (data.highlights.isEmpty)
-                    Text(AppStrings.of(language, 'no_highlights'))
+                  const SizedBox(height: 14),
+                  if (_libraryTab == 0)
+                    ..._buildNotes(context, data.notes)
+                  else if (_libraryTab == 1)
+                    ..._buildBookmarks(context, data.bookmarks)
                   else
-                    ...data.highlights.map((highlight) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _MiniCard(
-                            icon: Icons.highlight_rounded,
-                            title: highlight.reference,
-                            body: '${highlight.color} • ${highlight.note}',
-                            trailing: TextButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _deleteHighlight(highlight.id),
-                              child:
-                                  Text(AppStrings.of(language, 'delete_note')),
-                            ),
-                          ),
-                        )),
+                    ..._buildHighlights(context, data.highlights),
                 ],
-              ),
-              const SizedBox(height: 16),
-              _SectionCard(
-                title: AppStrings.of(language, 'bible_notes'),
-                children: data.notes.isEmpty
-                    ? [Text(AppStrings.of(language, 'no_bible_notes'))]
-                    : [
-                        for (final note in data.notes)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(note.reference,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium),
-                                    const SizedBox(height: 8),
-                                    Text(note.verseText,
-                                        maxLines: 3,
-                                        overflow: TextOverflow.ellipsis),
-                                    const SizedBox(height: 8),
-                                    Text(note.note,
-                                        maxLines: 4,
-                                        overflow: TextOverflow.ellipsis),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        TextButton(
-                                          onPressed: _busy
-                                              ? null
-                                              : () {
-                                                  _referenceController.text =
-                                                      note.reference;
-                                                  _verseController.text =
-                                                      note.verseText;
-                                                  _noteController.text =
-                                                      note.note;
-                                                },
-                                          child: Text(AppStrings.of(
-                                              language, 'edit_note')),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        TextButton(
-                                          onPressed: _busy
-                                              ? null
-                                              : () => _deleteNote(note),
-                                          child: Text(AppStrings.of(
-                                              language, 'delete_note')),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
               ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+// A prominent launcher tile for the full Bible reader.
+class _ReaderLauncher extends StatelessWidget {
+  const _ReaderLauncher({
+    required this.colors,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final ColorScheme colors;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              colors: [colors.primary, colors.secondary],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .22),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(Icons.menu_book_rounded,
+                      color: Colors.white, size: 27),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 3),
+                      Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: .85),
+                              fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_rounded, color: Colors.white),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// A compact, tappable icon+label action used under the verse of the day.
+class _VerseActionButton extends StatelessWidget {
+  const _VerseActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final enabled = onTap != null;
+    return Material(
+      color: colors.surfaceContainerHighest
+          .withValues(alpha: enabled ? .5 : .25),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          child: Column(
+            children: [
+              Icon(icon,
+                  size: 22,
+                  color: enabled
+                      ? colors.primary
+                      : colors.onSurface.withValues(alpha: .35)),
+              const SizedBox(height: 6),
+              Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: enabled
+                          ? colors.onSurface
+                          : colors.onSurface.withValues(alpha: .4))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// A small inline banner reflecting the outcome of the last action.
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({required this.status, required this.colors});
+
+  final String status;
+  final ColorScheme colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.secondaryContainer.withValues(alpha: .5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded,
+              size: 18, color: colors.onSecondaryContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(status,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: colors.onSecondaryContainer, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// A reading-plan row with join / progress actions.
+class _ReadingPlanTile extends StatelessWidget {
+  const _ReadingPlanTile({
+    required this.colors,
+    required this.icon,
+    required this.title,
+    required this.meta,
+    required this.description,
+    required this.joinLabel,
+    required this.doneLabel,
+    required this.onJoin,
+    required this.onDone,
+  });
+
+  final ColorScheme colors;
+  final IconData icon;
+  final String title;
+  final String meta;
+  final String description;
+  final String joinLabel;
+  final String doneLabel;
+  final VoidCallback? onJoin;
+  final VoidCallback? onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .4),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.outline.withValues(alpha: .16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient:
+                      LinearGradient(colors: [colors.primary, colors.secondary]),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(meta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: colors.onSurface.withValues(alpha: .6))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (description.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(description,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 13,
+                    color: colors.onSurface.withValues(alpha: .78))),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed: onJoin,
+                  child: Text(joinLabel),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onDone,
+                  child: Text(doneLabel,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// A pill-style tab used to switch between library collections.
+class _LibraryTab extends StatelessWidget {
+  const _LibraryTab({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Material(
+        color: selected
+            ? colors.primary
+            : colors.surfaceContainerHighest.withValues(alpha: .5),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+            child: Column(
+              children: [
+                Text('$count',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color:
+                            selected ? colors.onPrimary : colors.onSurface)),
+                const SizedBox(height: 2),
+                Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: selected
+                            ? colors.onPrimary.withValues(alpha: .9)
+                            : colors.onSurface.withValues(alpha: .65))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// A single note / bookmark / highlight entry with optional edit + delete.
+class _LibraryEntry extends StatelessWidget {
+  const _LibraryEntry({
+    required this.colors,
+    required this.leadingColor,
+    required this.icon,
+    required this.title,
+    required this.verse,
+    required this.body,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final ColorScheme colors;
+  final Color leadingColor;
+  final IconData icon;
+  final String title;
+  final String verse;
+  final String? body;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .4),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colors.outline.withValues(alpha: .16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: leadingColor.withValues(alpha: .18),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: leadingColor, size: 19),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                if (verse.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(verse,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontStyle: FontStyle.italic,
+                          color: colors.onSurface.withValues(alpha: .72))),
+                ],
+                if (body != null && body!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(body!,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: colors.onSurface.withValues(alpha: .9))),
+                ],
+              ],
+            ),
+          ),
+          if (onEdit != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: onEdit,
+              icon: Icon(Icons.edit_rounded,
+                  size: 18, color: colors.onSurface.withValues(alpha: .6)),
+            ),
+          if (onDelete != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: onDelete,
+              icon: Icon(Icons.delete_outline_rounded,
+                  size: 19, color: colors.error.withValues(alpha: .8)),
+            ),
+        ],
+      ),
     );
   }
 }
