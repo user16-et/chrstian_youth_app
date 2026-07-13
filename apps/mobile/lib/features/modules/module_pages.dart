@@ -2285,9 +2285,9 @@ class _BibleScreenState extends State<BibleScreen> {
   int _selectedVerseIndex = 0;
   String? _verseLang; // null = follow app language; else 'en' / 'am'
   String _selectedHighlightColor = 'gold';
-  String _readerVersion = 'kjv';
-  String _readerBook = 'Romans';
-  int _readerChapter = 8;
+  final String _readerVersion = 'kjv';
+  final String _readerBook = 'Romans';
+  final int _readerChapter = 8;
   bool _busy = false;
   String _status = '';
   int _libraryTab = 0; // 0 = notes, 1 = bookmarks, 2 = highlights
