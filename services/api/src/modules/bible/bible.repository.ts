@@ -158,16 +158,35 @@ export class BibleRepository {
       params.push(ref.book, ref.chapter, ref.verse);
       refClause = 'OR (lower(b.name) = lower($4) AND bv.chapter = $5 AND bv.verse = $6)';
     }
+    // Split the verse match into two index-friendly branches: the text match
+    // uses the trigram index on bible_verses.text, while the book-name /
+    // reference match filters the (tiny) books table first. Combining them with
+    // OR in one predicate forced a full scan of every verse (~62k rows).
     const result = await this.db.query(
       `SELECT type, reference, "verseText", language, source FROM (
-         SELECT 'verse' AS type, concat(b.name, ' ', bv.chapter, ':', bv.verse) AS reference,
-                bv.text AS "verseText", v.code AS language, v.name AS source,
-                b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
-         FROM bible_verses bv
-         JOIN bible_versions v ON v.id = bv.version_id
-         JOIN bible_books b ON b.id = bv.book_id
-         WHERE ($3::text IS NULL OR lower(v.code) = lower($3))
-           AND (bv.text ILIKE $1 OR b.name ILIKE $1 ${refClause})
+         (
+           SELECT 'verse' AS type, concat(b.name, ' ', bv.chapter, ':', bv.verse) AS reference,
+                  bv.text AS "verseText", v.code AS language, v.name AS source,
+                  b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
+           FROM bible_verses bv
+           JOIN bible_versions v ON v.id = bv.version_id
+           JOIN bible_books b ON b.id = bv.book_id
+           WHERE ($3::text IS NULL OR lower(v.code) = lower($3))
+             AND bv.text ILIKE $1
+           LIMIT 50
+         )
+         UNION
+         (
+           SELECT 'verse' AS type, concat(b.name, ' ', bv.chapter, ':', bv.verse) AS reference,
+                  bv.text AS "verseText", v.code AS language, v.name AS source,
+                  b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
+           FROM bible_verses bv
+           JOIN bible_versions v ON v.id = bv.version_id
+           JOIN bible_books b ON b.id = bv.book_id
+           WHERE ($3::text IS NULL OR lower(v.code) = lower($3))
+             AND (b.name ILIKE $1 ${refClause})
+           LIMIT 50
+         )
          UNION ALL
          SELECT 'note' AS type, reference, verse_text AS "verseText", language, 'My notes' AS source,
                 1000 AS o1, 0 AS o2, 0 AS o3
@@ -358,16 +377,20 @@ export class BibleRepository {
     );
     const planId = plan.rows[0].id as string;
 
-    // 2. Per-day readings when provided, otherwise generic day markers.
+    // 2. Per-day readings when provided, otherwise generic day markers —
+    // inserted in a single round trip instead of one query per day.
+    const dayNumbers: number[] = [];
+    const assignments: string[] = [];
     for (let i = 0; i < durationDays; i += 1) {
-      const assignment = readings[i] ?? `Day ${i + 1}`;
-      await this.db.query(
-        `INSERT INTO reading_plan_days (plan_id, day_number, assignment)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (plan_id, day_number) DO NOTHING`,
-        [planId, i + 1, assignment],
-      );
+      dayNumbers.push(i + 1);
+      assignments.push(readings[i] ?? `Day ${i + 1}`);
     }
+    await this.db.query(
+      `INSERT INTO reading_plan_days (plan_id, day_number, assignment)
+       SELECT $1, unnest($2::int[]), unnest($3::text[])
+       ON CONFLICT (plan_id, day_number) DO NOTHING`,
+      [planId, dayNumbers, assignments],
+    );
 
     // 3. The group bound to the plan.
     const group = await this.db.query(
