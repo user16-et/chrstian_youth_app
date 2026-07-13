@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 
 import { ContentRepository } from '../../common/content.repository';
 import { UserRepository } from '../../common/user.repository';
+import { NotificationsService } from '../platform/notifications.service';
 import { CreateBibleNoteDto } from './dto/create-bible-note.dto';
 import { UpdateBibleNoteDto } from './dto/update-bible-note.dto';
 import { BibleRepository } from './bible.repository';
@@ -12,6 +13,7 @@ export class BibleService {
     private readonly contentRepository: ContentRepository,
     private readonly userRepository: UserRepository,
     private readonly bibleRepository: BibleRepository,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async home(token: string | null) {
@@ -125,7 +127,27 @@ export class BibleService {
   async joinReadingGroup(token: string, groupId: string) {
     const actor = await this.requireActor(token);
     if (!groupId) throw new BadRequestException('group_id_required');
-    return this.bibleRepository.joinReadingGroup(actor.id, groupId);
+    const result = await this.bibleRepository.joinReadingGroup(actor.id, groupId);
+    // Let the leaders know a new reader joined (only on a genuinely new join).
+    if (result.isNew) {
+      const info = await this.bibleRepository.readingGroupNotifyInfo(groupId, actor.id);
+      for (const managerId of info.managerIds) {
+        void this.notifications
+          .send({
+            userId: managerId,
+            actorId: actor.id,
+            type: 'reading_group_join',
+            title: info.groupName,
+            body: `${info.joinerName} joined the reading group`,
+            targetType: 'group',
+            targetId: groupId,
+            priority: 'normal',
+            dedupeKey: `reading_group_join:${groupId}:${actor.id}`,
+          })
+          .catch(() => undefined);
+      }
+    }
+    return { groupId, joined: true };
   }
 
   async readingGroupPlan(token: string, groupId: string) {

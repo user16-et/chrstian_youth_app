@@ -402,6 +402,11 @@ export class BibleRepository {
 
   // Join the group and enroll in its reading plan in one step.
   async joinReadingGroup(userId: string, groupId: string) {
+    const existing = await this.db.query(
+      `SELECT status FROM group_memberships WHERE group_id = $1 AND user_id = $2`,
+      [groupId, userId],
+    );
+    const isNew = existing.rows[0]?.status !== 'active';
     await this.db.query(
       `INSERT INTO group_memberships (id, group_id, user_id, role, status, joined_at)
        VALUES (gen_random_uuid(), $1, $2, 'member', 'active', now())
@@ -412,7 +417,25 @@ export class BibleRepository {
     if (planId) {
       await this.joinPlan(userId, planId);
     }
-    return { groupId, joined: true };
+    return { groupId, joined: true, isNew };
+  }
+
+  // Who to notify (group leaders) and the names for a new-join notification.
+  async readingGroupNotifyInfo(groupId: string, joinerId: string) {
+    const [group, joiner, managers] = await Promise.all([
+      this.db.query('SELECT name FROM groups WHERE id = $1', [groupId]),
+      this.db.query('SELECT full_name AS "fullName" FROM users WHERE id = $1', [joinerId]),
+      this.db.query(
+        `SELECT user_id AS "userId" FROM group_memberships
+         WHERE group_id = $1 AND status = 'active' AND role IN ('owner', 'admin') AND user_id <> $2`,
+        [groupId, joinerId],
+      ),
+    ]);
+    return {
+      groupName: (group.rows[0]?.name as string) ?? 'Reading group',
+      joinerName: (joiner.rows[0]?.fullName as string) ?? 'Someone',
+      managerIds: managers.rows.map((r) => r.userId as string),
+    };
   }
 
   // Reading-plan state for the in-group banner: today's reading and progress.
