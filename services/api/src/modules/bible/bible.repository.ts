@@ -295,59 +295,175 @@ export class BibleRepository {
     return result.rows[0];
   }
 
-  // ---- Study groups (backed by the shared groups system) ----
-  // A Bible study group is a regular group with category='bible_study', so it
-  // reuses the app's group chat, membership and notifications ("Telegram"
-  // groups). These helpers surface them inside the Bible section.
+  // ---- Reading groups (backed by the shared groups system) ----
+  // A reading group is a group (category='bible_study') bound to a reading plan
+  // (groups.reading_plan_id). Members read the plan together while using the
+  // group's chat, audio meetings and notifications. These helpers surface and
+  // manage them from the Bible section.
 
   async listStudyGroups(userId: string) {
+    const planCols = `g.reading_plan_id AS "planId",
+                      pl.title AS "planTitle", pl.description AS "planDescription",
+                      pl.duration_days AS "durationDays"`;
+    const memberCount = `(SELECT count(*)::int FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active')`;
+    const lastActivity = `(SELECT max(p.created_at) FROM group_posts p WHERE p.group_id = g.id AND p.removed_at IS NULL)`;
     const [mine, discover] = await Promise.all([
       this.db.query(
         `SELECT g.id, g.name, g.description, g.visibility, g.created_at AS "createdAt",
-                m.role AS "myRole",
-                (SELECT count(*)::int FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') AS "memberCount",
-                (SELECT max(p.created_at) FROM group_posts p WHERE p.group_id = g.id AND p.removed_at IS NULL) AS "lastActivityAt"
+                m.role AS "myRole", ${planCols},
+                COALESCE(e.completed_days, 0) AS "completedDays",
+                ${memberCount} AS "memberCount",
+                ${lastActivity} AS "lastActivityAt"
          FROM groups g
          JOIN group_memberships m ON m.group_id = g.id AND m.user_id = $1 AND m.status = 'active'
+         LEFT JOIN bible_reading_plans pl ON pl.id = g.reading_plan_id
+         LEFT JOIN reading_plan_enrollments e ON e.plan_id = g.reading_plan_id AND e.user_id = $1
          WHERE g.category = 'bible_study' AND g.status = 'active'
-         ORDER BY COALESCE(
-           (SELECT max(p.created_at) FROM group_posts p WHERE p.group_id = g.id AND p.removed_at IS NULL),
-           g.created_at) DESC`,
+         ORDER BY COALESCE(${lastActivity}, g.created_at) DESC`,
         [userId],
       ),
       this.db.query(
         `SELECT g.id, g.name, g.description, g.visibility, g.created_at AS "createdAt",
-                (SELECT count(*)::int FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') AS "memberCount"
+                ${planCols}, ${memberCount} AS "memberCount"
          FROM groups g
+         LEFT JOIN bible_reading_plans pl ON pl.id = g.reading_plan_id
          WHERE g.category = 'bible_study' AND g.status = 'active' AND g.visibility = 'public'
            AND NOT EXISTS (SELECT 1 FROM group_memberships m WHERE m.group_id = g.id AND m.user_id = $1 AND m.status = 'active')
-         ORDER BY (SELECT count(*)::int FROM group_memberships gm WHERE gm.group_id = g.id AND gm.status = 'active') DESC, g.created_at DESC
+         ORDER BY ${memberCount} DESC, g.created_at DESC
          LIMIT 12`,
         [userId],
       ),
     ]);
     return {
       mine: mine.rows.map((r) => ({ ...r, isMember: true })),
-      discover: discover.rows.map((r) => ({ ...r, isMember: false, myRole: null })),
+      discover: discover.rows.map((r) => ({ ...r, isMember: false, myRole: null, completedDays: 0 })),
     };
   }
 
-  async createStudyGroup(userId: string, input: Record<string, unknown>) {
+  async createReadingGroup(userId: string, input: Record<string, unknown>) {
     const visibility = ['public', 'private'].includes(String(input.visibility)) ? String(input.visibility) : 'public';
+    const title = String(input.title ?? input.name ?? '').trim();
+    const description = String(input.description ?? '').trim();
+    const readings = Array.isArray(input.readings)
+      ? (input.readings as unknown[]).map((r) => String(r ?? '').trim()).filter((r) => r.length > 0)
+      : [];
+    const durationDays = readings.length > 0 ? readings.length : Math.max(1, Number(input.durationDays ?? 7) || 7);
+
+    // 1. The reading plan.
+    const plan = await this.db.query(
+      `INSERT INTO bible_reading_plans (title, description, duration_days, language, category)
+       VALUES ($1, $2, $3, $4, 'ReadingGroup')
+       RETURNING id`,
+      [title, description, durationDays, String(input.language ?? 'en')],
+    );
+    const planId = plan.rows[0].id as string;
+
+    // 2. Per-day readings when provided, otherwise generic day markers.
+    for (let i = 0; i < durationDays; i += 1) {
+      const assignment = readings[i] ?? `Day ${i + 1}`;
+      await this.db.query(
+        `INSERT INTO reading_plan_days (plan_id, day_number, assignment)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (plan_id, day_number) DO NOTHING`,
+        [planId, i + 1, assignment],
+      );
+    }
+
+    // 3. The group bound to the plan.
     const group = await this.db.query(
-      `INSERT INTO groups (id, name, description, category, kind, visibility, type, status, created_by, created_at)
-       VALUES (gen_random_uuid(), $1, $2, 'bible_study', 'group', $3, 'group', 'active', $4, now())
+      `INSERT INTO groups (id, name, description, category, kind, visibility, type, status, created_by, reading_plan_id, created_at)
+       VALUES (gen_random_uuid(), $1, $2, 'bible_study', 'group', $3, 'group', 'active', $4, $5, now())
        RETURNING id, name, description, category, visibility, created_by AS "createdBy", created_at AS "createdAt"`,
-      [String(input.name ?? '').trim(), String(input.description ?? '').trim(), visibility, userId],
+      [title, description, visibility, userId, planId],
     );
     const row = group.rows[0];
+
+    // 4. Creator becomes owner and is enrolled in the plan.
     await this.db.query(
       `INSERT INTO group_memberships (id, group_id, user_id, role, status, joined_at)
        VALUES (gen_random_uuid(), $1, $2, 'owner', 'active', now())
        ON CONFLICT (group_id, user_id) DO UPDATE SET role = 'owner', status = 'active'`,
       [row.id, userId],
     );
-    return { ...row, memberCount: 1, myRole: 'owner', isMember: true };
+    await this.joinPlan(userId, planId);
+
+    return {
+      ...row,
+      planId,
+      planTitle: title,
+      planDescription: description,
+      durationDays,
+      completedDays: 0,
+      memberCount: 1,
+      myRole: 'owner',
+      isMember: true,
+    };
+  }
+
+  // Join the group and enroll in its reading plan in one step.
+  async joinReadingGroup(userId: string, groupId: string) {
+    await this.db.query(
+      `INSERT INTO group_memberships (id, group_id, user_id, role, status, joined_at)
+       VALUES (gen_random_uuid(), $1, $2, 'member', 'active', now())
+       ON CONFLICT (group_id, user_id) DO UPDATE SET status = 'active'`,
+      [groupId, userId],
+    );
+    const planId = await this.groupPlanId(groupId);
+    if (planId) {
+      await this.joinPlan(userId, planId);
+    }
+    return { groupId, joined: true };
+  }
+
+  // Reading-plan state for the in-group banner: today's reading and progress.
+  async readingGroupPlan(userId: string, groupId: string) {
+    const planId = await this.groupPlanId(groupId);
+    if (!planId) return null;
+    const [plan, enrollment, memberCount, today] = await Promise.all([
+      this.db.query('SELECT id, title, description, duration_days AS "durationDays" FROM bible_reading_plans WHERE id = $1', [planId]),
+      this.db.query('SELECT completed_days AS "completedDays", streak FROM reading_plan_enrollments WHERE plan_id = $1 AND user_id = $2', [planId, userId]),
+      this.db.query(`SELECT count(*)::int AS c FROM group_memberships WHERE group_id = $1 AND status = 'active'`, [groupId]),
+      this.db.query('SELECT day_number AS "dayNumber", assignment, book_name AS "bookName" FROM reading_plan_days WHERE plan_id = $1 ORDER BY day_number', [planId]),
+    ]);
+    if (plan.rowCount === 0) return null;
+    const durationDays = Number(plan.rows[0].durationDays) || 1;
+    const completedDays = Number(enrollment.rows[0]?.completedDays ?? 0);
+    const currentDay = Math.min(completedDays + 1, durationDays);
+    const days = today.rows as { dayNumber: number; assignment: string; bookName: string }[];
+    const todayReading = days.find((d) => Number(d.dayNumber) === currentDay) ?? null;
+    // Members who have already reached the current day.
+    const onTrack = await this.db.query(
+      `SELECT count(*)::int AS c
+       FROM group_memberships m
+       JOIN reading_plan_enrollments e ON e.user_id = m.user_id AND e.plan_id = $1
+       WHERE m.group_id = $2 AND m.status = 'active' AND e.completed_days >= $3`,
+      [planId, groupId, currentDay],
+    );
+    return {
+      planId,
+      title: plan.rows[0].title,
+      description: plan.rows[0].description,
+      durationDays,
+      completedDays,
+      currentDay,
+      streak: Number(enrollment.rows[0]?.streak ?? 0),
+      todayAssignment: todayReading?.assignment ?? '',
+      todayReference: todayReading?.bookName ?? '',
+      membersOnTrack: Number(onTrack.rows[0]?.c ?? 0),
+      memberCount: Number(memberCount.rows[0]?.c ?? 0),
+      isEnrolled: enrollment.rowCount ? enrollment.rowCount > 0 : false,
+    };
+  }
+
+  async markReadingDay(userId: string, groupId: string, dayNumber: number) {
+    const planId = await this.groupPlanId(groupId);
+    if (!planId) return { status: 'no_plan' };
+    return this.completePlanDay(userId, planId, dayNumber);
+  }
+
+  private async groupPlanId(groupId: string): Promise<string | null> {
+    const result = await this.db.query('SELECT reading_plan_id FROM groups WHERE id = $1', [groupId]);
+    return (result.rows[0]?.reading_plan_id as string | null) ?? null;
   }
 
   async analytics(userId: string) {

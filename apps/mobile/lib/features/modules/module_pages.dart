@@ -2763,31 +2763,34 @@ class _BibleScreenState extends State<BibleScreen> {
 
   // Opens the shared group experience (chat, members, notifications).
   void _openStudyGroup(BibleStudyGroupItem group) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => GroupDetailScreen(
-        language: widget.language,
-        apiClient: widget.apiClient,
-        group: GroupItem(
-            id: group.id, name: group.name, category: 'bible_study'),
-        session: widget.session,
-        onDataChanged: _refreshHub,
-      ),
-    ));
+    // Reading groups open straight into the group chat (which also hosts the
+    // reading-plan banner and one-tap audio meetings).
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+          builder: (_) => GroupChannelScreen(
+            language: widget.language,
+            apiClient: widget.apiClient,
+            token: widget.session?.token,
+            groupId: group.id,
+          ),
+        ))
+        .then((_) => _refreshHub());
   }
 
   Future<void> _joinStudyGroup(BibleStudyGroupItem group) async {
     if (!_requireLogin()) return;
     await _runAction(() async {
-      await widget.apiClient
-          .joinGroup(token: widget.session!.token, groupId: group.id);
+      await widget.apiClient.joinReadingGroup(widget.session!.token, group.id);
     });
     if (mounted) _openStudyGroup(group);
   }
 
+  // Create a reading plan and its reading group together, then open it.
   Future<void> _createStudyGroup() async {
     if (!_requireLogin()) return;
-    final nameController = TextEditingController();
-    final focusController = TextEditingController();
+    final titleController = TextEditingController();
+    final descController = TextEditingController();
+    final readingsController = TextEditingController();
     var isPrivate = false;
     final created = await showModalBottomSheet<BibleStudyGroupItem>(
       context: context,
@@ -2796,106 +2799,138 @@ class _BibleScreenState extends State<BibleScreen> {
       builder: (sheetContext) {
         var saving = false;
         return StatefulBuilder(
-          builder: (sheetContext, setSheet) => Padding(
-            padding: EdgeInsets.only(
-              left: 20,
-              right: 20,
-              top: 4,
-              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(_tr('New study group', 'አዲስ የጥናት ቡድን'),
-                    style: Theme.of(sheetContext).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                    _tr('Members can chat, share and get notified together.',
-                        'አባላት አብረው ይወያያሉ፣ ያጋራሉ እና ማሳወቂያ ይደርሳቸዋል።'),
-                    style: Theme.of(sheetContext).textTheme.bodySmall),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: nameController,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(
-                    labelText: _tr('Group name', 'የቡድን ስም'),
-                    hintText: _tr('e.g. Romans Deep Dive', 'ለምሳሌ የሮሜ ጥናት'),
-                  ),
+          builder: (sheetContext, setSheet) {
+            final readingCount = readingsController.text
+                .split('\n')
+                .where((l) => l.trim().isNotEmpty)
+                .length;
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 4,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(_tr('New reading plan', 'አዲስ የንባብ እቅድ'),
+                        style: Theme.of(sheetContext).textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                        _tr('Creates a group where members read the plan together — with chat, audio calls and notifications.',
+                            'አባላት እቅዱን አብረው የሚያነቡበት ቡድን ይፈጥራል — ከውይይት፣ ከድምጽ ጥሪ እና ማሳወቂያ ጋር።'),
+                        style: Theme.of(sheetContext).textTheme.bodySmall),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: titleController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: InputDecoration(
+                        labelText: _tr('Plan title', 'የእቅዱ ርዕስ'),
+                        hintText: _tr('e.g. Gospel of John in 7 days',
+                            'ለምሳሌ የዮሐንስ ወንጌል በ7 ቀን'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descController,
+                      decoration: InputDecoration(
+                        labelText: _tr('Description', 'መግለጫ'),
+                        hintText: _tr('What this plan is about',
+                            'ስለ እቅዱ አጭር መግለጫ'),
+                      ),
+                      maxLines: 2,
+                      minLines: 1,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: readingsController,
+                      onChanged: (_) => setSheet(() {}),
+                      decoration: InputDecoration(
+                        labelText: _tr('Daily readings — one per line',
+                            'ዕለታዊ ንባቦች — በየመስመሩ አንድ'),
+                        hintText: 'John 1\nJohn 2-3\nJohn 4',
+                        helperText: readingCount > 0
+                            ? _tr('$readingCount days', '$readingCount ቀናት')
+                            : _tr('Leave empty for a 7-day plan',
+                                'ባዶ ከተወ የ7 ቀን እቅድ ይሆናል'),
+                      ),
+                      maxLines: 6,
+                      minLines: 3,
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: isPrivate,
+                      onChanged: (v) => setSheet(() => isPrivate = v),
+                      title: Text(_tr('Private group', 'የግል ቡድን')),
+                      subtitle: Text(
+                          isPrivate
+                              ? _tr('Only people you invite can join.',
+                                  'የምትጋብዟቸው ብቻ ይቀላቀላሉ።')
+                              : _tr('Anyone can discover and join.',
+                                  'ማንኛውም ሰው አግኝቶ ሊቀላቀል ይችላል።'),
+                          style: Theme.of(sheetContext).textTheme.bodySmall),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              if (titleController.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                    SnackBar(
+                                        content: Text(_tr('Enter a plan title.',
+                                            'የእቅድ ርዕስ አስገባ።'))));
+                                return;
+                              }
+                              setSheet(() => saving = true);
+                              try {
+                                final readings = readingsController.text
+                                    .split('\n')
+                                    .map((l) => l.trim())
+                                    .where((l) => l.isNotEmpty)
+                                    .toList();
+                                final group =
+                                    await widget.apiClient.createReadingGroup(
+                                  widget.session!.token,
+                                  title: titleController.text.trim(),
+                                  description: descController.text.trim(),
+                                  visibility: isPrivate ? 'private' : 'public',
+                                  readings: readings,
+                                );
+                                if (sheetContext.mounted) {
+                                  Navigator.of(sheetContext).pop(group);
+                                }
+                              } catch (error) {
+                                setSheet(() => saving = false);
+                                if (sheetContext.mounted) {
+                                  ScaffoldMessenger.of(sheetContext)
+                                      .showSnackBar(SnackBar(
+                                          content: Text(error
+                                              .toString()
+                                              .replaceFirst(
+                                                  'HttpException: ', ''))));
+                                }
+                              }
+                            },
+                      child: Text(saving
+                          ? AppStrings.of(widget.language, 'working')
+                          : _tr('Create reading plan', 'የንባብ እቅድ ፍጠር')),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: focusController,
-                  decoration: InputDecoration(
-                    labelText: _tr('Current focus', 'የአሁን ትኩረት'),
-                    hintText: _tr(
-                        'What you are reading together', 'አብራችሁ የምታነቡት'),
-                  ),
-                  maxLines: 3,
-                  minLines: 2,
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: isPrivate,
-                  onChanged: (v) => setSheet(() => isPrivate = v),
-                  title: Text(_tr('Private group', 'የግል ቡድን')),
-                  subtitle: Text(
-                      isPrivate
-                          ? _tr('Only people you invite can join.',
-                              'የምትጋብዟቸው ብቻ ይቀላቀላሉ።')
-                          : _tr('Anyone can discover and join.',
-                              'ማንኛውም ሰው አግኝቶ ሊቀላቀል ይችላል።'),
-                      style: Theme.of(sheetContext).textTheme.bodySmall),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  onPressed: saving
-                      ? null
-                      : () async {
-                          if (nameController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(sheetContext).showSnackBar(
-                                SnackBar(
-                                    content: Text(_tr('Enter a group name.',
-                                        'የቡድን ስም አስገባ።'))));
-                            return;
-                          }
-                          setSheet(() => saving = true);
-                          try {
-                            final group =
-                                await widget.apiClient.createBibleStudyGroup(
-                              widget.session!.token,
-                              name: nameController.text.trim(),
-                              description: focusController.text.trim(),
-                              visibility: isPrivate ? 'private' : 'public',
-                            );
-                            if (sheetContext.mounted) {
-                              Navigator.of(sheetContext).pop(group);
-                            }
-                          } catch (error) {
-                            setSheet(() => saving = false);
-                            if (sheetContext.mounted) {
-                              ScaffoldMessenger.of(sheetContext).showSnackBar(
-                                  SnackBar(
-                                      content: Text(error
-                                          .toString()
-                                          .replaceFirst(
-                                              'HttpException: ', ''))));
-                            }
-                          }
-                        },
-                  child: Text(saving
-                      ? AppStrings.of(widget.language, 'working')
-                      : _tr('Create group', 'ቡድን ፍጠር')),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
-    nameController.dispose();
-    focusController.dispose();
+    titleController.dispose();
+    descController.dispose();
+    readingsController.dispose();
     if (created != null) {
       await _refreshHub();
       if (mounted) _openStudyGroup(created);
@@ -3358,14 +3393,15 @@ class _BibleScreenState extends State<BibleScreen> {
               ),
               const SizedBox(height: 18),
 
-              // Study groups — chat-enabled groups with members & notifications.
+              // Reading groups — a reading plan + a group that reads it together
+              // with chat, audio calls and notifications.
               _SectionCard(
-                title: _tr('Study groups', 'የጥናት ቡድኖች'),
+                title: _tr('Reading groups', 'የንባብ ቡድኖች'),
                 children: [
                   Text(
                     _tr(
-                        'Read together in a group chat with members and notifications.',
-                        'በቡድን ውይይት፣ ከአባላትና ማሳወቂያ ጋር አብራችሁ አንብቡ።'),
+                        'Create a reading plan and read it together — group chat, audio calls and notifications included.',
+                        'የንባብ እቅድ ፍጠሩና አብራችሁ አንብቡ — ውይይት፣ የድምጽ ጥሪ እና ማሳወቂያን ጨምሮ።'),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
@@ -3373,8 +3409,8 @@ class _BibleScreenState extends State<BibleScreen> {
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed: _busy ? null : _createStudyGroup,
-                      icon: const Icon(Icons.group_add_rounded),
-                      label: Text(_tr('Create study group', 'የጥናት ቡድን ፍጠር')),
+                      icon: const Icon(Icons.playlist_add_rounded),
+                      label: Text(_tr('Create reading plan', 'የንባብ እቅድ ፍጠር')),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -3384,8 +3420,8 @@ class _BibleScreenState extends State<BibleScreen> {
                   else ...[
                     if (data.studyGroupsMine.isEmpty)
                       _EmptyState(
-                          message: _tr('You have not joined any study group yet.',
-                              'እስካሁን የተቀላቀሉት የጥናት ቡድን የለም።'))
+                          message: _tr('You have not joined any reading group yet.',
+                              'እስካሁን የተቀላቀሉት የንባብ ቡድን የለም።'))
                     else
                       for (final group in data.studyGroupsMine)
                         Padding(
@@ -3691,32 +3727,57 @@ class _StudyGroupTile extends StatelessWidget {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      group.description.isNotEmpty
-                          ? group.description
-                          : '${group.memberCount} ${memberWord(group.memberCount)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: colors.onSurface.withValues(alpha: .62)),
-                    ),
-                    if (group.description.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Row(children: [
-                          Icon(Icons.people_alt_rounded,
-                              size: 12,
-                              color: colors.onSurface.withValues(alpha: .5)),
+                    if (group.description.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        group.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: colors.onSurface.withValues(alpha: .62)),
+                      ),
+                    ],
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Row(children: [
+                        Icon(Icons.people_alt_rounded,
+                            size: 12,
+                            color: colors.onSurface.withValues(alpha: .5)),
+                        const SizedBox(width: 4),
+                        Text(
+                            '${group.memberCount} ${memberWord(group.memberCount)}',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color:
+                                    colors.onSurface.withValues(alpha: .55))),
+                        if (group.hasPlan) ...[
+                          const SizedBox(width: 8),
+                          Icon(Icons.auto_stories_rounded,
+                              size: 12, color: colors.primary),
                           const SizedBox(width: 4),
                           Text(
-                              '${group.memberCount} ${memberWord(group.memberCount)}',
+                              group.isMember
+                                  ? 'Day ${(group.completedDays + 1).clamp(1, group.durationDays)}/${group.durationDays}'
+                                  : '${group.durationDays}-day plan',
                               style: TextStyle(
                                   fontSize: 11,
-                                  color:
-                                      colors.onSurface.withValues(alpha: .55))),
-                        ]),
+                                  fontWeight: FontWeight.w600,
+                                  color: colors.primary)),
+                        ],
+                      ]),
+                    ),
+                    if (group.isMember && group.hasPlan)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, right: 4),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: LinearProgressIndicator(
+                            value: group.progress,
+                            minHeight: 4,
+                            backgroundColor: colors.surfaceContainerHighest,
+                          ),
+                        ),
                       ),
                   ],
                 ),

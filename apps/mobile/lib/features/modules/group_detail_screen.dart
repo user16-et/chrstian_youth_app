@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
+import '../../data/app_models.dart';
 import '../../data/call_controller.dart';
 import '../../data/group_socket_client.dart';
 import '../../data/image_upload.dart';
@@ -44,6 +45,8 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   bool _loading = true;
   bool _posting = false;
   String _error = '';
+  ReadingGroupPlan? _readingPlan; // non-null when this is a reading group
+  bool _markingDay = false;
 
   GroupSocketClient? _socket;
   final List<StreamSubscription> _subs = [];
@@ -198,11 +201,20 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       } catch (_) {
         // Private wall while not a member — leave posts/polls empty.
       }
+      ReadingGroupPlan? plan;
+      if (_signedIn) {
+        try {
+          plan = await widget.apiClient.fetchReadingGroupPlan(_token, widget.groupId);
+        } catch (_) {
+          // Not a reading group (or plan unavailable) — no banner.
+        }
+      }
       if (mounted) {
         setState(() {
           _detail = detail;
           _posts = posts;
           _polls = polls;
+          _readingPlan = plan;
           _postIds
             ..clear()
             ..addAll(posts.map((p) => '${p['id'] ?? ''}').where((id) => id.isNotEmpty));
@@ -212,6 +224,24 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
       }
     } catch (error) {
       if (mounted) setState(() { _error = _clean(error); _loading = false; });
+    }
+  }
+
+  Future<void> _markReadingDay() async {
+    final plan = _readingPlan;
+    if (plan == null || _markingDay || !_signedIn) return;
+    setState(() => _markingDay = true);
+    try {
+      await widget.apiClient.markReadingDay(_token, widget.groupId, plan.currentDay);
+      final refreshed = await widget.apiClient.fetchReadingGroupPlan(_token, widget.groupId);
+      if (mounted) {
+        setState(() => _readingPlan = refreshed);
+        _toast(_t(lang, 'Marked as read. Keep it up! 🙌', 'ተነብቧል ተብሎ ተመዝግቧል! 🙌'));
+      }
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    } finally {
+      if (mounted) setState(() => _markingDay = false);
     }
   }
 
@@ -400,9 +430,101 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
           : _error.isNotEmpty
               ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error, textAlign: TextAlign.center)))
               : Column(children: [
+                  if (_readingPlan != null) _readingBanner(colors, _readingPlan!),
                   Expanded(child: _wall(colors)),
                   _footer(colors),
                 ]),
+    );
+  }
+
+  // Reading-plan banner shown at the top of a reading group's chat.
+  Widget _readingBanner(ColorScheme colors, ReadingGroupPlan plan) {
+    final done = plan.todayDone;
+    final complete = plan.isComplete;
+    final todayLabel = _t(lang, 'Today', 'ዛሬ');
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colors.primaryContainer.withValues(alpha: .7),
+            colors.tertiaryContainer.withValues(alpha: .5),
+          ],
+        ),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.auto_stories_rounded, size: 18, color: colors.onPrimaryContainer),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              complete
+                  ? _t(lang, 'Plan complete 🎉', 'እቅዱ ተጠናቋል 🎉')
+                  : '${_t(lang, 'Day', 'ቀን')} ${plan.currentDay}/${plan.durationDays}',
+              style: TextStyle(
+                  fontWeight: FontWeight.w800, color: colors.onPrimaryContainer),
+            ),
+          ),
+          if (plan.streak > 0)
+            Row(children: [
+              Icon(Icons.local_fire_department_rounded,
+                  size: 16, color: colors.onPrimaryContainer),
+              const SizedBox(width: 2),
+              Text('${plan.streak}',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: colors.onPrimaryContainer)),
+            ]),
+        ]),
+        if (plan.todayAssignment.isNotEmpty && !complete) ...[
+          const SizedBox(height: 6),
+          Text(
+            '$todayLabel: ${plan.todayAssignment}',
+            style: TextStyle(
+                fontSize: 13,
+                color: colors.onPrimaryContainer.withValues(alpha: .9)),
+          ),
+        ],
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: plan.progress,
+            minHeight: 6,
+            backgroundColor: colors.surface.withValues(alpha: .4),
+            valueColor: AlwaysStoppedAnimation(colors.onPrimaryContainer),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: Text(
+              '${plan.membersOnTrack}/${plan.memberCount} ${_t(lang, 'on track', 'በሰዓቱ')}',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: colors.onPrimaryContainer.withValues(alpha: .85)),
+            ),
+          ),
+          if (!complete)
+            FilledButton.icon(
+              onPressed: (done || _markingDay) ? null : _markReadingDay,
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                backgroundColor: colors.onPrimaryContainer,
+                foregroundColor: colors.primaryContainer,
+              ),
+              icon: Icon(done ? Icons.check_circle_rounded : Icons.check_rounded,
+                  size: 18),
+              label: Text(done
+                  ? _t(lang, 'Done today', 'ዛሬ ተጠናቋል')
+                  : _t(lang, 'Mark read', 'ተነበበ ምልክት')),
+            ),
+        ]),
+      ]),
     );
   }
 

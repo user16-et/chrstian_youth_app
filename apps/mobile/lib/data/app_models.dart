@@ -1122,8 +1122,9 @@ class BibleDailyVerseItem {
   }
 }
 
-/// A Bible study group — a chat-enabled group (category `bible_study`) that
-/// reuses the app's group membership, chat and notifications.
+/// A reading group — a chat-enabled group (category `bible_study`) bound to a
+/// reading plan, so members read the plan together while using the group's
+/// chat, audio calls and notifications.
 class BibleStudyGroupItem {
   const BibleStudyGroupItem({
     required this.id,
@@ -1134,6 +1135,9 @@ class BibleStudyGroupItem {
     required this.visibility,
     required this.isMember,
     required this.lastActivityAt,
+    required this.planTitle,
+    required this.durationDays,
+    required this.completedDays,
   });
 
   final String id;
@@ -1144,9 +1148,15 @@ class BibleStudyGroupItem {
   final String visibility; // public / private
   final bool isMember;
   final String lastActivityAt;
+  final String planTitle;
+  final int durationDays;
+  final int completedDays;
 
   bool get isPrivate => visibility == 'private';
   bool get canManage => myRole == 'owner' || myRole == 'admin';
+  bool get hasPlan => durationDays > 0 && planTitle.isNotEmpty;
+  double get progress =>
+      durationDays > 0 ? (completedDays / durationDays).clamp(0.0, 1.0) : 0.0;
 
   factory BibleStudyGroupItem.fromJson(Map<String, dynamic> json) {
     return BibleStudyGroupItem(
@@ -1158,6 +1168,59 @@ class BibleStudyGroupItem {
       visibility: json['visibility'] as String? ?? 'public',
       isMember: json['isMember'] as bool? ?? false,
       lastActivityAt: json['lastActivityAt'] as String? ?? '',
+      planTitle: json['planTitle'] as String? ?? '',
+      durationDays: (json['durationDays'] as num?)?.toInt() ?? 0,
+      completedDays: (json['completedDays'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// The reading-plan state for a reading group — powers the in-group banner.
+class ReadingGroupPlan {
+  const ReadingGroupPlan({
+    required this.planId,
+    required this.title,
+    required this.description,
+    required this.durationDays,
+    required this.completedDays,
+    required this.currentDay,
+    required this.streak,
+    required this.todayAssignment,
+    required this.membersOnTrack,
+    required this.memberCount,
+    required this.isEnrolled,
+  });
+
+  final String planId;
+  final String title;
+  final String description;
+  final int durationDays;
+  final int completedDays;
+  final int currentDay;
+  final int streak;
+  final String todayAssignment;
+  final int membersOnTrack;
+  final int memberCount;
+  final bool isEnrolled;
+
+  bool get isComplete => durationDays > 0 && completedDays >= durationDays;
+  bool get todayDone => completedDays >= currentDay;
+  double get progress =>
+      durationDays > 0 ? (completedDays / durationDays).clamp(0.0, 1.0) : 0.0;
+
+  factory ReadingGroupPlan.fromJson(Map<String, dynamic> json) {
+    return ReadingGroupPlan(
+      planId: json['planId'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      durationDays: (json['durationDays'] as num?)?.toInt() ?? 0,
+      completedDays: (json['completedDays'] as num?)?.toInt() ?? 0,
+      currentDay: (json['currentDay'] as num?)?.toInt() ?? 1,
+      streak: (json['streak'] as num?)?.toInt() ?? 0,
+      todayAssignment: json['todayAssignment'] as String? ?? '',
+      membersOnTrack: (json['membersOnTrack'] as num?)?.toInt() ?? 0,
+      memberCount: (json['memberCount'] as num?)?.toInt() ?? 0,
+      isEnrolled: json['isEnrolled'] as bool? ?? false,
     );
   }
 }

@@ -114,12 +114,28 @@ export class BibleService {
     return this.bibleRepository.listStudyGroups(actor.id);
   }
 
-  async createStudyGroup(token: string, input: Record<string, unknown>) {
+  async createReadingGroup(token: string, input: Record<string, unknown>) {
     const actor = await this.requireActor(token);
-    if (!String(input.name ?? '').trim()) {
-      throw new BadRequestException('study_group_name_required');
+    if (!String(input.title ?? input.name ?? '').trim()) {
+      throw new BadRequestException('reading_group_title_required');
     }
-    return this.bibleRepository.createStudyGroup(actor.id, input);
+    return this.bibleRepository.createReadingGroup(actor.id, input);
+  }
+
+  async joinReadingGroup(token: string, groupId: string) {
+    const actor = await this.requireActor(token);
+    if (!groupId) throw new BadRequestException('group_id_required');
+    return this.bibleRepository.joinReadingGroup(actor.id, groupId);
+  }
+
+  async readingGroupPlan(token: string, groupId: string) {
+    const actor = await this.requireActor(token);
+    return this.bibleRepository.readingGroupPlan(actor.id, groupId);
+  }
+
+  async markReadingDay(token: string, groupId: string, dayNumber: number) {
+    const actor = await this.requireActor(token);
+    return this.bibleRepository.markReadingDay(actor.id, groupId, dayNumber);
   }
 
   async analytics(token: string) {

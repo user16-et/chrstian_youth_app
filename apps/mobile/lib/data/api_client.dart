@@ -1452,10 +1452,10 @@ class ApiClient {
         .toList();
   }
 
-  /// Bible study groups: the viewer's groups plus discoverable public ones.
+  /// Reading groups: the viewer's groups plus discoverable public ones.
   Future<({List<BibleStudyGroupItem> mine, List<BibleStudyGroupItem> discover})>
       fetchBibleStudyGroups(String token) async {
-    final response = await _getJson('/bible/study-groups',
+    final response = await _getJson('/bible/reading-groups',
         headers: {'Authorization': 'Bearer $token'});
     final map = (response as Map<String, dynamic>?) ?? const {};
     List<BibleStudyGroupItem> parse(String key) =>
@@ -1466,18 +1466,49 @@ class ApiClient {
     return (mine: parse('mine'), discover: parse('discover'));
   }
 
-  Future<BibleStudyGroupItem> createBibleStudyGroup(
+  /// Creates a reading plan and its reading group together.
+  Future<BibleStudyGroupItem> createReadingGroup(
     String token, {
-    required String name,
+    required String title,
     required String description,
     required String visibility,
+    List<String> readings = const [],
+    int durationDays = 7,
   }) async {
     final response = await _postJson(
-      '/bible/study-groups',
-      {'name': name, 'description': description, 'visibility': visibility},
+      '/bible/reading-groups',
+      {
+        'title': title,
+        'description': description,
+        'visibility': visibility,
+        'readings': readings,
+        'durationDays': durationDays,
+      },
       headers: {'Authorization': 'Bearer $token'},
     );
     return BibleStudyGroupItem.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<void> joinReadingGroup(String token, String groupId) async {
+    await _postJson('/bible/reading-groups/$groupId/join', const {},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  /// The reading-plan state for a group's in-chat banner (null if not a
+  /// reading group).
+  Future<ReadingGroupPlan?> fetchReadingGroupPlan(
+      String token, String groupId) async {
+    final response = await _getJson('/bible/reading-groups/$groupId/plan',
+        headers: {'Authorization': 'Bearer $token'});
+    if (response == null) return null;
+    return ReadingGroupPlan.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<void> markReadingDay(
+      String token, String groupId, int dayNumber) async {
+    await _postJson('/bible/reading-groups/$groupId/progress',
+        {'dayNumber': dayNumber},
+        headers: {'Authorization': 'Bearer $token'});
   }
 
   Future<List<BibleSearchResultItem>> searchBible(String query,

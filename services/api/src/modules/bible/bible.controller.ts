@@ -142,17 +142,42 @@ export class BibleController {
   }
 
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'List the viewer\'s Bible study groups and discoverable ones' })
-  @Get('/bible/study-groups')
-  listStudyGroups(@Headers('authorization') authorization?: string) {
+  @ApiOperation({ summary: 'List the viewer\'s reading groups and discoverable ones' })
+  @Get('/bible/reading-groups')
+  listReadingGroups(@Headers('authorization') authorization?: string) {
     return this.bibleService.listStudyGroups(requireBearerToken(authorization));
   }
 
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Create a Bible study group (a chat-enabled group)' })
-  @Post('/bible/study-groups')
-  createStudyGroup(@Headers('authorization') authorization?: string, @Body() body?: Record<string, unknown>) {
-    return this.bibleService.createStudyGroup(requireBearerToken(authorization), body ?? {});
+  @ApiOperation({ summary: 'Create a reading plan and its reading group together' })
+  @Post('/bible/reading-groups')
+  createReadingGroup(@Headers('authorization') authorization?: string, @Body() body?: Record<string, unknown>) {
+    return this.bibleService.createReadingGroup(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Join a reading group and enroll in its plan' })
+  @Post('/bible/reading-groups/:id/join')
+  joinReadingGroup(@Headers('authorization') authorization?: string, @Param('id') groupId?: string) {
+    return this.bibleService.joinReadingGroup(requireBearerToken(authorization), groupId ?? '');
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get the reading-plan progress for a reading group' })
+  @Get('/bible/reading-groups/:id/plan')
+  readingGroupPlan(@Headers('authorization') authorization?: string, @Param('id') groupId?: string) {
+    return this.bibleService.readingGroupPlan(requireBearerToken(authorization), groupId ?? '');
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mark a reading-plan day complete in a reading group' })
+  @Post('/bible/reading-groups/:id/progress')
+  markReadingDay(
+    @Headers('authorization') authorization?: string,
+    @Param('id') groupId?: string,
+    @Body() body?: { dayNumber?: number },
+  ) {
+    return this.bibleService.markReadingDay(requireBearerToken(authorization), groupId ?? '', Number(body?.dayNumber ?? 0));
   }
 
   @ApiBearerAuth()
