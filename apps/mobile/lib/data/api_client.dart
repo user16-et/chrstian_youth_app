@@ -1532,8 +1532,11 @@ class ApiClient {
     return response as Map<String, dynamic>;
   }
 
-  Future<List<BibleReadingPlanItem>> fetchReadingPlans() async {
-    final response = await _getJson('/bible/plans');
+  Future<List<BibleReadingPlanItem>> fetchReadingPlans([String? token]) async {
+    final response = await _getJson('/bible/plans',
+        headers: token == null || token.isEmpty
+            ? const {}
+            : {'Authorization': 'Bearer $token'});
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(BibleReadingPlanItem.fromJson)

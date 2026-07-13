@@ -1234,6 +1234,8 @@ class BibleReadingPlanItem {
     required this.language,
     required this.category,
     required this.createdAt,
+    required this.joined,
+    required this.completedDays,
   });
 
   final String id;
@@ -1243,6 +1245,14 @@ class BibleReadingPlanItem {
   final String language;
   final String category;
   final String createdAt;
+  final bool joined;
+  final int completedDays;
+
+  int get nextDay =>
+      durationDays > 0 ? (completedDays + 1).clamp(1, durationDays) : 1;
+  bool get isComplete => durationDays > 0 && completedDays >= durationDays;
+  double get progress =>
+      durationDays > 0 ? (completedDays / durationDays).clamp(0.0, 1.0) : 0.0;
 
   factory BibleReadingPlanItem.fromJson(Map<String, dynamic> json) {
     return BibleReadingPlanItem(
@@ -1253,6 +1263,8 @@ class BibleReadingPlanItem {
       language: json['language'] as String? ?? 'en',
       category: json['category'] as String? ?? '',
       createdAt: json['createdAt'] as String? ?? '',
+      joined: json['joined'] as bool? ?? false,
+      completedDays: (json['completedDays'] as num?)?.toInt() ?? 0,
     );
   }
 }

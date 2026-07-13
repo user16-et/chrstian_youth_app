@@ -2331,7 +2331,7 @@ class _BibleScreenState extends State<BibleScreen> {
   Future<_BibleHubData> _loadHub() async {
     final token = widget.session?.token;
     final dailyVersesFuture = widget.apiClient.fetchDailyVerses();
-    final plansFuture = widget.apiClient.fetchReadingPlans();
+    final plansFuture = widget.apiClient.fetchReadingPlans(token);
     final notesFuture = token == null || token.isEmpty
         ? Future.value(const <BibleNoteItem>[])
         : widget.apiClient.fetchBibleNotes(token);
@@ -2823,17 +2823,24 @@ class _BibleScreenState extends State<BibleScreen> {
                   meta:
                       '${plan.durationDays} ${AppStrings.of(language, 'days')} · ${plan.category}',
                   description: plan.description,
+                  joined: plan.joined,
+                  completedDays: plan.completedDays,
+                  durationDays: plan.durationDays,
                   joinLabel: _tr('Join', 'ተቀላቀል'),
-                  doneLabel: _tr('Mark day 1', 'ቀን 1 ጨርስ'),
+                  doneLabel: plan.isComplete
+                      ? _tr('Completed 🎉', 'ተጠናቋል 🎉')
+                      : _tr('Mark day ${plan.nextDay}', 'ቀን ${plan.nextDay} ጨርስ'),
                   onJoin: _busy
                       ? null
                       : () => _bibleAction((token) => widget.apiClient
                           .joinBiblePlan(token: token, planId: plan.id)),
-                  onDone: _busy
+                  onDone: (_busy || plan.isComplete)
                       ? null
                       : () => _bibleAction((token) =>
                           widget.apiClient.completeBiblePlanDay(
-                              token: token, planId: plan.id, dayNumber: 1)),
+                              token: token,
+                              planId: plan.id,
+                              dayNumber: plan.nextDay)),
                 ),
               ),
           if (filtered.length > cap)
@@ -4091,6 +4098,9 @@ class _ReadingPlanTile extends StatelessWidget {
     required this.title,
     required this.meta,
     required this.description,
+    required this.joined,
+    required this.completedDays,
+    required this.durationDays,
     required this.joinLabel,
     required this.doneLabel,
     required this.onJoin,
@@ -4102,6 +4112,9 @@ class _ReadingPlanTile extends StatelessWidget {
   final String title;
   final String meta;
   final String description;
+  final bool joined;
+  final int completedDays;
+  final int durationDays;
   final String joinLabel;
   final String doneLabel;
   final VoidCallback? onJoin;
@@ -4165,24 +4178,52 @@ class _ReadingPlanTile extends StatelessWidget {
                     color: colors.onSurface.withValues(alpha: .78))),
           ],
           const SizedBox(height: 12),
-          Row(
-            children: [
+          // Before joining: a single Join button. After joining: a progress
+          // bar and the "mark day" action (no Join button).
+          if (!joined)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonal(
+                onPressed: onJoin,
+                child: Text(joinLabel),
+              ),
+            )
+          else ...[
+            Row(children: [
               Expanded(
-                child: FilledButton.tonal(
-                  onPressed: onJoin,
-                  child: Text(joinLabel),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: durationDays > 0
+                        ? (completedDays / durationDays).clamp(0.0, 1.0)
+                        : 0.0,
+                    minHeight: 6,
+                    backgroundColor: colors.surfaceContainerHighest,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: onDone,
-                  child: Text(doneLabel,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
+              Text('$completedDays/$durationDays',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: colors.onSurface.withValues(alpha: .7))),
+            ]),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onDone,
+                icon: Icon(
+                    onDone == null
+                        ? Icons.check_circle_rounded
+                        : Icons.check_rounded,
+                    size: 18),
+                label: Text(doneLabel,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );

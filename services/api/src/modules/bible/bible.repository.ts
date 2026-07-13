@@ -228,6 +228,24 @@ export class BibleRepository {
     return result.rows[0];
   }
 
+  // Curated standalone reading plans (excludes per-reading-group plans), with
+  // whether the viewer has joined and how many days they've completed — so the
+  // UI can show "Join" vs progress instead of both.
+  async listReadingPlansFor(userId: string | null) {
+    const result = await this.db.query(
+      `SELECT p.id, p.title, p.description, p.duration_days AS "durationDays",
+              p.language, p.category, p.created_at AS "createdAt",
+              (e.user_id IS NOT NULL) AS joined,
+              COALESCE(e.completed_days, 0) AS "completedDays"
+       FROM bible_reading_plans p
+       LEFT JOIN reading_plan_enrollments e ON e.plan_id = p.id AND e.user_id = $1::uuid
+       WHERE p.category <> 'ReadingGroup'
+       ORDER BY p.created_at DESC`,
+      [userId],
+    );
+    return result.rows;
+  }
+
   async joinPlan(userId: string, planId: string) {
     await this.db.query(
       `INSERT INTO reading_plan_enrollments (user_id, plan_id, completed_days, streak, last_checkin)
@@ -465,13 +483,27 @@ export class BibleRepository {
   async readingGroupPlan(userId: string, groupId: string) {
     const planId = await this.groupPlanId(groupId);
     if (!planId) return null;
-    const [plan, enrollment, memberCount, today] = await Promise.all([
+    const [plan, enrollment0, memberCount, today, membership] = await Promise.all([
       this.db.query('SELECT id, title, description, duration_days AS "durationDays" FROM bible_reading_plans WHERE id = $1', [planId]),
       this.db.query('SELECT completed_days AS "completedDays", streak FROM reading_plan_enrollments WHERE plan_id = $1 AND user_id = $2', [planId, userId]),
       this.db.query(`SELECT count(*)::int AS c FROM group_memberships WHERE group_id = $1 AND status = 'active'`, [groupId]),
       this.db.query('SELECT day_number AS "dayNumber", assignment, book_name AS "bookName" FROM reading_plan_days WHERE plan_id = $1 ORDER BY day_number', [planId]),
+      this.db.query(`SELECT 1 FROM group_memberships WHERE group_id = $1 AND user_id = $2 AND status = 'active'`, [groupId, userId]),
     ]);
     if (plan.rowCount === 0) return null;
+    // Membership implies enrolment: any active member of a reading group is
+    // reading the plan, so enrol them if a separate join path (invite code,
+    // generic group join) left them without an enrolment. This keeps the
+    // banner showing "Mark read" for members instead of a stray "Join".
+    let enrollment = enrollment0;
+    const isMember = (membership.rowCount ?? 0) > 0;
+    if (isMember && (enrollment0.rowCount ?? 0) === 0) {
+      await this.joinPlan(userId, planId);
+      enrollment = await this.db.query(
+        'SELECT completed_days AS "completedDays", streak FROM reading_plan_enrollments WHERE plan_id = $1 AND user_id = $2',
+        [planId, userId],
+      );
+    }
     const durationDays = Number(plan.rows[0].durationDays) || 1;
     const completedDays = Number(enrollment.rows[0]?.completedDays ?? 0);
     const currentDay = Math.min(completedDays + 1, durationDays);
@@ -504,6 +536,9 @@ export class BibleRepository {
   async markReadingDay(userId: string, groupId: string, dayNumber: number) {
     const planId = await this.groupPlanId(groupId);
     if (!planId) return { status: 'no_plan' };
+    // Ensure the enrolment row exists so completed_days is tracked even if the
+    // member joined the group without a plan enrolment.
+    await this.joinPlan(userId, planId);
     return this.completePlanDay(userId, planId, dayNumber);
   }
 

@@ -60,8 +60,8 @@ export class BibleController {
 
   @ApiOperation({ summary: 'List reading plans' })
   @Get('/bible/plans')
-  readingPlans() {
-    return this.bibleService.listReadingPlans();
+  readingPlans(@Headers('authorization') authorization?: string) {
+    return this.bibleService.listReadingPlans(authorization ? requireBearerToken(authorization) : null);
   }
 
   @ApiOperation({ summary: 'Search Bible content' })

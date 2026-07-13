@@ -52,8 +52,9 @@ export class BibleService {
     return this.contentRepository.listDailyVerses();
   }
 
-  listReadingPlans() {
-    return this.contentRepository.listReadingPlans();
+  async listReadingPlans(token: string | null) {
+    const actor = token ? await this.userRepository.authenticate(token) : null;
+    return this.bibleRepository.listReadingPlansFor(actor?.id ?? null);
   }
 
   search(query: string, token: string | null, version?: string | null) {
