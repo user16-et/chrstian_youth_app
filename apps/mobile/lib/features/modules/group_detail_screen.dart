@@ -227,9 +227,24 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     }
   }
 
+  Future<void> _joinReadingPlan() async {
+    if (_markingDay || !_signedIn) return;
+    setState(() => _markingDay = true);
+    try {
+      await widget.apiClient.joinReadingGroup(_token, widget.groupId);
+      await _load(); // refreshes membership, wall and the plan banner
+      if (mounted) _toast(_t(lang, 'Joined — happy reading! 📖', 'ተቀላቀሉ — መልካም ንባብ! 📖'));
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    } finally {
+      if (mounted) setState(() => _markingDay = false);
+    }
+  }
+
   Future<void> _markReadingDay() async {
     final plan = _readingPlan;
     if (plan == null || _markingDay || !_signedIn) return;
+    if (!plan.isEnrolled) return _joinReadingPlan();
     setState(() => _markingDay = true);
     try {
       await widget.apiClient.markReadingDay(_token, widget.groupId, plan.currentDay);
@@ -417,7 +432,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
               itemBuilder: (context) => [
                 PopupMenuItem(value: 'members', child: Text(_t(lang, 'Members', 'አባላት'))),
                 PopupMenuItem(value: 'resources', child: Text(_t(lang, 'Files & links', 'ፋይሎችና አገናኞች'))),
-                if (_isManager) PopupMenuItem(value: 'invite', child: Text(_t(lang, 'Invite link', 'የመጋበዣ ኮድ'))),
+                if (_isMember) PopupMenuItem(value: 'invite', child: Text(_t(lang, 'Invite link', 'የመጋበዣ ኮድ'))),
                 if (_isManager) PopupMenuItem(value: 'requests', child: Text(_t(lang, 'Join requests', 'የመቀላቀል ጥያቄዎች'))),
                 if (_isManager) PopupMenuItem(value: 'settings', child: Text(_t(lang, 'Edit group', 'አርትዕ'))),
                 if (_isMember) PopupMenuItem(value: 'leave', child: Text(_t(lang, 'Leave', 'ውጣ'))),
@@ -509,20 +524,34 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
                   color: colors.onPrimaryContainer.withValues(alpha: .85)),
             ),
           ),
+          // The "mark read" control only appears once you've joined (enrolled);
+          // before that we show a Join button.
           if (!complete)
-            FilledButton.icon(
-              onPressed: (done || _markingDay) ? null : _markReadingDay,
-              style: FilledButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                backgroundColor: colors.onPrimaryContainer,
-                foregroundColor: colors.primaryContainer,
-              ),
-              icon: Icon(done ? Icons.check_circle_rounded : Icons.check_rounded,
-                  size: 18),
-              label: Text(done
-                  ? _t(lang, 'Done today', 'ዛሬ ተጠናቋል')
-                  : _t(lang, 'Mark read', 'ተነበበ ምልክት')),
-            ),
+            (!plan.isEnrolled)
+                ? FilledButton.icon(
+                    onPressed: _markingDay ? null : _joinReadingPlan,
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: colors.onPrimaryContainer,
+                      foregroundColor: colors.primaryContainer,
+                    ),
+                    icon: const Icon(Icons.person_add_alt_rounded, size: 18),
+                    label: Text(_t(lang, 'Join to read', 'ለማንበብ ተቀላቀል')),
+                  )
+                : FilledButton.icon(
+                    onPressed: (done || _markingDay) ? null : _markReadingDay,
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: colors.onPrimaryContainer,
+                      foregroundColor: colors.primaryContainer,
+                    ),
+                    icon: Icon(
+                        done ? Icons.check_circle_rounded : Icons.check_rounded,
+                        size: 18),
+                    label: Text(done
+                        ? _t(lang, 'Done today', 'ዛሬ ተጠናቋል')
+                        : _t(lang, 'Mark read', 'ተነበበ ምልክት')),
+                  ),
         ]),
       ]),
     );
@@ -1072,13 +1101,14 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(letterSpacing: 4, fontWeight: FontWeight.w800)),
             ]),
             actions: [
-              TextButton(
-                onPressed: () async {
-                  final r = await widget.apiClient.groupInviteCode(_token, widget.groupId, reset: true);
-                  setDialog(() => code = '${r['code'] ?? ''}');
-                },
-                child: Text(_t(lang, 'Reset', 'አድስ')),
-              ),
+              if (_isManager)
+                TextButton(
+                  onPressed: () async {
+                    final r = await widget.apiClient.groupInviteCode(_token, widget.groupId, reset: true);
+                    setDialog(() => code = '${r['code'] ?? ''}');
+                  },
+                  child: Text(_t(lang, 'Reset', 'አድስ')),
+                ),
               FilledButton.icon(
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: code));

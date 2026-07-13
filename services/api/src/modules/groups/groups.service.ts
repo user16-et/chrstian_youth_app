@@ -164,7 +164,10 @@ export class GroupsService {
 
   async inviteCode(token: string, groupId: string, reset = false) {
     const { role } = await this.withRole(token, groupId);
-    if (!this.isManager(role)) throw new ForbiddenException('group_admin_required');
+    // Any active member can share the invite code so they can invite friends;
+    // only managers may reset it (which invalidates the old one).
+    if (!role) throw new ForbiddenException('join_group_first');
+    if (reset && !this.isManager(role)) throw new ForbiddenException('group_admin_required');
     const code = reset ? await this.groups.resetInviteCode(groupId) : await this.groups.ensureInviteCode(groupId);
     return { code };
   }

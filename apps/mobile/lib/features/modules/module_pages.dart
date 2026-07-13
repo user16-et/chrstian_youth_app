@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
@@ -2290,6 +2291,8 @@ class _BibleScreenState extends State<BibleScreen> {
   bool _busy = false;
   String _status = '';
   int _libraryTab = 0; // 0 = notes, 1 = bookmarks, 2 = highlights
+  String _planCategory = 'all'; // reading-plan category filter
+  bool _showAllPlans = false;
 
   static const List<String> _highlightColors = [
     'gold',
@@ -2759,7 +2762,146 @@ class _BibleScreenState extends State<BibleScreen> {
     ];
   }
 
+  // Reading plans, filterable by category and capped to a few at a time.
+  Widget _buildReadingPlansSection(BuildContext context, AppLanguage language,
+      ColorScheme colors, _BibleHubData data) {
+    final all = data.readingPlans;
+    final categories = <String>{
+      for (final p in all)
+        if (p.category.trim().isNotEmpty) p.category
+    };
+    final catList = ['all', ...categories];
+    final activeCat = catList.contains(_planCategory) ? _planCategory : 'all';
+    final filtered = activeCat == 'all'
+        ? all
+        : all.where((p) => p.category == activeCat).toList();
+    const cap = 4;
+    final limited = _showAllPlans ? filtered : filtered.take(cap).toList();
+    return _SectionCard(
+      title: AppStrings.of(language, 'reading_plans'),
+      children: [
+        if (all.isEmpty)
+          _EmptyState(message: AppStrings.of(language, 'no_reading_plans'))
+        else ...[
+          if (catList.length > 1) ...[
+            SizedBox(
+              height: 38,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: catList.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final c = catList[i];
+                  return Center(
+                    child: ChoiceChip(
+                      label: Text(c == 'all' ? _tr('All', 'ሁሉም') : c),
+                      selected: activeCat == c,
+                      onSelected: (_) => setState(() {
+                        _planCategory = c;
+                        _showAllPlans = false;
+                      }),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (filtered.isEmpty)
+            _EmptyState(
+                message: _tr('No plans in this category.', 'በዚህ ምድብ እቅድ የለም።'))
+          else
+            for (final plan in limited)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _ReadingPlanTile(
+                  colors: colors,
+                  icon: plan.language == 'am'
+                      ? Icons.translate_rounded
+                      : Icons.menu_book_rounded,
+                  title: plan.title,
+                  meta:
+                      '${plan.durationDays} ${AppStrings.of(language, 'days')} · ${plan.category}',
+                  description: plan.description,
+                  joinLabel: _tr('Join', 'ተቀላቀል'),
+                  doneLabel: _tr('Mark day 1', 'ቀን 1 ጨርስ'),
+                  onJoin: _busy
+                      ? null
+                      : () => _bibleAction((token) => widget.apiClient
+                          .joinBiblePlan(token: token, planId: plan.id)),
+                  onDone: _busy
+                      ? null
+                      : () => _bibleAction((token) =>
+                          widget.apiClient.completeBiblePlanDay(
+                              token: token, planId: plan.id, dayNumber: 1)),
+                ),
+              ),
+          if (filtered.length > cap)
+            Center(
+              child: TextButton(
+                onPressed: () =>
+                    setState(() => _showAllPlans = !_showAllPlans),
+                child: Text(_showAllPlans
+                    ? _tr('Show less', 'ያሳንሱ')
+                    : _tr('Show all (${filtered.length})',
+                        'ሁሉንም አሳይ (${filtered.length})')),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
   // ---- Study groups ----
+
+  // Shows the group's invite code so a member can invite others.
+  Future<void> _inviteToStudyGroup(BibleStudyGroupItem group) async {
+    if (!_requireLogin()) return;
+    try {
+      final res = await widget.apiClient
+          .groupInviteCode(widget.session!.token, group.id);
+      final code = '${res['code'] ?? ''}';
+      if (!mounted || code.isEmpty) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(_tr('Invite to reading group', 'ወደ ንባብ ቡድን ጋብዝ')),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(_tr('Share this code — anyone with it can join and read along.',
+                'ይህን ኮድ ያጋሩ — ያለው ሁሉ ተቀላቅሎ አብሮ ሊያነብ ይችላል።')),
+            const SizedBox(height: 14),
+            SelectableText(code,
+                style: Theme.of(dialogContext)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(letterSpacing: 4, fontWeight: FontWeight.w800)),
+          ]),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(_tr('Close', 'ዝጋ')),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: code));
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(_tr('Code copied', 'ኮድ ተቀድቷል'))));
+              },
+              icon: const Icon(Icons.copy_rounded),
+              label: Text(_tr('Copy', 'ቅዳ')),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    }
+  }
 
   // Opens the shared group experience (chat, members, notifications).
   void _openStudyGroup(BibleStudyGroupItem group) {
@@ -3351,50 +3493,8 @@ class _BibleScreenState extends State<BibleScreen> {
               ),
               const SizedBox(height: 18),
 
-              // Reading plans.
-              _SectionCard(
-                title: AppStrings.of(language, 'reading_plans'),
-                children: data.readingPlans.isEmpty
-                    ? [
-                        _EmptyState(
-                            message:
-                                AppStrings.of(language, 'no_reading_plans'))
-                      ]
-                    : [
-                        for (final plan in data.readingPlans)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _ReadingPlanTile(
-                              colors: colors,
-                              icon: plan.language == 'am'
-                                  ? Icons.translate_rounded
-                                  : Icons.menu_book_rounded,
-                              title: plan.title,
-                              meta:
-                                  '${plan.durationDays} ${AppStrings.of(language, 'days')} · ${plan.category}',
-                              description: plan.description,
-                              joinLabel: _tr('Join', 'ተቀላቀል'),
-                              doneLabel: _tr('Mark day 1', 'ቀን 1 ጨርስ'),
-                              onJoin: _busy
-                                  ? null
-                                  : () => _bibleAction((token) =>
-                                      widget.apiClient.joinBiblePlan(
-                                          token: token, planId: plan.id)),
-                              onDone: _busy
-                                  ? null
-                                  : () => _bibleAction((token) =>
-                                      widget.apiClient.completeBiblePlanDay(
-                                          token: token,
-                                          planId: plan.id,
-                                          dayNumber: 1)),
-                            ),
-                          ),
-                      ],
-              ),
-              const SizedBox(height: 18),
-
-              // Reading groups — a reading plan + a group that reads it together
-              // with chat, audio calls and notifications.
+              // Reading groups (your joined groups) come first — a reading plan
+              // + a group that reads it together with chat, audio and alerts.
               _SectionCard(
                 title: _tr('Reading groups', 'የንባብ ቡድኖች'),
                 children: [
@@ -3435,6 +3535,7 @@ class _BibleScreenState extends State<BibleScreen> {
                                 : _tr('members', 'አባላት'),
                             onTap: () => _openStudyGroup(group),
                             onAction: () => _openStudyGroup(group),
+                            onInvite: () => _inviteToStudyGroup(group),
                           ),
                         ),
                     if (data.studyGroupsDiscover.isNotEmpty) ...[
@@ -3460,6 +3561,10 @@ class _BibleScreenState extends State<BibleScreen> {
                   ],
                 ],
               ),
+              const SizedBox(height: 18),
+
+              // Reading plans — filterable by category, only a few shown.
+              _buildReadingPlansSection(context, language, colors, data),
               const SizedBox(height: 18),
 
               // Library: notes / bookmarks / highlights in one tabbed card.
@@ -3664,6 +3769,7 @@ class _StudyGroupTile extends StatelessWidget {
     required this.memberWord,
     required this.onTap,
     required this.onAction,
+    this.onInvite,
   });
 
   final ColorScheme colors;
@@ -3672,6 +3778,7 @@ class _StudyGroupTile extends StatelessWidget {
   final String Function(int count) memberWord;
   final VoidCallback? onTap;
   final VoidCallback? onAction;
+  final VoidCallback? onInvite;
 
   @override
   Widget build(BuildContext context) {
@@ -3782,7 +3889,15 @@ class _StudyGroupTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
+              if (group.isMember && onInvite != null)
+                IconButton(
+                  onPressed: onInvite,
+                  icon: Icon(Icons.person_add_alt_rounded,
+                      size: 20, color: colors.secondary),
+                  tooltip: 'Invite',
+                  visualDensity: VisualDensity.compact,
+                ),
               group.isMember
                   ? IconButton(
                       onPressed: onAction,
