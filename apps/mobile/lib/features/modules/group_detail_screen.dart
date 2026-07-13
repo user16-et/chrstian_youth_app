@@ -192,23 +192,35 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
 
   Future<void> _load() async {
     try {
-      final detail = await widget.apiClient.fetchGroupDetail(widget.token, widget.groupId);
-      List<Map<String, dynamic>> posts = const [];
-      List<Map<String, dynamic>> polls = const [];
-      try {
-        posts = await widget.apiClient.fetchGroupPosts(widget.token, widget.groupId);
-        polls = await widget.apiClient.fetchGroupPolls(widget.token, widget.groupId);
-      } catch (_) {
-        // Private wall while not a member — leave posts/polls empty.
-      }
-      ReadingGroupPlan? plan;
-      if (_signedIn) {
+      // Fetch detail, wall content and the reading-plan banner concurrently
+      // instead of one after another — they don't depend on each other.
+      final detailF = widget.apiClient.fetchGroupDetail(widget.token, widget.groupId);
+      final wallF = () async {
         try {
-          plan = await widget.apiClient.fetchReadingGroupPlan(_token, widget.groupId);
+          final r = await Future.wait([
+            widget.apiClient.fetchGroupPosts(widget.token, widget.groupId),
+            widget.apiClient.fetchGroupPolls(widget.token, widget.groupId),
+          ]);
+          return (r[0], r[1]);
+        } catch (_) {
+          // Private wall while not a member — leave posts/polls empty.
+          return (const <Map<String, dynamic>>[], const <Map<String, dynamic>>[]);
+        }
+      }();
+      final planF = () async {
+        if (!_signedIn) return null;
+        try {
+          return await widget.apiClient.fetchReadingGroupPlan(_token, widget.groupId);
         } catch (_) {
           // Not a reading group (or plan unavailable) — no banner.
+          return null;
         }
-      }
+      }();
+      final detail = await detailF;
+      final wall = await wallF;
+      final plan = await planF;
+      final posts = wall.$1;
+      final polls = wall.$2;
       if (mounted) {
         setState(() {
           _detail = detail;
