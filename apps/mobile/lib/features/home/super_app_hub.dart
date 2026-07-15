@@ -18,7 +18,6 @@ enum AppPillar {
   community,
   relationships,
   events,
-  learning,
   marketplace,
   profile
 }
@@ -31,7 +30,6 @@ extension AppPillarX on AppPillar {
         AppPillar.community => en ? 'Community' : 'ማህበረሰብ',
         AppPillar.relationships => en ? 'Relationships' : 'ግንኙነቶች',
         AppPillar.events => en ? 'Events' : 'ዝግጅቶች',
-        AppPillar.learning => en ? 'Learning' : 'ትምህርት',
         AppPillar.marketplace => en ? 'Marketplace' : 'ገበያ',
         AppPillar.profile => en ? 'Profile' : 'መገለጫ',
       };
@@ -45,9 +43,8 @@ extension AppPillarX on AppPillar {
         AppPillar.relationships =>
           en ? 'Friends, mentors, courtship' : 'ጓደኞች፣ አማካሪዎች፣ መጠናናት',
         AppPillar.events => en ? 'Gather and participate' : 'ተሰብሰብ እና ተሳተፍ',
-        AppPillar.learning => en ? 'Courses and formation' : 'ኮርሶች እና ሥልጠና',
         AppPillar.marketplace =>
-          en ? 'Books, tickets, receipts' : 'መጽሐፍት፣ ቲኬቶች፣ ደረሰኞች',
+          en ? 'Buy, sell, discover' : 'ግዛ፣ ሽጥ፣ አግኝ',
         AppPillar.profile =>
           en ? 'Identity, safety, records' : 'ማንነት፣ ደህንነት፣ መዝገቦች',
       };
@@ -59,7 +56,6 @@ extension AppPillarX on AppPillar {
         AppPillar.community => Icons.forum_rounded,
         AppPillar.relationships => Icons.favorite_rounded,
         AppPillar.events => Icons.celebration_rounded,
-        AppPillar.learning => Icons.school_rounded,
         AppPillar.marketplace => Icons.storefront_rounded,
         AppPillar.profile => Icons.badge_rounded,
       };
@@ -71,7 +67,6 @@ extension AppPillarX on AppPillar {
         AppPillar.community => const Color(0xFFD08B32),
         AppPillar.relationships => const Color(0xFF9E455C),
         AppPillar.events => const Color(0xFF287C78),
-        AppPillar.learning => const Color(0xFF67548C),
         AppPillar.marketplace => const Color(0xFF7A5A22),
         AppPillar.profile => const Color(0xFF4F5D52),
       };
@@ -180,7 +175,7 @@ class SuperAppHome extends StatelessWidget {
               const SizedBox(height: 28),
               _Heading(
                   kicker: en ? 'ONE APP. WHOLE LIFE.' : 'አንድ መተግበሪያ። ሙሉ ሕይወት።',
-                  title: en ? 'Your nine pillars' : 'ዘጠኙ ዋና መሠረቶች'),
+                  title: en ? 'Your eight pillars' : 'ስምንቱ ዋና መሠረቶች'),
               const SizedBox(height: 14),
               PillarGrid(
                   language: language,
@@ -260,8 +255,8 @@ class PillarExplorer extends StatelessWidget {
                 style: Theme.of(context).textTheme.displayMedium),
             const SizedBox(height: 10),
             Text(en
-                ? 'Church, Scripture, relationships, service and growth organized into nine clear pillars.'
-                : 'ቤተ ክርስቲያን፣ ቃል፣ ግንኙነት፣ አገልግሎት እና እድገት በዘጠኝ ግልጽ መሠረቶች።'),
+                ? 'Church, Scripture, relationships, service and growth organized into eight clear pillars.'
+                : 'ቤተ ክርስቲያን፣ ቃል፣ ግንኙነት፣ አገልግሎት እና እድገት በስምንት ግልጽ መሠረቶች።'),
           ]),
         ),
         const SizedBox(height: 22),
@@ -711,86 +706,17 @@ class PillarDetailScreen extends StatelessWidget {
               Icons.auto_awesome_rounded,
               () => YouthHubScreen(
                   language: language, apiClient: apiClient, session: session)),
-          _x(
-              en ? 'Opportunities' : 'እድሎች',
-              en
-                  ? 'Volunteer, mission, internship and scholarship calls'
-                  : 'በጎ ፈቃድ፣ ተልዕኮ፣ ልምምድ እና ስኮላርሺፕ',
-              Icons.explore_rounded,
-              () => OpportunitiesScreen(
-                  language: language, apiClient: apiClient, session: session)),
-          _x(
-              en ? 'Event management' : 'የዝግጅት አስተዳደር',
-              en
-                  ? 'Creation, reminders, capacity and ticketing'
-                  : 'መፍጠር፣ ማስታወሻ፣ አቅም እና ትኬት',
-              Icons.event_available_rounded,
-              session == null ? null : connected),
-        ],
-      AppPillar.learning => [
-          _x(
-              en ? 'Bible learning' : 'የመጽሐፍ ቅዱስ ትምህርት',
-              en
-                  ? 'Plans, notes and daily formation'
-                  : 'እቅዶች፣ ማስታወሻ እና ዕለታዊ እድገት',
-              Icons.menu_book_rounded,
-              bible),
-          _x(
-              en ? 'Mentor-led formation' : 'በአማካሪ የሚመራ እድገት',
-              en ? 'Guidance from verified mentors' : 'ከተረጋገጡ አማካሪዎች መመሪያ',
-              Icons.co_present_rounded,
-              () => MentorshipScreen(
-                  language: language, apiClient: apiClient, session: session)),
-          _x(
-              en ? 'Resource library' : 'የግብዓት ቤተ መጻሕፍት',
-              en
-                  ? 'Video, audio and ministry resources'
-                  : 'ቪዲዮ፣ ድምጽ እና የአገልግሎት ግብዓቶች',
-              Icons.video_library_rounded,
-              media),
-          _x(
-              en ? 'Courses and certificates' : 'ኮርሶች እና ሰርተፊኬቶች',
-              en
-                  ? 'Discipleship, leadership and ministry training'
-                  : 'ደቀ መዝሙርነት፣ አመራር እና የአገልግሎት ሥልጠና',
-              Icons.workspace_premium_rounded,
-              session == null ? null : connected),
         ],
       AppPillar.marketplace => [
           _x(
-              en ? 'Marketplace home' : 'የገበያ መነሻ',
+              en ? 'Buy and sell' : 'ግዛ እና ሽጥ',
               en
-                  ? 'Browse Christian books, resources, tickets and tools'
-                  : 'ክርስቲያናዊ መጽሐፍት፣ ግብዓቶች፣ ቲኬቶች እና መሣሪያዎች ያስሱ',
+                  ? 'Browse listings, sell items, save favorites and message sellers'
+                  : 'ዝርዝሮችን ያስሱ፣ እቃ ይሽጡ፣ ተወዳጆችን ያስቀምጡ እና ለሻጮች ይላኩ',
               Icons.storefront_rounded,
               marketplace),
-          _x(
-              en ? 'Orders and receipts' : 'ትዕዛዞች እና ደረሰኞች',
-              en
-                  ? 'Track purchase receipts and fulfillment status'
-                  : 'የግዢ ደረሰኞችን እና የማሟላት ሁኔታን ተከታተል',
-              Icons.receipt_long_rounded,
-              marketplace),
-          _x(
-              en ? 'Giving and payments' : 'መስጠት እና ክፍያዎች',
-              en
-                  ? 'Donation plans and payment history'
-                  : 'የስጦታ እቅዶች እና የክፍያ ታሪክ',
-              Icons.payments_rounded,
-              () => PaymentsScreen(
-                  language: language,
-                  apiClient: apiClient,
-                  session: session,
-                  onDataChanged: onDataChanged)),
         ],
       AppPillar.profile => [
-          _x(
-              en ? 'People directory' : 'የሰዎች መዝገብ',
-              en
-                  ? 'Discover believers and manage connections'
-                  : 'አማኞችን ፈልግ እና ግንኙነት አስተዳድር',
-              Icons.account_circle_rounded,
-              people),
           _x(
               en ? 'Growth tracker' : 'የእድገት መከታተያ',
               en
@@ -812,13 +738,6 @@ class PillarDetailScreen extends StatelessWidget {
                       apiClient: apiClient,
                       token: session!.token,
                       session: session)),
-          _x(
-              en ? 'Verification and devices' : 'ማረጋገጫ እና መሳሪያዎች',
-              en
-                  ? 'Identity, privacy and device management'
-                  : 'ማንነት፣ ግላዊነት እና መሳሪያ አስተዳደር',
-              Icons.verified_user_rounded,
-              session == null ? null : connected),
         ],
     };
   }
