@@ -100,6 +100,49 @@ export class JourneyRepository {
     return this.pool.query(`DELETE FROM friend_requests WHERE id=$1 AND sender_id=$2 AND status='pending' RETURNING *`, [id, userId]).then((r) => r.rows[0] ?? null);
   }
 
+  // Remove an accepted friendship (either direction).
+  unfriend(userId: string, otherId: string) {
+    return this.pool
+      .query(
+        `DELETE FROM friend_requests WHERE status='accepted' AND ((sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1)) RETURNING id`,
+        [userId, otherId],
+      )
+      .then((r) => (r.rowCount ?? 0) > 0);
+  }
+
+  // Pending friend requests — both incoming (to accept) and outgoing (sent).
+  listFriendRequests(userId: string) {
+    return this.pool
+      .query(
+        `SELECT fr.id, fr.status, fr.created_at AS "createdAt",
+                CASE WHEN fr.sender_id=$1 THEN 'outgoing' ELSE 'incoming' END AS direction,
+                u.id AS "userId", u.full_name AS "fullName", u.username,
+                COALESCE(NULLIF(u.profile_image,''),'') AS "profileImage"
+         FROM friend_requests fr
+         JOIN users u ON u.id = CASE WHEN fr.sender_id=$1 THEN fr.receiver_id ELSE fr.sender_id END
+         WHERE fr.status='pending' AND (fr.sender_id=$1 OR fr.receiver_id=$1)
+         ORDER BY fr.created_at DESC`,
+        [userId],
+      )
+      .then((r) => r.rows);
+  }
+
+  // Accepted friends.
+  listFriends(userId: string) {
+    return this.pool
+      .query(
+        `SELECT u.id AS "userId", u.full_name AS "fullName", u.username,
+                COALESCE(NULLIF(u.profile_image,''),'') AS "profileImage",
+                fr.created_at AS "since"
+         FROM friend_requests fr
+         JOIN users u ON u.id = CASE WHEN fr.sender_id=$1 THEN fr.receiver_id ELSE fr.sender_id END
+         WHERE fr.status='accepted' AND (fr.sender_id=$1 OR fr.receiver_id=$1)
+         ORDER BY u.full_name`,
+        [userId],
+      )
+      .then((r) => r.rows);
+  }
+
   replyStory(userId: string, storyId: string, body: string) {
     return this.pool.query(`INSERT INTO story_replies (story_id,author_id,body) VALUES ($1,$2,$3) RETURNING *`, [storyId, userId, body]).then((r) => r.rows[0]);
   }

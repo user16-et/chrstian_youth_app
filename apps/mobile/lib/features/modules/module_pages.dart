@@ -1648,6 +1648,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
   static const int _pageSize = 25;
 
   late Future<UserDirectoryPage> _usersFuture;
+  Future<List<Map<String, dynamic>>>? _friendsFuture;
+  Future<List<Map<String, dynamic>>>? _requestsFuture;
+  int _incomingCount = 0;
   final TextEditingController _searchController = TextEditingController();
   Timer? _searchDebounce;
   String _query = '';
@@ -1659,6 +1662,17 @@ class _PeopleScreenState extends State<PeopleScreen> {
   void initState() {
     super.initState();
     _usersFuture = _loadUsers();
+    final token = widget.session?.token;
+    if (token != null && token.isNotEmpty) {
+      _friendsFuture = widget.apiClient.fetchFriends(token);
+      _requestsFuture = widget.apiClient.fetchFriendRequests(token);
+      _requestsFuture!.then((list) {
+        if (mounted) {
+          setState(() => _incomingCount =
+              list.where((r) => r['direction'] == 'incoming').length);
+        }
+      }).catchError((_) {});
+    }
   }
 
   @override
@@ -1980,8 +1994,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     ];
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _discoverTab(BuildContext context) {
     final language = widget.language;
     return FutureBuilder<UserDirectoryPage>(
       future: _usersFuture,
@@ -1999,11 +2012,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
         final rangeEnd = page.offset + users.length;
         final canGoBack = page.offset > 0;
         final canGoNext = rangeEnd < page.total;
-        return Scaffold(
-          appBar: AppBar(
-              title: Text(AppStrings.of(language, 'people_directory'),
-                  maxLines: 1, overflow: TextOverflow.ellipsis)),
-          body: RefreshIndicator(
+        return RefreshIndicator(
             onRefresh: () => _refresh(),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -2177,9 +2186,287 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 ),
               ],
             ),
+          );
+      },
+    );
+  }
+
+  // ---- Tabbed shell: Discover / Requests / Friends ----
+
+  @override
+  Widget build(BuildContext context) {
+    final language = widget.language;
+    final en = language == AppLanguage.english;
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(en ? 'People & friends' : 'ሰዎች እና ጓደኞች',
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          bottom: TabBar(
+            onTap: (i) {
+              if (i == 1) _refreshRequests();
+              if (i == 2) _refreshFriends();
+            },
+            tabs: [
+              Tab(text: en ? 'Discover' : 'ያግኙ'),
+              Tab(
+                child: _tabWithBadge(
+                    en ? 'Requests' : 'ጥያቄዎች', _incomingCount)),
+              Tab(text: en ? 'Friends' : 'ጓደኞች'),
+            ],
+          ),
+        ),
+        body: TabBarView(children: [
+          _discoverTab(context),
+          _requestsTab(context),
+          _friendsTab(context),
+        ]),
+      ),
+    );
+  }
+
+  Widget _tabWithBadge(String label, int count) {
+    if (count <= 0) return Text(label);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Text(label),
+      const SizedBox(width: 6),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.error,
+            borderRadius: BorderRadius.circular(999)),
+        child: Text('$count',
+            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+      ),
+    ]);
+  }
+
+  Widget _requestsTab(BuildContext context) {
+    final en = widget.language == AppLanguage.english;
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _requestsFuture,
+      builder: (context, snapshot) {
+        final all = snapshot.data ?? const <Map<String, dynamic>>[];
+        final incoming = all.where((r) => r['direction'] == 'incoming').toList();
+        final outgoing = all.where((r) => r['direction'] == 'outgoing').toList();
+        return RefreshIndicator(
+          onRefresh: _refreshRequests,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (snapshot.connectionState == ConnectionState.waiting && all.isEmpty)
+                const Padding(padding: EdgeInsets.only(top: 40), child: Center(child: CircularProgressIndicator()))
+              else if (all.isEmpty)
+                _EmptyState(message: en ? 'No friend requests right now.' : 'አሁን የጓደኝነት ጥያቄ የለም።')
+              else ...[
+                if (incoming.isNotEmpty) ...[
+                  Text(en ? 'Wants to connect' : 'መገናኘት ይፈልጋሉ',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  for (final r in incoming) _requestTile(r, incoming: true),
+                  const SizedBox(height: 16),
+                ],
+                if (outgoing.isNotEmpty) ...[
+                  Text(en ? 'Sent' : 'የተላኩ',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  for (final r in outgoing) _requestTile(r, incoming: false),
+                ],
+              ],
+            ],
           ),
         );
       },
+    );
+  }
+
+  Widget _requestTile(Map<String, dynamic> r, {required bool incoming}) {
+    final en = widget.language == AppLanguage.english;
+    final colors = Theme.of(context).colorScheme;
+    final name = '${r['fullName'] ?? ''}';
+    final username = '${r['username'] ?? ''}';
+    final photo = '${r['profileImage'] ?? ''}';
+    final id = '${r['id'] ?? ''}';
+    final userId = '${r['userId'] ?? ''}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(children: [
+        CircleAvatar(
+          radius: 22,
+          backgroundColor: colors.surfaceContainerHighest,
+          backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
+          child: photo.isEmpty
+              ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?')
+              : null,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+            if (username.isNotEmpty)
+              Text('@$username', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: .6))),
+          ]),
+        ),
+        if (incoming) ...[
+          IconButton.filled(
+            tooltip: en ? 'Accept' : 'ተቀበል',
+            onPressed: _busyUserId == id ? null : () => _respondRequest(id, 'accepted'),
+            icon: const Icon(Icons.check_rounded, size: 20),
+          ),
+          const SizedBox(width: 6),
+          IconButton.outlined(
+            tooltip: en ? 'Decline' : 'ውድቅ አድርግ',
+            onPressed: _busyUserId == id ? null : () => _respondRequest(id, 'declined'),
+            icon: const Icon(Icons.close_rounded, size: 20),
+          ),
+        ] else
+          OutlinedButton(
+            onPressed: _busyUserId == id ? null : () => _withdrawRequestById(id),
+            child: Text(en ? 'Withdraw' : 'አንሳ'),
+          ),
+        if (userId.isNotEmpty)
+          IconButton(
+            tooltip: en ? 'Profile' : 'መገለጫ',
+            onPressed: () => showUserProfileSheet(context, apiClient: widget.apiClient, userId: userId, token: widget.session?.token),
+            icon: const Icon(Icons.person_outline_rounded, size: 20),
+          ),
+      ]),
+    );
+  }
+
+  Widget _friendsTab(BuildContext context) {
+    final en = widget.language == AppLanguage.english;
+    final colors = Theme.of(context).colorScheme;
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _friendsFuture,
+      builder: (context, snapshot) {
+        final friends = snapshot.data ?? const <Map<String, dynamic>>[];
+        return RefreshIndicator(
+          onRefresh: _refreshFriends,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (snapshot.connectionState == ConnectionState.waiting && friends.isEmpty)
+                const Padding(padding: EdgeInsets.only(top: 40), child: Center(child: CircularProgressIndicator()))
+              else if (friends.isEmpty)
+                _EmptyState(message: en ? 'No friends yet. Connect with people from Discover.' : 'እስካሁን ጓደኛ የለም። ከ«ያግኙ» ጋር ይገናኙ።')
+              else
+                for (final f in friends)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerHighest.withValues(alpha: .4),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: colors.surfaceContainerHighest,
+                        backgroundImage: '${f['profileImage'] ?? ''}'.isNotEmpty ? NetworkImage('${f['profileImage']}') : null,
+                        child: '${f['profileImage'] ?? ''}'.isEmpty ? Text('${f['fullName'] ?? '?'}'.isNotEmpty ? '${f['fullName']}'[0].toUpperCase() : '?') : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('${f['fullName'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+                          if ('${f['username'] ?? ''}'.isNotEmpty)
+                            Text('@${f['username']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: .6))),
+                        ]),
+                      ),
+                      IconButton.filledTonal(
+                        tooltip: en ? 'Chat' : 'ውይይት',
+                        onPressed: () => _openDirectChatById('${f['userId']}', '${f['fullName']}'),
+                        icon: const Icon(Icons.chat_bubble_outline_rounded, size: 20),
+                      ),
+                      PopupMenuButton<String>(
+                        onSelected: (v) {
+                          if (v == 'unfriend') _unfriendUser('${f['userId']}');
+                          if (v == 'profile') showUserProfileSheet(context, apiClient: widget.apiClient, userId: '${f['userId']}', token: widget.session?.token);
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem(value: 'profile', child: Text(en ? 'View profile' : 'መገለጫ ይመልከቱ')),
+                          PopupMenuItem(value: 'unfriend', child: Text(en ? 'Remove friend' : 'ጓደኛ አስወግድ')),
+                        ],
+                      ),
+                    ]),
+                  ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _refreshRequests() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final f = widget.apiClient.fetchFriendRequests(token);
+    setState(() => _requestsFuture = f);
+    try {
+      final list = await f;
+      if (mounted) setState(() => _incomingCount = list.where((r) => r['direction'] == 'incoming').length);
+    } catch (_) {}
+  }
+
+  Future<void> _refreshFriends() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    setState(() => _friendsFuture = widget.apiClient.fetchFriends(token));
+    await _friendsFuture;
+  }
+
+  Future<void> _respondRequest(String requestId, String status) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    await _runAction(requestId, () => widget.apiClient.updateFriendRequest(token, requestId, status),
+        status == 'accepted' ? 'Connected 🤝' : 'Declined.');
+    await _refreshRequests();
+    await _refreshFriends();
+  }
+
+  Future<void> _withdrawRequestById(String requestId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    await _runAction(requestId, () => widget.apiClient.withdrawFriendRequest(token, requestId), 'Withdrawn.');
+    await _refreshRequests();
+  }
+
+  Future<void> _unfriendUser(String userId) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    await _runAction(userId, () => widget.apiClient.unfriend(token, userId), 'Removed.');
+    await _refreshFriends();
+  }
+
+  Future<void> _openDirectChatById(String userId, String name) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty || userId.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(left: 16, right: 16, bottom: MediaQuery.viewInsetsOf(context).bottom + 16),
+        child: LiveChatPanel(
+          apiClient: widget.apiClient,
+          session: widget.session,
+          language: widget.language,
+          scopeType: 'direct',
+          scopeId: userId,
+          otherUserId: userId,
+          title: 'Chat with $name',
+          compact: true,
+        ),
+      ),
     );
   }
 }

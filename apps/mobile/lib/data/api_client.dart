@@ -2829,6 +2829,23 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  Future<List<Map<String, dynamic>>> fetchFriends(String token) async {
+    final response = await _getJson('/journey/friends',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchFriendRequests(String token) async {
+    final response = await _getJson('/journey/friends/requests',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<dynamic> unfriend(String token, String userId) {
+    return _deleteJson('/journey/friends/$userId',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<dynamic> _getJson(String path,
       {Map<String, String> headers = const {}}) async {
     return _requestJson('GET', path, headers: headers);

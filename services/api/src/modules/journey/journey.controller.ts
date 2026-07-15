@@ -25,7 +25,10 @@ export class JourneyController {
   @ApiBearerAuth()
   @Post('/plans/:id/checkin') checkinPlan(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.checkinPlan(requireBearerToken(auth), id); }
   @ApiBearerAuth()
+  @Get('/friends') friends(@Headers('authorization') auth?: string) { return this.service.listFriends(requireBearerToken(auth)); }
+  @Get('/friends/requests') friendRequests(@Headers('authorization') auth?: string) { return this.service.listFriendRequests(requireBearerToken(auth)); }
   @Post('/friends/:id/request') friend(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.friend(requireBearerToken(auth), id); }
+  @Delete('/friends/:id') unfriend(@Headers('authorization') auth: string | undefined, @Param('id') id: string) { return this.service.unfriend(requireBearerToken(auth), id); }
   @ApiBearerAuth()
   @Patch('/friends/requests/:id') updateFriend(@Headers('authorization') auth: string | undefined, @Param('id') id: string, @Body() body: { status?: string }) { return this.service.updateFriend(requireBearerToken(auth), id, body.status ?? ''); }
   @ApiBearerAuth()

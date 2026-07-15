@@ -54,6 +54,15 @@ export class JourneyService {
     if (!result) throw new NotFoundException('friend_request_not_found');
     return result;
   }
+  async listFriendRequests(token: string) {
+    return this.journey.listFriendRequests((await this.actor(token)).id);
+  }
+  async listFriends(token: string) {
+    return this.journey.listFriends((await this.actor(token)).id);
+  }
+  async unfriend(token: string, otherId: string) {
+    return { removed: await this.journey.unfriend((await this.actor(token)).id, otherId) };
+  }
   async replyStory(token: string, id: string, body: string) {
     if (!body.trim()) throw new BadRequestException('body_required');
     return this.journey.replyStory((await this.actor(token)).id, id, body.trim());
