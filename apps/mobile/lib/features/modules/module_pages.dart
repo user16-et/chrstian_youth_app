@@ -8915,6 +8915,8 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
   bool _busy = false;
   String _status = '';
   int _tab = 0; // 0 Discover, 1 Likes, 2 Matches, 3 Profile
+  CourtshipProfileItem? _me;
+  bool _meLoaded = false;
 
   @override
   void initState() {
@@ -8964,9 +8966,15 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
       _relationshipFuture = relationshipFuture;
     });
     await profilesFuture;
-    await meFuture;
+    final me = await meFuture;
     await interestsFuture;
     await relationshipFuture;
+    if (mounted) {
+      setState(() {
+        _me = me;
+        _meLoaded = true;
+      });
+    }
   }
 
   Future<void> _saveProfile() async {
@@ -9094,6 +9102,11 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
           ),
         );
       }
+      // Gate: you must create a profile before browsing others (and to appear
+      // to them). Shown once we've confirmed there is no profile.
+      if (_meLoaded && _me == null) {
+        return _createProfileGate(en, colors);
+      }
       switch (_tab) {
         case 0:
           // Swipe deck — key on token so it rebuilds on account change.
@@ -9139,6 +9152,57 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
               selectedIcon: const Icon(Icons.person_rounded),
               label: en ? 'Profile' : 'መገለጫ'),
         ],
+      ),
+    );
+  }
+
+  // Shown on Discover/Likes/Matches until the user creates a profile.
+  Widget _createProfileGate(bool en, ColorScheme colors) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient:
+                  LinearGradient(colors: [colors.primary, colors.secondary]),
+            ),
+            child: const Icon(Icons.favorite_rounded,
+                color: Colors.white, size: 40),
+          ),
+          const SizedBox(height: 20),
+          Text(
+              en
+                  ? 'Create your profile to start'
+                  : 'ለመጀመር መገለጫዎን ይፍጠሩ',
+              textAlign: TextAlign.center,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(
+              en
+                  ? 'Add a few photos and tell your story. You need a profile to discover others and to appear to them — this keeps the community genuine and safe.'
+                  : 'ጥቂት ፎቶዎችን ያክሉ እና ታሪክዎን ይንገሩ። ሌሎችን ለማግኘትና ለእነሱ ለመታየት መገለጫ ያስፈልግዎታል — ይህ ማህበረሰቡን እውነተኛና ደህንነቱ የተጠበቀ ያደርገዋል።',
+              textAlign: TextAlign.center,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: colors.onSurface.withValues(alpha: .7))),
+          const SizedBox(height: 22),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14)),
+            onPressed: () => setState(() => _tab = 3),
+            icon: const Icon(Icons.person_add_alt_1_rounded),
+            label: Text(en ? 'Set up my profile' : 'መገለጫዬን ላዘጋጅ'),
+          ),
+        ]),
       ),
     );
   }

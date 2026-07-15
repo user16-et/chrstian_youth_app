@@ -54,10 +54,18 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
     _load();
   }
 
+  int _compatOf(Map<String, dynamic> c) {
+    final comp = (c['compatibility'] as Map?)?.cast<String, dynamic>();
+    final v = comp?['overall'];
+    return v is num ? v.toInt() : 0;
+  }
+
   Future<void> _load() async {
     try {
       final cards = await widget.apiClient.discoverRelationships(widget.token, _filters);
-      if (mounted) setState(() { _cards = cards; _loading = false; });
+      // Surface the most compatible people first — the "top picks" lead.
+      final sorted = [...cards]..sort((a, b) => _compatOf(b).compareTo(_compatOf(a)));
+      if (mounted) setState(() { _cards = sorted; _loading = false; });
     } catch (error) {
       if (mounted) setState(() { _status = friendlyRelationshipError(error, lang); _loading = false; });
     }
@@ -283,6 +291,35 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
               ),
             ),
           ),
+          // Daily "top pick" ribbon for standout compatibility.
+          if (!behind && (compat['overall'] is num) && (compat['overall'] as num) >= 90)
+            Positioned(
+              top: 16,
+              left: 16,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [Color(0xFFFFC107), Color(0xFFFF7043)]),
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: .25),
+                        blurRadius: 8)
+                  ],
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.star_rounded, color: Colors.white, size: 15),
+                  const SizedBox(width: 4),
+                  Text(_tr(lang, 'Top pick', 'ምርጥ'),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12)),
+                ]),
+              ),
+            ),
           Positioned(
             left: 18, right: 18, bottom: 18,
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
