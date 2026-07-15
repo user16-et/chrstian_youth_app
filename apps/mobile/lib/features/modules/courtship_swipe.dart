@@ -446,7 +446,6 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
   static const double _maxAgeBound = 70;
 
   late RangeValues _age;
-  late String _gender;
   late final TextEditingController _city;
   late final TextEditingController _denomination;
 
@@ -459,7 +458,6 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
     final lo = (i['minAge'] is num) ? (i['minAge'] as num).toDouble() : _minAgeBound;
     final hi = (i['maxAge'] is num) ? (i['maxAge'] as num).toDouble() : _maxAgeBound;
     _age = RangeValues(lo.clamp(_minAgeBound, _maxAgeBound), hi.clamp(_minAgeBound, _maxAgeBound));
-    _gender = '${i['gender'] ?? ''}';
     _city = TextEditingController(text: '${i['city'] ?? ''}');
     _denomination = TextEditingController(text: '${i['denomination'] ?? ''}');
   }
@@ -475,7 +473,6 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
     final filters = <String, dynamic>{};
     if (_age.start > _minAgeBound) filters['minAge'] = _age.start.round();
     if (_age.end < _maxAgeBound) filters['maxAge'] = _age.end.round();
-    if (_gender.isNotEmpty) filters['gender'] = _gender;
     if (_city.text.trim().isNotEmpty) filters['city'] = _city.text.trim();
     if (_denomination.text.trim().isNotEmpty) filters['denomination'] = _denomination.text.trim();
     return filters;
@@ -505,17 +502,6 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
           onChanged: (v) => setState(() => _age = RangeValues(
               v.start, v.end - v.start < 1 ? (v.start + 1).clamp(_minAgeBound, _maxAgeBound) : v.end)),
         ),
-        const SizedBox(height: 8),
-        Text(_tr(lang, 'Looking for', 'የምፈልገው'), style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        Wrap(spacing: 8, children: [
-          for (final option in [('', _tr(lang, 'Everyone', 'ሁሉም')), ('male', _tr(lang, 'Men', 'ወንዶች')), ('female', _tr(lang, 'Women', 'ሴቶች'))])
-            ChoiceChip(
-              label: Text(option.$2),
-              selected: _gender == option.$1,
-              onSelected: (_) => setState(() => _gender = option.$1),
-            ),
-        ]),
         const SizedBox(height: 16),
         TextField(
           controller: _city,

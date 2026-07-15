@@ -9759,6 +9759,12 @@ class _RelationshipEcosystemPanelState
       _SectionCard(
           title: en ? 'Stories' : 'ታሪኮች',
           children: [
+            Text(
+                en
+                    ? 'Share a moment that disappears after 24 hours — separate from your profile photos.'
+                    : 'ከ24 ሰዓት በኋላ የሚጠፋ ቅጽበት ያጋሩ — ከመገለጫ ፎቶዎችዎ የተለየ ነው።',
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 10),
             RelationshipStoryRing(
               stories: _storyFeed,
               language: widget.language,
@@ -9801,12 +9807,12 @@ class _RelationshipEcosystemPanelState
       const SizedBox(height: 12),
       if (_me.isNotEmpty)
         _SectionCard(
-          title: en ? 'My photos' : 'የእኔ ፎቶዎች',
+          title: en ? 'Profile photos' : 'የመገለጫ ፎቶዎች',
           children: [
             Text(
                 en
-                    ? 'Add up to 9 photos to your courtship profile. Tap ✕ to remove.'
-                    : 'እስከ 9 ፎቶዎች ወደ መገለጫዎ ይጨምሩ። ለማስወገድ ✕ ይንኩ።',
+                    ? 'Up to 9 permanent photos shown on your profile (not stories). Tap ✕ to remove.'
+                    : 'በመገለጫዎ ላይ የሚታዩ እስከ 9 ቋሚ ፎቶዎች (ታሪክ አይደሉም)። ለማስወገድ ✕ ይንኩ።',
                 style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 12),
             SizedBox(

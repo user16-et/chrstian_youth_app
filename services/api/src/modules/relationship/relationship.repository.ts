@@ -141,12 +141,18 @@ export class RelationshipRepository {
 
   async discover(userId: string, filters: Record<string, unknown>) {
     const me = await this.profile(userId);
+    // Christian courtship is between a man and a woman only: strictly show the
+    // opposite sex. A viewer without a gender set sees no one until they set it.
+    const myGender = String((me as Record<string, unknown> | null)?.gender ?? '').toLowerCase();
+    const opposite = myGender === 'male' ? 'female' : myGender === 'female' ? 'male' : '';
+    if (!opposite) return [];
     // 'relationship_mode_only' profiles are visible only to viewers who
     // themselves have a profile (are in relationship mode). Teens are excluded.
     const rows = await this.db.query(this.profileSelect(`c.user_id<>$1 AND c.visible=true AND c.visibility<>'hidden'
       AND ($5 OR c.visibility<>'relationship_mode_only')
+      AND lower(c.gender)=$3
       AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=c.user_id AND p.is_teen)
-      AND ($2::text='' OR lower(c.city)=lower($2)) AND ($3::text='' OR lower(c.gender)=lower($3))
+      AND ($2::text='' OR lower(c.city)=lower($2))
       AND ($4::text='' OR c.relationship_intent=$4 OR c.activation_mode=$4)
       AND ($6::int IS NULL OR c.age IS NULL OR c.age>=$6) AND ($7::int IS NULL OR c.age IS NULL OR c.age<=$7)
       AND ($8::text='' OR lower(c.denomination_preference)=lower($8))
@@ -154,7 +160,7 @@ export class RelationshipRepository {
       AND NOT EXISTS(SELECT 1 FROM relationship_connections rc WHERE (rc.user1_id=$1 AND rc.user2_id=c.user_id) OR (rc.user1_id=c.user_id AND rc.user2_id=$1))
       AND NOT EXISTS(SELECT 1 FROM courtship_passes cp WHERE cp.user_id=$1 AND cp.target_id=c.user_id)
       AND NOT EXISTS(SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id=$1 AND ub.blocked_id=c.user_id) OR (ub.blocker_id=c.user_id AND ub.blocked_id=$1))`),
-      [userId, filters.city ?? '', filters.gender ?? '', filters.goal ?? '', me !== null, intOrNull(filters.minAge), intOrNull(filters.maxAge), filters.denomination ?? '']);
+      [userId, filters.city ?? '', opposite, filters.goal ?? '', me !== null, intOrNull(filters.minAge), intOrNull(filters.maxAge), filters.denomination ?? '']);
     return rows.rows.map((profile) => ({ ...profile, compatibility: this.compatibility(me, profile) }));
   }
 
@@ -193,6 +199,10 @@ export class RelationshipRepository {
         SELECT 1 FROM courtship_profiles c
          WHERE c.user_id=$2::uuid AND c.visible=true AND c.visibility<>'hidden'
            AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=$2::uuid AND p.is_teen)
+           -- Opposite-sex only: a man and a woman. Same-sex likes are blocked.
+           AND lower(c.gender) IN ('male','female')
+           AND (SELECT lower(gender) FROM courtship_profiles WHERE user_id=$1) IN ('male','female')
+           AND lower(c.gender) <> (SELECT lower(gender) FROM courtship_profiles WHERE user_id=$1)
       )
       ON CONFLICT(sender_id,receiver_id) DO UPDATE SET note=EXCLUDED.note,
         super=courtship_interests.super OR EXCLUDED.super,
