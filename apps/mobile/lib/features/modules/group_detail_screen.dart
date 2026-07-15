@@ -918,7 +918,14 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
           child: SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => _run(() => widget.apiClient.joinGroup(token: _token, groupId: widget.groupId),
+              // A reading group is meant to be joined freely (and enrols you in
+              // its plan), so use the bible join which always grants active
+              // membership — even for a private group — instead of the generic
+              // join that would leave you pending approval.
+              onPressed: () => _run(
+                  () => _readingPlan != null
+                      ? widget.apiClient.joinReadingGroup(_token, widget.groupId)
+                      : widget.apiClient.joinGroup(token: _token, groupId: widget.groupId),
                   ok: _t(lang, 'Joined.', 'ተቀላቅለዋል።')),
               icon: const Icon(Icons.add_rounded),
               label: Text(_isChannel ? _t(lang, 'Follow channel', 'ቻናል ተከተል') : _t(lang, 'Join group', 'ቡድን ተቀላቀል')),
