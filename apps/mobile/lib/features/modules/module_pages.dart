@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/image_upload.dart';
+import '../../data/location_service.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 
@@ -8917,6 +8918,7 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
   int _tab = 0; // 0 Discover, 1 Likes, 2 Matches, 3 Profile
   CourtshipProfileItem? _me;
   bool _meLoaded = false;
+  bool _locationTried = false;
 
   @override
   void initState() {
@@ -8974,6 +8976,13 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
         _me = me;
         _meLoaded = true;
       });
+    }
+    // Once the user has a profile, capture their location (best-effort) so the
+    // deck can show distance. Only attempt once per screen lifetime.
+    final tk = widget.session?.token;
+    if (me != null && !_locationTried && tk != null && tk.isNotEmpty) {
+      _locationTried = true;
+      captureAndSendCourtshipLocation(apiClient: widget.apiClient, token: tk);
     }
   }
 

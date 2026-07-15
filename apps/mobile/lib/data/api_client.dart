@@ -1981,6 +1981,13 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  Future<dynamic> updateRelationshipLocation(
+      String token, double latitude, double longitude) {
+    return _postJson('/relationship/location',
+        {'latitude': latitude, 'longitude': longitude},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<dynamic> passRelationshipProfile(String token, String targetId) {
     return _postJson('/relationship/passes', {'targetId': targetId},
         headers: {'Authorization': 'Bearer $token'});

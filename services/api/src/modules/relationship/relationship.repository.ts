@@ -48,6 +48,12 @@ export class RelationshipRepository {
     return base ? this.attachMedia(base, userId, userId) : null;
   }
 
+  // Store the viewer's approximate location for distance-based matching.
+  async updateLocation(userId: string, latitude: number, longitude: number) {
+    await this.db.query('UPDATE courtship_profiles SET latitude=$2, longitude=$3, updated_at=now() WHERE user_id=$1', [userId, latitude, longitude]);
+    return { latitude, longitude };
+  }
+
   // Attaches the photo gallery, prompts, and active stories to a detailed profile.
   private async attachMedia(profile: Record<string, unknown>, userId: string, viewerId: string) {
     const [photos, prompts, stories] = await Promise.all([
@@ -161,7 +167,22 @@ export class RelationshipRepository {
       AND NOT EXISTS(SELECT 1 FROM courtship_passes cp WHERE cp.user_id=$1 AND cp.target_id=c.user_id)
       AND NOT EXISTS(SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id=$1 AND ub.blocked_id=c.user_id) OR (ub.blocker_id=c.user_id AND ub.blocked_id=$1))`),
       [userId, filters.city ?? '', opposite, filters.goal ?? '', me !== null, intOrNull(filters.minAge), intOrNull(filters.maxAge), filters.denomination ?? '']);
-    return rows.rows.map((profile) => ({ ...profile, compatibility: this.compatibility(me, profile) }));
+    // Distance-based matching: compute km from the viewer and optionally filter
+    // by a radius. Profiles with no location are kept (unknown distance).
+    const myLat = numOrNull((me as Record<string, unknown> | null)?.latitude);
+    const myLng = numOrNull((me as Record<string, unknown> | null)?.longitude);
+    const maxKm = numOrNull(filters.maxDistanceKm);
+    return rows.rows
+      .map((profile) => {
+        const lat = numOrNull(profile.latitude);
+        const lng = numOrNull(profile.longitude);
+        const distanceKm =
+          myLat != null && myLng != null && lat != null && lng != null
+            ? Math.round(haversineKm(myLat, myLng, lat, lng))
+            : null;
+        return { ...profile, distanceKm, compatibility: this.compatibility(me, profile) };
+      })
+      .filter((p) => maxKm == null || p.distanceKm == null || p.distanceKm <= maxKm);
   }
 
   passProfile(userId: string, targetId: string) {
@@ -387,7 +408,7 @@ export class RelationshipRepository {
   private analytics(userId: string) { return this.one(`SELECT (SELECT profile_views FROM courtship_profiles WHERE user_id=$1) AS "profileViews",(SELECT count(*)::int FROM courtship_interests WHERE receiver_id=$1) AS "receivedInterests",(SELECT count(*)::int FROM courtship_interests WHERE sender_id=$1) AS "sentInterests",(SELECT count(*)::int FROM courtship_interests WHERE (sender_id=$1 OR receiver_id=$1) AND status='accepted') AS "acceptedInterests",(SELECT count(*)::int FROM relationship_connections WHERE user1_id=$1 OR user2_id=$1) AS connections`, [userId]); }
 
   private profileSelect(where: string) {
-    return `SELECT c.user_id AS "userId",u.full_name AS "fullName",c.church_name AS "churchName",c.city,c.bio,c.interests,c.faith_statement AS "faithStatement",c.ministry_involvement AS "ministryInvolvement",c.life_goals AS "lifeGoals",c.marriage_vision AS "marriageVision",c.relationship_intent AS "relationshipIntent",c.activation_mode AS "activationMode",c.age,c.gender,c.profession,c.education,c.branch,c.service_involvement AS "serviceInvolvement",c.years_in_faith AS "yearsInFaith",c.favorite_passages AS "favoritePassages",c.devotional_habits AS "devotionalHabits",c.marriage_timeline AS "marriageTimeline",c.children_preference AS "childrenPreference",c.relocation_preference AS "relocationPreference",c.denomination_preference AS "denominationPreference",c.hobbies,c.career_goals AS "careerGoals",c.family_goals AS "familyGoals",c.visibility,c.phone_verified AS "phoneVerified",c.church_verified AS "churchVerified",c.ministry_verified AS "ministryVerified",c.identity_verified AS "identityVerified",c.pastor_recommended AS "pastorRecommended",c.verified,c.visible,c.profile_views AS "profileViews",c.created_at AS "createdAt",
+    return `SELECT c.user_id AS "userId",u.full_name AS "fullName",c.church_name AS "churchName",c.city,c.bio,c.interests,c.faith_statement AS "faithStatement",c.ministry_involvement AS "ministryInvolvement",c.life_goals AS "lifeGoals",c.marriage_vision AS "marriageVision",c.relationship_intent AS "relationshipIntent",c.activation_mode AS "activationMode",c.age,c.gender,c.profession,c.education,c.branch,c.service_involvement AS "serviceInvolvement",c.years_in_faith AS "yearsInFaith",c.favorite_passages AS "favoritePassages",c.devotional_habits AS "devotionalHabits",c.marriage_timeline AS "marriageTimeline",c.children_preference AS "childrenPreference",c.relocation_preference AS "relocationPreference",c.denomination_preference AS "denominationPreference",c.hobbies,c.career_goals AS "careerGoals",c.family_goals AS "familyGoals",c.visibility,c.phone_verified AS "phoneVerified",c.church_verified AS "churchVerified",c.ministry_verified AS "ministryVerified",c.identity_verified AS "identityVerified",c.pastor_recommended AS "pastorRecommended",c.verified,c.visible,c.profile_views AS "profileViews",c.latitude,c.longitude,c.created_at AS "createdAt",
       (SELECT url FROM relationship_profile_photos WHERE user_id=c.user_id ORDER BY position,created_at LIMIT 1) AS "coverPhoto",
       (SELECT count(*)::int FROM relationship_profile_photos WHERE user_id=c.user_id) AS "photoCount",
       EXISTS(SELECT 1 FROM relationship_stories s WHERE s.user_id=c.user_id AND s.expires_at>now()) AS "hasStory"
@@ -413,4 +434,20 @@ export class RelationshipRepository {
 function intOrNull(value: unknown): number | null {
   const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
   return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function numOrNull(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+// Great-circle distance in kilometres between two lat/lng points.
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }

@@ -54,6 +54,12 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
     _load();
   }
 
+  String _distanceLabel(int km) {
+    if (km <= 0) return _tr(lang, 'Nearby', 'በአቅራቢያ');
+    if (km == 1) return _tr(lang, '1 km away', '1 ኪሜ ርቀት');
+    return _tr(lang, '$km km away', '$km ኪሜ ርቀት');
+  }
+
   int _compatOf(Map<String, dynamic> c) {
     final comp = (c['compatibility'] as Map?)?.cast<String, dynamic>();
     final v = comp?['overall'];
@@ -334,6 +340,15 @@ class _CourtshipSwipeScreenState extends State<CourtshipSwipeScreen> with Single
               const SizedBox(height: 4),
               Text([item['churchName'], item['city']].where((e) => (e ?? '').toString().isNotEmpty).join(' • '),
                   maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 15)),
+              if (item['distanceKm'] is num) ...[
+                const SizedBox(height: 4),
+                Row(children: [
+                  const Icon(Icons.place_rounded, color: Colors.white70, size: 15),
+                  const SizedBox(width: 3),
+                  Text(_distanceLabel((item['distanceKm'] as num).toInt()),
+                      style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                ]),
+              ],
               if (compat['overall'] != null) ...[
                 const SizedBox(height: 10),
                 Container(
@@ -445,7 +460,10 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
   static const double _minAgeBound = 18;
   static const double _maxAgeBound = 70;
 
+  static const double _maxDistanceBound = 500; // km; 500 = "any distance"
+
   late RangeValues _age;
+  late double _maxDistance;
   late final TextEditingController _city;
   late final TextEditingController _denomination;
 
@@ -458,6 +476,9 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
     final lo = (i['minAge'] is num) ? (i['minAge'] as num).toDouble() : _minAgeBound;
     final hi = (i['maxAge'] is num) ? (i['maxAge'] as num).toDouble() : _maxAgeBound;
     _age = RangeValues(lo.clamp(_minAgeBound, _maxAgeBound), hi.clamp(_minAgeBound, _maxAgeBound));
+    _maxDistance = (i['maxDistanceKm'] is num)
+        ? (i['maxDistanceKm'] as num).toDouble().clamp(5, _maxDistanceBound)
+        : _maxDistanceBound;
     _city = TextEditingController(text: '${i['city'] ?? ''}');
     _denomination = TextEditingController(text: '${i['denomination'] ?? ''}');
   }
@@ -473,6 +494,7 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
     final filters = <String, dynamic>{};
     if (_age.start > _minAgeBound) filters['minAge'] = _age.start.round();
     if (_age.end < _maxAgeBound) filters['maxAge'] = _age.end.round();
+    if (_maxDistance < _maxDistanceBound) filters['maxDistanceKm'] = _maxDistance.round();
     if (_city.text.trim().isNotEmpty) filters['city'] = _city.text.trim();
     if (_denomination.text.trim().isNotEmpty) filters['denomination'] = _denomination.text.trim();
     return filters;
@@ -501,6 +523,22 @@ class _DiscoveryFilterSheetState extends State<_DiscoveryFilterSheet> {
           labels: RangeLabels('${_age.start.round()}', '${_age.end.round()}'),
           onChanged: (v) => setState(() => _age = RangeValues(
               v.start, v.end - v.start < 1 ? (v.start + 1).clamp(_minAgeBound, _maxAgeBound) : v.end)),
+        ),
+        const SizedBox(height: 8),
+        Row(children: [
+          Text(_tr(lang, 'Maximum distance', 'ከፍተኛ ርቀት'), style: const TextStyle(fontWeight: FontWeight.w600)),
+          const Spacer(),
+          Text(_maxDistance >= _maxDistanceBound
+              ? _tr(lang, 'Any', 'ማንኛውም')
+              : '${_maxDistance.round()} km'),
+        ]),
+        Slider(
+          value: _maxDistance,
+          min: 5,
+          max: _maxDistanceBound,
+          divisions: 99,
+          label: _maxDistance >= _maxDistanceBound ? _tr(lang, 'Any', 'ማንኛውም') : '${_maxDistance.round()} km',
+          onChanged: (v) => setState(() => _maxDistance = v),
         ),
         const SizedBox(height: 16),
         TextField(

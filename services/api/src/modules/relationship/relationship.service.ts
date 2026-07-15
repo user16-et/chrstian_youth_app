@@ -103,6 +103,16 @@ export class RelationshipService {
     return { gender, set };
   }
 
+  async setLocation(token: string, input: Record<string, unknown>) {
+    const user = await this.actor(token);
+    const lat = Number(input.latitude);
+    const lng = Number(input.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      throw new BadRequestException('invalid_location');
+    }
+    return this.relationships.updateLocation(user.id, lat, lng);
+  }
+
   async pass(token: string, input: Record<string, unknown>) {
     const user = await this.adult(token);
     const targetId = String(input.targetId ?? '');
