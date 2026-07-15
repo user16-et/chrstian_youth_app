@@ -2854,6 +2854,104 @@ class ApiClient {
     return MarketplaceListingItem.fromJson(response as Map<String, dynamic>);
   }
 
+  // ---- Full marketplace (Jiji/FB-style) ----
+  Future<List<Map<String, dynamic>>> browseMarketplace({
+    String? token,
+    String q = '',
+    String category = '',
+    String condition = '',
+    String location = '',
+    int? minPriceCents,
+    int? maxPriceCents,
+    String sort = '',
+  }) async {
+    final params = <String, String>{
+      if (q.isNotEmpty) 'q': q,
+      if (category.isNotEmpty && category != 'all') 'category': category,
+      if (condition.isNotEmpty) 'condition': condition,
+      if (location.isNotEmpty) 'location': location,
+      if (minPriceCents != null) 'minPrice': '$minPriceCents',
+      if (maxPriceCents != null) 'maxPrice': '$maxPriceCents',
+      if (sort.isNotEmpty) 'sort': sort,
+    };
+    final qs = params.isEmpty
+        ? ''
+        : '?${params.entries.map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}').join('&')}';
+    final response = await _getJson('/journey/marketplace$qs',
+        headers: token == null || token.isEmpty
+            ? const {}
+            : {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> fetchListingDetail(String id, {String? token}) async {
+    final response = await _getJson('/journey/marketplace/$id',
+        headers: token == null || token.isEmpty
+            ? const {}
+            : {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchMyListings(String token) async {
+    final response = await _getJson('/journey/marketplace/mine',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchSavedListings(String token) async {
+    final response = await _getJson('/journey/marketplace/saved',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> createListing(
+    String token, {
+    required String title,
+    required String category,
+    required int priceCents,
+    required String description,
+    required String condition,
+    required String location,
+    required String phoneNumber,
+    required List<String> images,
+  }) async {
+    final response = await _postJson(
+      '/journey/marketplace',
+      {
+        'title': title,
+        'category': category,
+        'priceCents': priceCents,
+        'description': description,
+        'condition': condition,
+        'location': location,
+        'phoneNumber': phoneNumber,
+        'images': images,
+      },
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return response as Map<String, dynamic>;
+  }
+
+  Future<dynamic> updateListing(String token, String id, Map<String, dynamic> fields) {
+    return _patchJson('/journey/marketplace/$id', fields,
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> deleteListing(String token, String id) {
+    return _deleteJson('/journey/marketplace/$id',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> saveListing(String token, String id) {
+    return _postJson('/journey/marketplace/$id/save', const {},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> unsaveListing(String token, String id) {
+    return _deleteJson('/journey/marketplace/$id/save',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<MarketplaceOrderItem> orderMarketplaceListing(
       String token, String listingId) async {
     final response = await _postJson(

@@ -147,16 +147,83 @@ export class JourneyRepository {
     return this.pool.query(`INSERT INTO story_replies (story_id,author_id,body) VALUES ($1,$2,$3) RETURNING *`, [storyId, userId, body]).then((r) => r.rows[0]);
   }
 
-  listings() {
-    return this.pool.query(`
-      SELECT l.*, COALESCE(u.full_name, l.seller_name) AS seller_display_name
-      FROM marketplace_listings l
-      LEFT JOIN users u ON u.id = l.seller_id
-      WHERE l.active=true
-      ORDER BY l.created_at DESC`).then((r) => r.rows);
+  // Browse listings with search + filters. viewerId (optional) marks favourites.
+  listings(filters: Record<string, unknown>, viewerId?: string | null) {
+    const q = String(filters.q ?? '').trim();
+    return this.pool
+      .query(
+        `SELECT l.id, l.title, l.category, l.price_cents AS "priceCents", l.condition, l.location,
+                l.description, l.image_url AS "imageUrl", l.seller_id AS "sellerId", l.sold,
+                COALESCE(u.full_name, l.seller_name) AS "sellerName", l.created_at AS "createdAt",
+                (SELECT count(*)::int FROM marketplace_listing_images mi WHERE mi.listing_id=l.id) AS "photoCount",
+                ($8::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM marketplace_favorites f WHERE f.listing_id=l.id AND f.user_id=$8)) AS "saved"
+         FROM marketplace_listings l
+         LEFT JOIN users u ON u.id = l.seller_id
+         WHERE l.active=true AND l.sold=false
+           AND ($1='' OR l.title ILIKE '%'||$1||'%' OR l.description ILIKE '%'||$1||'%')
+           AND ($2='' OR lower(l.category)=lower($2))
+           AND ($3='' OR l.condition=$3)
+           AND ($4='' OR l.location ILIKE '%'||$4||'%')
+           AND ($5::int IS NULL OR l.price_cents >= $5)
+           AND ($6::int IS NULL OR l.price_cents <= $6)
+         ORDER BY (CASE WHEN $7='price_asc' THEN l.price_cents END) ASC NULLS LAST,
+                  (CASE WHEN $7='price_desc' THEN l.price_cents END) DESC NULLS LAST,
+                  l.created_at DESC
+         LIMIT 120`,
+        [q, String(filters.category ?? ''), String(filters.condition ?? ''), String(filters.location ?? ''),
+         intOrNull(filters.minPrice), intOrNull(filters.maxPrice), String(filters.sort ?? ''), viewerId ?? null],
+      )
+      .then((r) => r.rows);
   }
 
-  createListing(userId: string, input: {
+  async listingDetail(id: string, viewerId?: string | null) {
+    const row = await this.pool
+      .query(
+        `SELECT l.id, l.title, l.category, l.price_cents AS "priceCents", l.condition, l.location,
+                l.description, l.image_url AS "imageUrl", l.phone_number AS "phoneNumber",
+                l.seller_id AS "sellerId", l.sold, COALESCE(u.full_name, l.seller_name) AS "sellerName",
+                COALESCE(NULLIF(u.profile_image,''),'') AS "sellerPhoto", l.created_at AS "createdAt",
+                ($2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM marketplace_favorites f WHERE f.listing_id=l.id AND f.user_id=$2)) AS "saved"
+         FROM marketplace_listings l
+         LEFT JOIN users u ON u.id = l.seller_id
+         WHERE l.id=$1 AND l.active=true`,
+        [id, viewerId ?? null],
+      )
+      .then((r) => r.rows[0] ?? null);
+    if (!row) return null;
+    const images = await this.pool
+      .query('SELECT url FROM marketplace_listing_images WHERE listing_id=$1 ORDER BY position, created_at', [id])
+      .then((r) => r.rows.map((x) => x.url as string));
+    return { ...row, images: images.length ? images : (row.imageUrl ? [row.imageUrl] : []) };
+  }
+
+  myListings(userId: string) {
+    return this.pool
+      .query(
+        `SELECT l.id, l.title, l.category, l.price_cents AS "priceCents", l.condition, l.location,
+                l.image_url AS "imageUrl", l.sold, l.active, l.created_at AS "createdAt"
+         FROM marketplace_listings l WHERE l.seller_id=$1 ORDER BY l.created_at DESC`,
+        [userId],
+      )
+      .then((r) => r.rows);
+  }
+
+  savedListings(userId: string) {
+    return this.pool
+      .query(
+        `SELECT l.id, l.title, l.category, l.price_cents AS "priceCents", l.condition, l.location,
+                l.image_url AS "imageUrl", l.sold, COALESCE(u.full_name, l.seller_name) AS "sellerName",
+                l.created_at AS "createdAt", true AS "saved"
+         FROM marketplace_favorites f
+         JOIN marketplace_listings l ON l.id=f.listing_id AND l.active=true
+         LEFT JOIN users u ON u.id=l.seller_id
+         WHERE f.user_id=$1 ORDER BY f.created_at DESC`,
+        [userId],
+      )
+      .then((r) => r.rows);
+  }
+
+  async createListing(userId: string, input: {
     title: string;
     category: string;
     priceCents: number;
@@ -164,16 +231,56 @@ export class JourneyRepository {
     condition: string;
     location: string;
     phoneNumber: string;
-    imageUrl: string;
+    images: string[];
   }) {
-    return this.pool.query(`
-      INSERT INTO marketplace_listings
-        (seller_id, title, category, price_cents, seller_name, description, condition, location, phone_number, image_url, listing_type)
-      SELECT $1, $2, $3, $4, u.full_name, $5, $6, $7, $8, $9, 'user_post'
-      FROM users u WHERE u.id=$1
-      RETURNING *`,
-      [userId, input.title, input.category, input.priceCents, input.description, input.condition, input.location, input.phoneNumber, input.imageUrl]
-    ).then((r) => r.rows[0]);
+    const cover = input.images[0] ?? '';
+    const listing = await this.pool
+      .query(
+        `INSERT INTO marketplace_listings
+          (seller_id, title, category, price_cents, seller_name, description, condition, location, phone_number, image_url, listing_type)
+         SELECT $1, $2, $3, $4, u.full_name, $5, $6, $7, $8, $9, 'user_post'
+         FROM users u WHERE u.id=$1
+         RETURNING *`,
+        [userId, input.title, input.category, input.priceCents, input.description, input.condition, input.location, input.phoneNumber, cover],
+      )
+      .then((r) => r.rows[0]);
+    for (let i = 0; i < input.images.length && i < 10; i += 1) {
+      await this.pool.query('INSERT INTO marketplace_listing_images (listing_id, url, position) VALUES ($1,$2,$3)', [listing.id, input.images[i], i]);
+    }
+    return listing;
+  }
+
+  updateListing(userId: string, id: string, fields: { sold?: boolean; priceCents?: number; description?: string; active?: boolean }) {
+    return this.pool
+      .query(
+        `UPDATE marketplace_listings SET
+           sold = COALESCE($3, sold),
+           price_cents = COALESCE($4, price_cents),
+           description = COALESCE($5, description),
+           active = COALESCE($6, active)
+         WHERE id=$1 AND seller_id=$2
+         RETURNING id, sold, price_cents AS "priceCents", active`,
+        [id, userId, fields.sold ?? null, fields.priceCents ?? null, fields.description ?? null, fields.active ?? null],
+      )
+      .then((r) => r.rows[0] ?? null);
+  }
+
+  deleteListing(userId: string, id: string) {
+    return this.pool
+      .query('DELETE FROM marketplace_listings WHERE id=$1 AND seller_id=$2 RETURNING id', [id, userId])
+      .then((r) => (r.rowCount ?? 0) > 0);
+  }
+
+  saveListing(userId: string, id: string) {
+    return this.pool
+      .query('INSERT INTO marketplace_favorites (user_id, listing_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [userId, id])
+      .then(() => ({ saved: true }));
+  }
+
+  unsaveListing(userId: string, id: string) {
+    return this.pool
+      .query('DELETE FROM marketplace_favorites WHERE user_id=$1 AND listing_id=$2', [userId, id])
+      .then(() => ({ saved: false }));
   }
 
   enrollCourse(userId: string, courseId: string) {
@@ -194,4 +301,9 @@ export class JourneyRepository {
   order(userId: string, listingId: string) {
     return this.pool.query(`INSERT INTO marketplace_orders (user_id,listing_id,receipt_number) VALUES ($1,$2,$3) RETURNING *`, [userId, listingId, `RCP-${randomUUID().slice(0, 10).toUpperCase()}`]).then((r) => r.rows[0]);
   }
+}
+
+function intOrNull(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) ? Math.trunc(n) : null;
 }

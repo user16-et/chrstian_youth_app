@@ -67,7 +67,18 @@ export class JourneyService {
     if (!body.trim()) throw new BadRequestException('body_required');
     return this.journey.replyStory((await this.actor(token)).id, id, body.trim());
   }
-  listings() { return this.journey.listings(); }
+  async listings(token: string | null, filters: Record<string, unknown>) {
+    const viewer = token ? await this.actor(token).catch(() => null) : null;
+    return this.journey.listings(filters, viewer?.id ?? null);
+  }
+  async listingDetail(token: string | null, id: string) {
+    const viewer = token ? await this.actor(token).catch(() => null) : null;
+    const listing = await this.journey.listingDetail(id, viewer?.id ?? null);
+    if (!listing) throw new NotFoundException('listing_not_found');
+    return listing;
+  }
+  async myListings(token: string) { return this.journey.myListings((await this.actor(token)).id); }
+  async savedListings(token: string) { return this.journey.savedListings((await this.actor(token)).id); }
   async createListing(token: string, input: any) {
     const actor = await this.actor(token);
     const title = String(input?.title ?? '').trim();
@@ -76,14 +87,33 @@ export class JourneyService {
     const condition = String(input?.condition ?? 'used_good').trim() || 'used_good';
     const location = String(input?.location ?? '').trim();
     const phoneNumber = String(input?.phoneNumber ?? actor.phoneNumber ?? '').trim();
-    const imageUrl = String(input?.imageUrl ?? '').trim();
+    const images = Array.isArray(input?.images)
+      ? (input.images as unknown[]).map((u) => String(u ?? '').trim()).filter((u) => u.length > 0).slice(0, 10)
+      : [String(input?.imageUrl ?? '').trim()].filter((u) => u.length > 0);
     const priceCents = Math.round(Number(input?.priceCents ?? input?.price ?? 0));
     if (!title) throw new BadRequestException('marketplace_title_required');
     if (!description) throw new BadRequestException('marketplace_description_required');
     if (!phoneNumber) throw new BadRequestException('marketplace_phone_required');
     if (!Number.isFinite(priceCents) || priceCents < 0) throw new BadRequestException('invalid_marketplace_price');
-    return this.journey.createListing(actor.id, { title, category, priceCents, description, condition, location, phoneNumber, imageUrl });
+    return this.journey.createListing(actor.id, { title, category, priceCents, description, condition, location, phoneNumber, images });
   }
+  async updateListing(token: string, id: string, input: Record<string, unknown>) {
+    const actor = await this.actor(token);
+    const fields: { sold?: boolean; priceCents?: number; description?: string; active?: boolean } = {};
+    if (typeof input.sold === 'boolean') fields.sold = input.sold;
+    if (input.priceCents != null) fields.priceCents = Math.max(0, Math.round(Number(input.priceCents) || 0));
+    if (input.description != null) fields.description = String(input.description);
+    const updated = await this.journey.updateListing(actor.id, id, fields);
+    if (!updated) throw new NotFoundException('listing_not_found');
+    return updated;
+  }
+  async deleteListing(token: string, id: string) {
+    const removed = await this.journey.deleteListing((await this.actor(token)).id, id);
+    if (!removed) throw new NotFoundException('listing_not_found');
+    return { removed: true };
+  }
+  async saveListing(token: string, id: string) { return this.journey.saveListing((await this.actor(token)).id, id); }
+  async unsaveListing(token: string, id: string) { return this.journey.unsaveListing((await this.actor(token)).id, id); }
   async enrollCourse(token: string, id: string) { return this.journey.enrollCourse((await this.actor(token)).id, id); }
   async progressCourse(token: string, id: string) {
     const actor = await this.actor(token);
