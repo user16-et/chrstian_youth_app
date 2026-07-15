@@ -2780,6 +2780,21 @@ class _BibleScreenState extends State<BibleScreen> {
     return _SectionCard(
       title: AppStrings.of(language, 'reading_plans'),
       children: [
+        Text(
+          _tr('Follow a plan on your own and track your progress day by day.',
+              'የራስዎን እቅድ ተከትለው እድገትዎን በየቀኑ ይከታተሉ።'),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _busy ? null : () => _createStudyGroup(asGroup: false),
+            icon: const Icon(Icons.self_improvement_rounded),
+            label: Text(_tr('New self-study plan', 'አዲስ የግል እቅድ')),
+          ),
+        ),
+        const SizedBox(height: 14),
         if (all.isEmpty)
           _EmptyState(message: AppStrings.of(language, 'no_reading_plans'))
         else ...[
@@ -2821,11 +2836,12 @@ class _BibleScreenState extends State<BibleScreen> {
                       : Icons.menu_book_rounded,
                   title: plan.title,
                   meta:
-                      '${plan.durationDays} ${AppStrings.of(language, 'days')} · ${plan.category}',
+                      '${plan.durationDays} ${AppStrings.of(language, 'days')} · ${plan.isPersonal ? _tr('Self-study', 'የግል ጥናት') : plan.category}',
                   description: plan.description,
                   joined: plan.joined,
                   completedDays: plan.completedDays,
                   durationDays: plan.durationDays,
+                  isPersonal: plan.isPersonal,
                   joinLabel: _tr('Join', 'ተቀላቀል'),
                   doneLabel: plan.isComplete
                       ? _tr('Completed 🎉', 'ተጠናቋል 🎉')
@@ -2841,6 +2857,9 @@ class _BibleScreenState extends State<BibleScreen> {
                               token: token,
                               planId: plan.id,
                               dayNumber: plan.nextDay)),
+                  onDelete: (plan.isPersonal && !_busy)
+                      ? () => _deletePersonalPlan(plan)
+                      : null,
                 ),
               ),
           if (filtered.length > cap)
@@ -2934,14 +2953,17 @@ class _BibleScreenState extends State<BibleScreen> {
     if (mounted) _openStudyGroup(group);
   }
 
-  // Create a reading plan and its reading group together, then open it.
-  Future<void> _createStudyGroup() async {
+  // Create a reading plan two ways: a private self-study plan, or a study group
+  // that reads the plan together. [asGroup] just picks the initial mode.
+  Future<void> _createStudyGroup({bool asGroup = true}) async {
     if (!_requireLogin()) return;
     final titleController = TextEditingController();
     final descController = TextEditingController();
     final readingsController = TextEditingController();
     var isPrivate = false;
-    final created = await showModalBottomSheet<BibleStudyGroupItem>(
+    var group = asGroup; // true = study group, false = self-study
+    BibleStudyGroupItem? createdGroup;
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -2967,10 +2989,34 @@ class _BibleScreenState extends State<BibleScreen> {
                   children: [
                     Text(_tr('New reading plan', 'አዲስ የንባብ እቅድ'),
                         style: Theme.of(sheetContext).textTheme.titleLarge),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 12),
+                    // Mode chooser: self-study vs study group.
+                    Row(children: [
+                      Expanded(
+                        child: _CreateModeChip(
+                          icon: Icons.self_improvement_rounded,
+                          label: _tr('Self-study', 'የግል ጥናት'),
+                          selected: !group,
+                          onTap: () => setSheet(() => group = false),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _CreateModeChip(
+                          icon: Icons.groups_2_rounded,
+                          label: _tr('Study group', 'የጥናት ቡድን'),
+                          selected: group,
+                          onTap: () => setSheet(() => group = true),
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 8),
                     Text(
-                        _tr('Creates a group where members read the plan together — with chat, audio calls and notifications.',
-                            'አባላት እቅዱን አብረው የሚያነቡበት ቡድን ይፈጥራል — ከውይይት፣ ከድምጽ ጥሪ እና ማሳወቂያ ጋር።'),
+                        group
+                            ? _tr('A group reads the plan together — with chat, audio calls and notifications.',
+                                'ቡድን እቅዱን አብሮ ያነባል — ከውይይት፣ ከድምጽ ጥሪ እና ማሳወቂያ ጋር።')
+                            : _tr('A private plan just for you — track your progress day by day.',
+                                'ለእርስዎ ብቻ የግል እቅድ — እድገትዎን በየቀኑ ይከታተሉ።'),
                         style: Theme.of(sheetContext).textTheme.bodySmall),
                     const SizedBox(height: 16),
                     TextField(
@@ -3009,21 +3055,24 @@ class _BibleScreenState extends State<BibleScreen> {
                       maxLines: 6,
                       minLines: 3,
                     ),
-                    const SizedBox(height: 8),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      value: isPrivate,
-                      onChanged: (v) => setSheet(() => isPrivate = v),
-                      title: Text(_tr('Private group', 'የግል ቡድን')),
-                      subtitle: Text(
-                          isPrivate
-                              ? _tr('Only people you invite can join.',
-                                  'የምትጋብዟቸው ብቻ ይቀላቀላሉ።')
-                              : _tr('Anyone can discover and join.',
-                                  'ማንኛውም ሰው አግኝቶ ሊቀላቀል ይችላል።'),
-                          style: Theme.of(sheetContext).textTheme.bodySmall),
-                    ),
-                    const SizedBox(height: 8),
+                    // Visibility only applies to study groups.
+                    if (group) ...[
+                      const SizedBox(height: 8),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: isPrivate,
+                        onChanged: (v) => setSheet(() => isPrivate = v),
+                        title: Text(_tr('Private group', 'የግል ቡድን')),
+                        subtitle: Text(
+                            isPrivate
+                                ? _tr('Only people you invite can join.',
+                                    'የምትጋብዟቸው ብቻ ይቀላቀላሉ።')
+                                : _tr('Anyone can discover and join.',
+                                    'ማንኛውም ሰው አግኝቶ ሊቀላቀል ይችላል።'),
+                            style: Theme.of(sheetContext).textTheme.bodySmall),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
                     FilledButton(
                       onPressed: saving
                           ? null
@@ -3042,16 +3091,26 @@ class _BibleScreenState extends State<BibleScreen> {
                                     .map((l) => l.trim())
                                     .where((l) => l.isNotEmpty)
                                     .toList();
-                                final group =
-                                    await widget.apiClient.createReadingGroup(
-                                  widget.session!.token,
-                                  title: titleController.text.trim(),
-                                  description: descController.text.trim(),
-                                  visibility: isPrivate ? 'private' : 'public',
-                                  readings: readings,
-                                );
+                                if (group) {
+                                  createdGroup = await widget.apiClient
+                                      .createReadingGroup(
+                                    widget.session!.token,
+                                    title: titleController.text.trim(),
+                                    description: descController.text.trim(),
+                                    visibility:
+                                        isPrivate ? 'private' : 'public',
+                                    readings: readings,
+                                  );
+                                } else {
+                                  await widget.apiClient.createPersonalPlan(
+                                    widget.session!.token,
+                                    title: titleController.text.trim(),
+                                    description: descController.text.trim(),
+                                    readings: readings,
+                                  );
+                                }
                                 if (sheetContext.mounted) {
-                                  Navigator.of(sheetContext).pop(group);
+                                  Navigator.of(sheetContext).pop();
                                 }
                               } catch (error) {
                                 setSheet(() => saving = false);
@@ -3067,7 +3126,9 @@ class _BibleScreenState extends State<BibleScreen> {
                             },
                       child: Text(saving
                           ? AppStrings.of(widget.language, 'working')
-                          : _tr('Create reading plan', 'የንባብ እቅድ ፍጠር')),
+                          : (group
+                              ? _tr('Create study group', 'የጥናት ቡድን ፍጠር')
+                              : _tr('Create my plan', 'የእኔን እቅድ ፍጠር'))),
                     ),
                   ],
                 ),
@@ -3080,10 +3141,35 @@ class _BibleScreenState extends State<BibleScreen> {
     titleController.dispose();
     descController.dispose();
     readingsController.dispose();
-    if (created != null) {
-      await _refreshHub();
-      if (mounted) _openStudyGroup(created);
+    await _refreshHub();
+    if (createdGroup != null && mounted) {
+      _openStudyGroup(createdGroup!);
     }
+  }
+
+  Future<void> _deletePersonalPlan(BibleReadingPlanItem plan) async {
+    if (!_requireLogin()) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_tr('Delete plan?', 'እቅድ ይሰረዝ?')),
+        content: Text(_tr('This removes your self-study plan and its progress.',
+            'ይህ የግል እቅድዎንና እድገቱን ያስወግዳል።')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(_tr('Cancel', 'ተወው'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(AppStrings.of(widget.language, 'delete_note'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _runAction(() async {
+      await widget.apiClient
+          .deletePersonalPlan(widget.session!.token, plan.id);
+    });
   }
 
   Future<void> _runAction(Future<void> Function() action) async {
@@ -4090,6 +4176,54 @@ class _StatusBanner extends StatelessWidget {
   }
 }
 
+// A large selectable chip used to pick the create mode (self-study / group).
+class _CreateModeChip extends StatelessWidget {
+  const _CreateModeChip({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: selected
+          ? colors.primary
+          : colors.surfaceContainerHighest.withValues(alpha: .5),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          child: Column(
+            children: [
+              Icon(icon,
+                  size: 22,
+                  color: selected ? colors.onPrimary : colors.onSurface),
+              const SizedBox(height: 6),
+              Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? colors.onPrimary : colors.onSurface)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // A reading-plan row with join / progress actions.
 class _ReadingPlanTile extends StatelessWidget {
   const _ReadingPlanTile({
@@ -4105,6 +4239,8 @@ class _ReadingPlanTile extends StatelessWidget {
     required this.doneLabel,
     required this.onJoin,
     required this.onDone,
+    this.isPersonal = false,
+    this.onDelete,
   });
 
   final ColorScheme colors;
@@ -4119,6 +4255,8 @@ class _ReadingPlanTile extends StatelessWidget {
   final String doneLabel;
   final VoidCallback? onJoin;
   final VoidCallback? onDone;
+  final bool isPersonal;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -4149,13 +4287,23 @@ class _ReadingPlanTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700)),
+                    Row(children: [
+                      Flexible(
+                        child: Text(title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                      ),
+                      if (isPersonal) ...[
+                        const SizedBox(width: 6),
+                        Icon(Icons.lock_rounded,
+                            size: 13,
+                            color: colors.onSurface.withValues(alpha: .5)),
+                      ],
+                    ]),
                     const SizedBox(height: 2),
                     Text(meta,
                         maxLines: 1,
@@ -4166,6 +4314,13 @@ class _ReadingPlanTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onDelete != null)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onDelete,
+                  icon: Icon(Icons.delete_outline_rounded,
+                      size: 19, color: colors.error.withValues(alpha: .8)),
+                ),
             ],
           ),
           if (description.isNotEmpty) ...[

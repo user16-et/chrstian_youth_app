@@ -57,6 +57,20 @@ export class BibleService {
     return this.bibleRepository.listReadingPlansFor(actor?.id ?? null);
   }
 
+  async createPersonalPlan(token: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    if (!String(input.title ?? '').trim()) {
+      throw new BadRequestException('plan_title_required');
+    }
+    return this.bibleRepository.createPersonalPlan(actor.id, input);
+  }
+
+  async deletePersonalPlan(token: string, planId: string) {
+    const actor = await this.requireActor(token);
+    if (!planId) throw new BadRequestException('plan_id_required');
+    return this.bibleRepository.deletePersonalPlan(actor.id, planId);
+  }
+
   search(query: string, token: string | null, version?: string | null) {
     if (!query.trim()) {
       return [];

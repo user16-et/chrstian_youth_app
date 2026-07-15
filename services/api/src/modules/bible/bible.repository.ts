@@ -232,18 +232,63 @@ export class BibleRepository {
   // whether the viewer has joined and how many days they've completed — so the
   // UI can show "Join" vs progress instead of both.
   async listReadingPlansFor(userId: string | null) {
+    // Curated plans (created_by IS NULL) plus the viewer's own self-study
+    // plans; never other users' personal plans or per-reading-group plans.
     const result = await this.db.query(
       `SELECT p.id, p.title, p.description, p.duration_days AS "durationDays",
               p.language, p.category, p.created_at AS "createdAt",
+              (p.created_by IS NOT NULL) AS "isPersonal",
               (e.user_id IS NOT NULL) AS joined,
               COALESCE(e.completed_days, 0) AS "completedDays"
        FROM bible_reading_plans p
        LEFT JOIN reading_plan_enrollments e ON e.plan_id = p.id AND e.user_id = $1::uuid
        WHERE p.category <> 'ReadingGroup'
-       ORDER BY p.created_at DESC`,
+         AND (p.created_by IS NULL OR p.created_by = $1::uuid)
+       ORDER BY (p.created_by = $1::uuid) DESC NULLS LAST, p.created_at DESC`,
       [userId],
     );
     return result.rows;
+  }
+
+  // Create a personal (self-study) reading plan, enrol the owner, and seed the
+  // day list — mirrors createReadingGroup's plan half but with no group.
+  async createPersonalPlan(userId: string, input: Record<string, unknown>) {
+    const title = String(input.title ?? '').trim();
+    const description = String(input.description ?? '').trim();
+    const readings = Array.isArray(input.readings)
+      ? (input.readings as unknown[]).map((r) => String(r ?? '').trim()).filter((r) => r.length > 0)
+      : [];
+    const durationDays = readings.length > 0 ? readings.length : Math.max(1, Number(input.durationDays ?? 7) || 7);
+    const plan = await this.db.query(
+      `INSERT INTO bible_reading_plans (title, description, duration_days, language, category, created_by)
+       VALUES ($1, $2, $3, $4, 'Personal', $5)
+       RETURNING id, title, description, duration_days AS "durationDays", language, category, created_at AS "createdAt"`,
+      [title, description, durationDays, String(input.language ?? 'en'), userId],
+    );
+    const planId = plan.rows[0].id as string;
+    const dayNumbers: number[] = [];
+    const assignments: string[] = [];
+    for (let i = 0; i < durationDays; i += 1) {
+      dayNumbers.push(i + 1);
+      assignments.push(readings[i] ?? `Day ${i + 1}`);
+    }
+    await this.db.query(
+      `INSERT INTO reading_plan_days (plan_id, day_number, assignment)
+       SELECT $1, unnest($2::int[]), unnest($3::text[])
+       ON CONFLICT (plan_id, day_number) DO NOTHING`,
+      [planId, dayNumbers, assignments],
+    );
+    await this.joinPlan(userId, planId);
+    return { ...plan.rows[0], isPersonal: true, joined: true, completedDays: 0 };
+  }
+
+  async deletePersonalPlan(userId: string, planId: string) {
+    // Only the owner can delete, and only a personal plan.
+    const result = await this.db.query(
+      `DELETE FROM bible_reading_plans WHERE id = $1 AND created_by = $2 RETURNING id`,
+      [planId, userId],
+    );
+    return { deleted: (result.rowCount ?? 0) > 0 };
   }
 
   async joinPlan(userId: string, planId: string) {

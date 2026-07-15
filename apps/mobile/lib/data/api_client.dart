@@ -1543,6 +1543,32 @@ class ApiClient {
         .toList();
   }
 
+  /// Creates a personal (self-study) reading plan for the current user.
+  Future<BibleReadingPlanItem> createPersonalPlan(
+    String token, {
+    required String title,
+    required String description,
+    List<String> readings = const [],
+    int durationDays = 7,
+  }) async {
+    final response = await _postJson(
+      '/bible/plans',
+      {
+        'title': title,
+        'description': description,
+        'readings': readings,
+        'durationDays': durationDays,
+      },
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return BibleReadingPlanItem.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<void> deletePersonalPlan(String token, String planId) async {
+    await _deleteJson('/bible/plans/$planId',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<List<Map<String, dynamic>>> fetchBibleVersions() async {
     final response = await _getJson('/bible/versions');
     return (response as List<dynamic>).cast<Map<String, dynamic>>();

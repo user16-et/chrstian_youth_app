@@ -1236,6 +1236,7 @@ class BibleReadingPlanItem {
     required this.createdAt,
     required this.joined,
     required this.completedDays,
+    required this.isPersonal,
   });
 
   final String id;
@@ -1247,6 +1248,7 @@ class BibleReadingPlanItem {
   final String createdAt;
   final bool joined;
   final int completedDays;
+  final bool isPersonal;
 
   int get nextDay =>
       durationDays > 0 ? (completedDays + 1).clamp(1, durationDays) : 1;
@@ -1265,6 +1267,7 @@ class BibleReadingPlanItem {
       createdAt: json['createdAt'] as String? ?? '',
       joined: json['joined'] as bool? ?? false,
       completedDays: (json['completedDays'] as num?)?.toInt() ?? 0,
+      isPersonal: json['isPersonal'] as bool? ?? false,
     );
   }
 }

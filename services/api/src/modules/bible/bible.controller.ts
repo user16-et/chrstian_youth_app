@@ -64,6 +64,20 @@ export class BibleController {
     return this.bibleService.listReadingPlans(authorization ? requireBearerToken(authorization) : null);
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a personal (self-study) reading plan' })
+  @Post('/bible/plans')
+  createPersonalPlan(@Headers('authorization') authorization?: string, @Body() body?: Record<string, unknown>) {
+    return this.bibleService.createPersonalPlan(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a personal reading plan' })
+  @Delete('/bible/plans/:id')
+  deletePersonalPlan(@Headers('authorization') authorization?: string, @Param('id') planId?: string) {
+    return this.bibleService.deletePersonalPlan(requireBearerToken(authorization), planId ?? '');
+  }
+
   @ApiOperation({ summary: 'Search Bible content' })
   @Get('/bible/search')
   search(@Query('q') query?: string, @Query('version') version?: string, @Headers('authorization') authorization?: string) {
