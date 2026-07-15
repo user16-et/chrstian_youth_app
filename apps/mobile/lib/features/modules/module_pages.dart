@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
@@ -8619,6 +8620,7 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
   late Future<List<MentorItem>> _mentorsFuture;
   late Future<List<MentorshipRequestItem>> _requestsFuture;
   Future<List<Map<String, dynamic>>>? _sessionsFuture;
+  Future<Map<String, dynamic>>? _mentorProfileFuture;
 
   @override
   void initState() {
@@ -8631,6 +8633,7 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
         : widget.apiClient.fetchMentorshipRequests(token);
     if (token != null && token.isNotEmpty) {
       _sessionsFuture = widget.apiClient.fetchMentorshipSessions(token);
+      _mentorProfileFuture = widget.apiClient.fetchMentorProfile(token);
     }
   }
 
@@ -8651,6 +8654,9 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
       _sessionsFuture = token == null || token.isEmpty
           ? Future.value(const <Map<String, dynamic>>[])
           : widget.apiClient.fetchMentorshipSessions(token);
+      _mentorProfileFuture = token == null || token.isEmpty
+          ? Future.value(const <String, dynamic>{})
+          : widget.apiClient.fetchMentorProfile(token);
     });
     await Future.wait([_mentorsFuture, _requestsFuture, if (_sessionsFuture != null) _sessionsFuture!]);
   }
@@ -8857,6 +8863,258 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
   DateTime _sessionTime(Map<String, dynamic> s) =>
       DateTime.tryParse('${s['scheduledAt']}')?.toLocal() ?? DateTime.now();
 
+  static const List<String> _weekdayNames = [
+    'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
+  ];
+
+  String _minToLabel(int m, BuildContext context) =>
+      TimeOfDay(hour: m ~/ 60, minute: m % 60).format(context);
+
+  // ---- Mentor side ----
+  Widget _mentorSection(BuildContext context, AppLanguage language) {
+    if (_mentorProfileFuture == null) return const SizedBox.shrink();
+    final en = language == AppLanguage.english;
+    final colors = Theme.of(context).colorScheme;
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _mentorProfileFuture,
+      builder: (context, snapshot) {
+        final data = snapshot.data ?? const {};
+        if (data['isMentor'] != true) return const SizedBox.shrink();
+        final mentor = (data['mentor'] as Map?)?.cast<String, dynamic>() ?? const {};
+        final availability =
+            ((data['availability'] as List?) ?? const []).cast<Map<String, dynamic>>();
+        final sessions =
+            ((data['sessions'] as List?) ?? const []).cast<Map<String, dynamic>>();
+        final requests = sessions.where((s) => s['status'] == 'requested').toList();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+                colors: [colors.primaryContainer.withValues(alpha: .6), colors.tertiaryContainer.withValues(alpha: .4)],
+              ),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(Icons.workspace_premium_rounded, color: colors.onPrimaryContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(en ? "You're a mentor · ${mentor['fullName'] ?? ''}" : 'አማካሪ ነዎት · ${mentor['fullName'] ?? ''}',
+                      style: TextStyle(fontWeight: FontWeight.w800, color: colors.onPrimaryContainer)),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              // Availability
+              Text(en ? 'Your weekly availability' : 'ሳምንታዊ ተገኝነትዎ',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: colors.onPrimaryContainer)),
+              const SizedBox(height: 6),
+              if (availability.isEmpty)
+                Text(en ? 'Not set — mentees can still request times.' : 'አልተቀመጠም — ተማሪዎች አሁንም ሰዓት መጠየቅ ይችላሉ።',
+                    style: TextStyle(fontSize: 12, color: colors.onPrimaryContainer.withValues(alpha: .8)))
+              else
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final a in availability)
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text('${_weekdayNames[(a['weekday'] as num).toInt()]} ${_minToLabel((a['startMinute'] as num).toInt(), context)}–${_minToLabel((a['endMinute'] as num).toInt(), context)}',
+                          style: const TextStyle(fontSize: 12)),
+                    ),
+                ]),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : () => _editAvailability(availability),
+                  icon: const Icon(Icons.edit_calendar_rounded, size: 18),
+                  label: Text(en ? 'Edit availability' : 'ተገኝነት አርትዕ'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Incoming requests
+              Text(en ? 'Session requests (${requests.length})' : 'የክፍለ ጊዜ ጥያቄዎች (${requests.length})',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: colors.onPrimaryContainer)),
+              const SizedBox(height: 6),
+              if (requests.isEmpty)
+                Text(en ? 'No pending requests.' : 'በመጠባበቅ ላይ ጥያቄ የለም።',
+                    style: TextStyle(fontSize: 12, color: colors.onPrimaryContainer.withValues(alpha: .8)))
+              else
+                for (final r in requests) _mentorRequestTile(r, colors, en),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _mentorRequestTile(Map<String, dynamic> r, ColorScheme colors, bool en) {
+    final when = _sessionTime(r);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: colors.surface.withValues(alpha: .6), borderRadius: BorderRadius.circular(14)),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${r['requesterName'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+            if ('${r['topic'] ?? ''}'.isNotEmpty)
+              Text('${r['topic']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: .7))),
+            Text('${_formatSessionDate(when, en)} · ${TimeOfDay.fromDateTime(when).format(context)}',
+                style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: .6))),
+          ]),
+        ),
+        IconButton.filled(
+          tooltip: en ? 'Confirm' : 'አረጋግጥ',
+          onPressed: _busy ? null : () => _confirmSession('${r['id']}'),
+          icon: const Icon(Icons.check_rounded, size: 20),
+        ),
+        const SizedBox(width: 6),
+        IconButton.outlined(
+          tooltip: en ? 'Decline' : 'ውድቅ አድርግ',
+          onPressed: _busy ? null : () => _declineSession('${r['id']}'),
+          icon: const Icon(Icons.close_rounded, size: 20),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _confirmSession(String id) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final linkController = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(en ? 'Confirm session' : 'ክፍለ ጊዜ አረጋግጥ'),
+        content: TextField(
+          controller: linkController,
+          decoration: InputDecoration(
+            labelText: en ? 'Meeting link (optional)' : 'የስብሰባ አገናኝ (አማራጭ)',
+            hintText: 'https://meet.…',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(en ? 'Confirm' : 'አረጋግጥ')),
+        ],
+      ),
+    );
+    final link = linkController.text.trim();
+    linkController.dispose();
+    if (ok != true) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.confirmMentorshipSession(token, id, link);
+      await _refresh();
+    } catch (e) {
+      if (mounted) setState(() => _status = e.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _declineSession(String id) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.declineMentorshipSession(token, id);
+      await _refresh();
+    } catch (e) {
+      if (mounted) setState(() => _status = e.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _editAvailability(List<Map<String, dynamic>> current) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    // One optional window per weekday, seeded from current.
+    final enabled = List<bool>.filled(7, false);
+    final starts = List<TimeOfDay>.filled(7, const TimeOfDay(hour: 18, minute: 0));
+    final ends = List<TimeOfDay>.filled(7, const TimeOfDay(hour: 20, minute: 0));
+    for (final a in current) {
+      final wd = (a['weekday'] as num).toInt();
+      if (wd < 0 || wd > 6) continue;
+      enabled[wd] = true;
+      starts[wd] = TimeOfDay(hour: (a['startMinute'] as num).toInt() ~/ 60, minute: (a['startMinute'] as num).toInt() % 60);
+      ends[wd] = TimeOfDay(hour: (a['endMinute'] as num).toInt() ~/ 60, minute: (a['endMinute'] as num).toInt() % 60);
+    }
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) => Padding(
+          padding: EdgeInsets.only(left: 20, right: 20, top: 4, bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(en ? 'Weekly availability' : 'ሳምንታዊ ተገኝነት', style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              for (var d = 0; d < 7; d++)
+                Row(children: [
+                  SizedBox(
+                    width: 108,
+                    child: CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      value: enabled[d],
+                      onChanged: (v) => setSheet(() => enabled[d] = v ?? false),
+                      title: Text(_weekdayNames[d]),
+                    ),
+                  ),
+                  if (enabled[d]) ...[
+                    TextButton(
+                      onPressed: () async {
+                        final t = await showTimePicker(context: sheetContext, initialTime: starts[d]);
+                        if (t != null) setSheet(() => starts[d] = t);
+                      },
+                      child: Text(starts[d].format(sheetContext)),
+                    ),
+                    const Text('–'),
+                    TextButton(
+                      onPressed: () async {
+                        final t = await showTimePicker(context: sheetContext, initialTime: ends[d]);
+                        if (t != null) setSheet(() => ends[d] = t);
+                      },
+                      child: Text(ends[d].format(sheetContext)),
+                    ),
+                  ] else
+                    Text(en ? 'Off' : 'ዝግ', style: TextStyle(color: Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
+                ]),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: () => Navigator.pop(sheetContext, true), child: Text(en ? 'Save availability' : 'አስቀምጥ')),
+            ]),
+          ),
+        ),
+      ),
+    );
+    if (saved != true) return;
+    final slots = <Map<String, int>>[];
+    for (var d = 0; d < 7; d++) {
+      if (!enabled[d]) continue;
+      final sm = starts[d].hour * 60 + starts[d].minute;
+      final em = ends[d].hour * 60 + ends[d].minute;
+      if (em > sm) slots.add({'weekday': d, 'startMinute': sm, 'endMinute': em});
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.setMentorAvailability(token, slots);
+      await _refresh();
+      if (mounted) setState(() => _status = en ? 'Availability saved.' : 'ተገኝነት ተቀምጧል።');
+    } catch (e) {
+      if (mounted) setState(() => _status = e.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _sessionsSection(BuildContext context, AppLanguage language) {
     final en = language == AppLanguage.english;
     final colors = Theme.of(context).colorScheme;
@@ -8881,7 +9139,7 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
                   style: Theme.of(context).textTheme.bodySmall);
             }
             bool isUpcoming(Map<String, dynamic> s) =>
-                s['status'] == 'scheduled' &&
+                (s['status'] == 'scheduled' || s['status'] == 'requested') &&
                 _sessionTime(s)
                     .isAfter(DateTime.now().subtract(const Duration(hours: 1)));
             final upcoming = sessions.where(isUpcoming).toList();
@@ -8909,6 +9167,9 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
     final cancelled = s['status'] == 'cancelled';
     final completed = s['status'] == 'completed';
+    final requested = s['status'] == 'requested';
+    final declined = s['status'] == 'declined';
+    final meetingLink = '${s['meetingLink'] ?? ''}';
     final mode = '${s['mode']}';
     final modeIcon = mode == 'audio'
         ? Icons.call_rounded
@@ -8953,12 +9214,39 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
               const SizedBox(width: 4),
               Text('$timeStr · ${s['durationMinutes'] ?? 30} min',
                   style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: .6))),
-              if (cancelled || completed) ...[
-                const SizedBox(width: 6),
-                Text(cancelled ? (en ? '· Cancelled' : '· ተሰርዟል') : (en ? '· Done' : '· ተጠናቋል'),
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cancelled ? colors.error : colors.primary)),
-              ],
+              const SizedBox(width: 6),
+              if (requested)
+                Text(en ? '· Pending' : '· በመጠባበቅ ላይ',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFFEF6C00)))
+              else if (declined)
+                Text(en ? '· Declined' : '· ተቀባይነት አላገኘም',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.error))
+              else if (cancelled)
+                Text(en ? '· Cancelled' : '· ተሰርዟል',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.error))
+              else if (completed)
+                Text(en ? '· Done' : '· ተጠናቋል',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.primary))
+              else
+                Text(en ? '· Confirmed' : '· ተረጋግጧል',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: colors.primary)),
             ]),
+            if (meetingLink.isNotEmpty && s['status'] == 'scheduled') ...[
+              const SizedBox(height: 6),
+              InkWell(
+                onTap: () => launchUrl(Uri.parse(meetingLink),
+                    mode: LaunchMode.externalApplication),
+                child: Row(children: [
+                  Icon(Icons.videocam_rounded, size: 14, color: colors.primary),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(en ? 'Join meeting' : 'ስብሰባ ተቀላቀል',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: colors.primary, decoration: TextDecoration.underline)),
+                  ),
+                ]),
+              ),
+            ],
           ]),
         ),
         if (upcoming)
@@ -8986,6 +9274,7 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
                 title: AppStrings.of(language, 'mentorship'),
                 subtitle: AppStrings.of(language, 'mentor_directory')),
             const SizedBox(height: 16),
+            _mentorSection(context, language),
             _sessionsSection(context, language),
             const SizedBox(height: 16),
             _SectionCard(

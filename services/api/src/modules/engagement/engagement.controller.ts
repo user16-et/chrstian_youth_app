@@ -413,6 +413,41 @@ export class EngagementController {
     return this.engagementService.completeMentorshipSession(requireBearerToken(authorization), id, body ?? {});
   }
 
+  // ---- Mentor side ----
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'The mentor dashboard for the current user (availability + incoming sessions)' })
+  @Get('/mentorship/mentor/me')
+  mentorProfile(@Headers('authorization') authorization?: string) {
+    return this.engagementService.mentorProfile(requireBearerToken(authorization));
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Set the mentor\'s weekly availability' })
+  @Put('/mentorship/mentor/availability')
+  setMentorAvailability(@Headers('authorization') authorization?: string, @Body() body?: Record<string, unknown>) {
+    return this.engagementService.setMentorAvailability(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiOperation({ summary: 'A mentor\'s weekly availability (for mentees)' })
+  @Get('/mentors/:id/availability')
+  mentorAvailability(@Param('id') id: string) {
+    return this.engagementService.mentorAvailability(id);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mentor confirms a requested session' })
+  @Patch('/mentorship/sessions/:id/confirm')
+  confirmSession(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() body?: Record<string, unknown>) {
+    return this.engagementService.respondToSession(requireBearerToken(authorization), id, 'confirm', body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mentor declines a requested session' })
+  @Patch('/mentorship/sessions/:id/decline')
+  declineSession(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() body?: Record<string, unknown>) {
+    return this.engagementService.respondToSession(requireBearerToken(authorization), id, 'decline', body ?? {});
+  }
+
   @ApiOperation({ summary: 'List stories and testimonies' })
   @Get('/stories')
   stories() {

@@ -2052,13 +2052,14 @@ export class ContentRepository implements OnModuleInit {
     durationMinutes: number;
     topic: string;
     mode: string;
+    status: string;
   }) {
     const result = await this.pool.query(
-      `INSERT INTO mentorship_sessions (mentor_id, requester_id, scheduled_at, duration_minutes, topic, mode)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO mentorship_sessions (mentor_id, requester_id, scheduled_at, duration_minutes, topic, mode, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, mentor_id AS "mentorId", scheduled_at AS "scheduledAt", duration_minutes AS "durationMinutes",
                  topic, mode, status, notes, meeting_link AS "meetingLink", created_at AS "createdAt"`,
-      [input.mentorId, input.requesterId, input.scheduledAt, input.durationMinutes, input.topic, input.mode],
+      [input.mentorId, input.requesterId, input.scheduledAt, input.durationMinutes, input.topic, input.mode, input.status],
     );
     return result.rows[0];
   }
@@ -2090,6 +2091,71 @@ export class ContentRepository implements OnModuleInit {
       [sessionId, requesterId, fields.status ?? '', fields.notes ?? null],
     );
     return result.rows[0] ?? null;
+  }
+
+  // ---- Mentor side (a mentor linked to a user account) ----
+
+  // The mentor record owned by this user, if they are a mentor.
+  async mentorForUser(userId: string) {
+    const result = await this.pool.query(
+      'SELECT id, full_name AS "fullName", ministry, church_name AS "churchName", languages, verified FROM mentors WHERE user_id = $1 LIMIT 1',
+      [userId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async listMentorAvailability(mentorId: string) {
+    const result = await this.pool.query(
+      'SELECT weekday, start_minute AS "startMinute", end_minute AS "endMinute" FROM mentor_availability WHERE mentor_id = $1 ORDER BY weekday, start_minute',
+      [mentorId],
+    );
+    return result.rows;
+  }
+
+  async setMentorAvailability(mentorId: string, slots: Array<{ weekday: number; startMinute: number; endMinute: number }>) {
+    await this.pool.query('DELETE FROM mentor_availability WHERE mentor_id = $1', [mentorId]);
+    for (const s of slots.slice(0, 40)) {
+      if (s.endMinute <= s.startMinute) continue;
+      await this.pool.query(
+        'INSERT INTO mentor_availability (mentor_id, weekday, start_minute, end_minute) VALUES ($1, $2, $3, $4)',
+        [mentorId, s.weekday, s.startMinute, s.endMinute],
+      );
+    }
+    return this.listMentorAvailability(mentorId);
+  }
+
+  // Sessions requested to a mentor (for the mentor's user to confirm/decline).
+  async listSessionsForMentor(mentorId: string) {
+    const result = await this.pool.query(
+      `SELECT s.id, s.requester_id AS "requesterId", u.full_name AS "requesterName",
+              s.scheduled_at AS "scheduledAt", s.duration_minutes AS "durationMinutes", s.topic, s.mode,
+              s.status, s.notes, s.meeting_link AS "meetingLink", s.created_at AS "createdAt"
+       FROM mentorship_sessions s
+       JOIN users u ON u.id = s.requester_id
+       WHERE s.mentor_id = $1
+       ORDER BY (s.status = 'requested') DESC, s.scheduled_at DESC`,
+      [mentorId],
+    );
+    return result.rows;
+  }
+
+  // Mentor confirms/declines a session that belongs to their mentor record.
+  async mentorUpdateSession(mentorUserId: string, sessionId: string, status: string, meetingLink?: string) {
+    const result = await this.pool.query(
+      `UPDATE mentorship_sessions s
+       SET status = $3, meeting_link = COALESCE(NULLIF($4,''), s.meeting_link)
+       FROM mentors m
+       WHERE s.id = $1 AND s.mentor_id = m.id AND m.user_id = $2
+       RETURNING s.id, s.status, s.requester_id AS "requesterId", s.meeting_link AS "meetingLink"`,
+      [sessionId, mentorUserId, status, meetingLink ?? ''],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  // Whether a mentor requires confirmation (has a linked user account).
+  async mentorUserId(mentorId: string): Promise<string | null> {
+    const result = await this.pool.query('SELECT user_id FROM mentors WHERE id = $1', [mentorId]);
+    return (result.rows[0]?.user_id as string | null) ?? null;
   }
 
   async listStories() {

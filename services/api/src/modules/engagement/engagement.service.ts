@@ -5,6 +5,7 @@ import { ContentRepository } from '../../common/content.repository';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
+import { NotificationsService } from '../platform/notifications.service';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
 import { CreateMentorshipRequestDto } from './dto/create-mentorship-request.dto';
@@ -23,7 +24,12 @@ export class EngagementService {
     private readonly ministryOperationsRepository: MinistryOperationsRepository,
     private readonly queues: QueueProducer,
     private readonly authorization: AuthorizationService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  private notify(input: Parameters<NotificationsService['send']>[0]) {
+    void this.notifications.send(input).catch(() => undefined);
+  }
 
   status() {
     return {
@@ -374,6 +380,10 @@ export class EngagementService {
     if (when.getTime() < Date.now() - 60_000) throw new BadRequestException('schedule_in_the_past');
     const mode = ['video', 'audio', 'in_person'].includes(String(input.mode)) ? String(input.mode) : 'video';
     const duration = Math.min(180, Math.max(15, Number(input.durationMinutes ?? 30) || 30));
+    // If the mentor has a user account they confirm the request; otherwise the
+    // curated mentor can't respond, so it's scheduled directly.
+    const mentorUser = await this.contentRepository.mentorUserId(mentorId);
+    const status = mentorUser ? 'requested' : 'scheduled';
     return this.contentRepository.bookMentorshipSession({
       requesterId: actor.id,
       mentorId,
@@ -381,7 +391,62 @@ export class EngagementService {
       durationMinutes: duration,
       topic: String(input.topic ?? '').slice(0, 200),
       mode,
+      status,
     });
+  }
+
+  // ---- Mentor side ----
+  async mentorProfile(token: string) {
+    const actor = await this.requireActor(token);
+    const mentor = await this.contentRepository.mentorForUser(actor.id);
+    if (!mentor) return { isMentor: false, mentor: null, availability: [], sessions: [] };
+    const [availability, sessions] = await Promise.all([
+      this.contentRepository.listMentorAvailability(mentor.id),
+      this.contentRepository.listSessionsForMentor(mentor.id),
+    ]);
+    return { isMentor: true, mentor, availability, sessions };
+  }
+
+  async setMentorAvailability(token: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    const mentor = await this.contentRepository.mentorForUser(actor.id);
+    if (!mentor) throw new ForbiddenException('not_a_mentor');
+    const raw = Array.isArray(input.slots) ? (input.slots as Array<Record<string, unknown>>) : [];
+    const slots = raw
+      .map((s) => ({
+        weekday: Math.min(6, Math.max(0, Number(s.weekday ?? 0) || 0)),
+        startMinute: Math.min(1439, Math.max(0, Number(s.startMinute ?? 0) || 0)),
+        endMinute: Math.min(1440, Math.max(0, Number(s.endMinute ?? 0) || 0)),
+      }))
+      .filter((s) => s.endMinute > s.startMinute);
+    return this.contentRepository.setMentorAvailability(mentor.id, slots);
+  }
+
+  mentorAvailability(mentorId: string) {
+    return this.contentRepository.listMentorAvailability(mentorId);
+  }
+
+  async respondToSession(token: string, sessionId: string, action: 'confirm' | 'decline', input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    const status = action === 'confirm' ? 'scheduled' : 'declined';
+    const meetingLink = action === 'confirm' ? String(input.meetingLink ?? '') : '';
+    const updated = await this.contentRepository.mentorUpdateSession(actor.id, sessionId, status, meetingLink);
+    if (!updated) throw new NotFoundException('session_not_found');
+    // Let the mentee know the outcome.
+    void this.notify({
+      userId: updated.requesterId,
+      actorId: actor.id,
+      type: action === 'confirm' ? 'mentorship_confirmed' : 'mentorship_declined',
+      title: action === 'confirm' ? 'Session confirmed' : 'Session declined',
+      body: action === 'confirm'
+        ? 'Your mentor confirmed the session. Tap to see the details.'
+        : 'Your mentor is not available at that time. Try another slot.',
+      targetType: 'mentorship_session',
+      targetId: sessionId,
+      priority: 'normal',
+      dedupeKey: `mentorship_${action}:${sessionId}`,
+    });
+    return updated;
   }
 
   async cancelMentorshipSession(token: string, sessionId: string) {
