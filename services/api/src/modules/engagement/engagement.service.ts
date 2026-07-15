@@ -359,6 +359,48 @@ export class EngagementService {
     });
   }
 
+  async listMentorshipSessions(token: string) {
+    const actor = await this.requireActor(token);
+    return this.contentRepository.listMentorshipSessions(actor.id);
+  }
+
+  async bookMentorshipSession(token: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    const mentorId = String(input.mentorId ?? '');
+    const scheduledAt = String(input.scheduledAt ?? '');
+    await this.ensureMentorExists(mentorId);
+    const when = new Date(scheduledAt);
+    if (Number.isNaN(when.getTime())) throw new BadRequestException('invalid_schedule_time');
+    if (when.getTime() < Date.now() - 60_000) throw new BadRequestException('schedule_in_the_past');
+    const mode = ['video', 'audio', 'in_person'].includes(String(input.mode)) ? String(input.mode) : 'video';
+    const duration = Math.min(180, Math.max(15, Number(input.durationMinutes ?? 30) || 30));
+    return this.contentRepository.bookMentorshipSession({
+      requesterId: actor.id,
+      mentorId,
+      scheduledAt: when.toISOString(),
+      durationMinutes: duration,
+      topic: String(input.topic ?? '').slice(0, 200),
+      mode,
+    });
+  }
+
+  async cancelMentorshipSession(token: string, sessionId: string) {
+    const actor = await this.requireActor(token);
+    const updated = await this.contentRepository.updateMentorshipSession(actor.id, sessionId, { status: 'cancelled' });
+    if (!updated) throw new NotFoundException('session_not_found');
+    return updated;
+  }
+
+  async completeMentorshipSession(token: string, sessionId: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    const updated = await this.contentRepository.updateMentorshipSession(actor.id, sessionId, {
+      status: 'completed',
+      notes: input.notes != null ? String(input.notes) : undefined,
+    });
+    if (!updated) throw new NotFoundException('session_not_found');
+    return updated;
+  }
+
   listStories() {
     return this.contentRepository.listStories();
   }

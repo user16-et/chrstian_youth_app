@@ -381,6 +381,38 @@ export class EngagementController {
     return this.engagementService.requestMentorship(requireBearerToken(authorization), body ?? { mentorId: '', note: '' });
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List the user\'s mentorship sessions' })
+  @Get('/mentorship/sessions')
+  mentorshipSessions(@Headers('authorization') authorization?: string) {
+    return this.engagementService.listMentorshipSessions(requireBearerToken(authorization));
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Book a mentorship session' })
+  @Post('/mentorship/sessions')
+  bookMentorshipSession(@Headers('authorization') authorization?: string, @Body() body?: Record<string, unknown>) {
+    return this.engagementService.bookMentorshipSession(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cancel a mentorship session' })
+  @Patch('/mentorship/sessions/:id/cancel')
+  cancelMentorshipSession(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.engagementService.cancelMentorshipSession(requireBearerToken(authorization), id);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mark a mentorship session complete (with notes)' })
+  @Patch('/mentorship/sessions/:id/complete')
+  completeMentorshipSession(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() body?: Record<string, unknown>,
+  ) {
+    return this.engagementService.completeMentorshipSession(requireBearerToken(authorization), id, body ?? {});
+  }
+
   @ApiOperation({ summary: 'List stories and testimonies' })
   @Get('/stories')
   stories() {

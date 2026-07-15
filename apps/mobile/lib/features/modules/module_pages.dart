@@ -8618,6 +8618,7 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
   String _status = '';
   late Future<List<MentorItem>> _mentorsFuture;
   late Future<List<MentorshipRequestItem>> _requestsFuture;
+  Future<List<Map<String, dynamic>>>? _sessionsFuture;
 
   @override
   void initState() {
@@ -8628,6 +8629,9 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
     _requestsFuture = token == null
         ? Future.value(const <MentorshipRequestItem>[])
         : widget.apiClient.fetchMentorshipRequests(token);
+    if (token != null && token.isNotEmpty) {
+      _sessionsFuture = widget.apiClient.fetchMentorshipSessions(token);
+    }
   }
 
   @override
@@ -8644,8 +8648,127 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
       _requestsFuture = token == null
           ? Future.value(const <MentorshipRequestItem>[])
           : widget.apiClient.fetchMentorshipRequests(token);
+      _sessionsFuture = token == null || token.isEmpty
+          ? Future.value(const <Map<String, dynamic>>[])
+          : widget.apiClient.fetchMentorshipSessions(token);
     });
-    await Future.wait([_mentorsFuture, _requestsFuture]);
+    await Future.wait([_mentorsFuture, _requestsFuture, if (_sessionsFuture != null) _sessionsFuture!]);
+  }
+
+  // Book a session: pick a date, a time, a topic and a mode.
+  Future<void> _scheduleSession(MentorItem mentor) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final en = widget.language == AppLanguage.english;
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 120)),
+      helpText: en ? 'Pick a day' : 'ቀን ይምረጡ',
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 18, minute: 0),
+      helpText: en ? 'Pick a time' : 'ሰዓት ይምረጡ',
+    );
+    if (time == null || !mounted) return;
+    final when = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+
+    final topicController = TextEditingController();
+    var mode = 'video';
+    var duration = 30;
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) => Padding(
+          padding: EdgeInsets.only(
+              left: 20, right: 20, top: 4,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(en ? 'Session with ${mentor.fullName}' : 'ክፍለ ጊዜ ከ${mentor.fullName}',
+                style: Theme.of(sheetContext).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('${_formatSessionDate(when, en)} · ${time.format(sheetContext)}',
+                style: Theme.of(sheetContext).textTheme.bodyMedium),
+            const SizedBox(height: 16),
+            TextField(
+              controller: topicController,
+              decoration: InputDecoration(
+                labelText: en ? 'What do you want to talk about?' : 'ስለ ምን ማውራት ይፈልጋሉ?',
+                hintText: en ? 'e.g. handling anxiety, calling, purity' : 'ለምሳሌ ጭንቀት፣ ጥሪ፣ ንጽህና',
+              ),
+              maxLines: 2, minLines: 1,
+            ),
+            const SizedBox(height: 14),
+            Text(en ? 'How will you meet?' : 'እንዴት ትገናኛላችሁ?', style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, children: [
+              for (final m in [('video', en ? 'Video' : 'ቪዲዮ', Icons.videocam_rounded), ('audio', en ? 'Voice' : 'ድምጽ', Icons.call_rounded), ('in_person', en ? 'In person' : 'በአካል', Icons.people_rounded)])
+                ChoiceChip(
+                  avatar: Icon(m.$3, size: 16),
+                  label: Text(m.$2),
+                  selected: mode == m.$1,
+                  onSelected: (_) => setSheet(() => mode = m.$1),
+                ),
+            ]),
+            const SizedBox(height: 14),
+            Text(en ? 'Duration' : 'ቆይታ', style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Wrap(spacing: 8, children: [
+              for (final d in [30, 45, 60, 90])
+                ChoiceChip(label: Text('$d min'), selected: duration == d, onSelected: (_) => setSheet(() => duration = d)),
+            ]),
+            const SizedBox(height: 18),
+            FilledButton(
+              onPressed: () => Navigator.pop(sheetContext, true),
+              child: Text(en ? 'Book session' : 'ክፍለ ጊዜ ያስይዙ'),
+            ),
+          ]),
+        ),
+      ),
+    );
+    final topic = topicController.text.trim();
+    topicController.dispose();
+    if (confirmed != true) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.bookMentorshipSession(token,
+          mentorId: mentor.id, scheduledAt: when.toUtc().toIso8601String(),
+          topic: topic, mode: mode, durationMinutes: duration);
+      await _refresh();
+      if (mounted) setState(() => _status = en ? 'Session booked 📅' : 'ክፍለ ጊዜ ተይዟል 📅');
+    } catch (error) {
+      if (mounted) setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _cancelSession(String id) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.cancelMentorshipSession(token, id);
+      await _refresh();
+    } catch (error) {
+      if (mounted) setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _formatSessionDate(DateTime dt, bool en) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
   }
 
   Future<void> _followMentor(MentorItem mentor) async {
@@ -8731,6 +8854,123 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
     }
   }
 
+  DateTime _sessionTime(Map<String, dynamic> s) =>
+      DateTime.tryParse('${s['scheduledAt']}')?.toLocal() ?? DateTime.now();
+
+  Widget _sessionsSection(BuildContext context, AppLanguage language) {
+    final en = language == AppLanguage.english;
+    final colors = Theme.of(context).colorScheme;
+    return _SectionCard(
+      title: en ? 'My sessions' : 'የእኔ ክፍለ ጊዜዎች',
+      children: [
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: _sessionsFuture,
+          builder: (context, snapshot) {
+            final sessions = snapshot.data ?? const <Map<String, dynamic>>[];
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                sessions.isEmpty) {
+              return const Padding(
+                  padding: EdgeInsets.only(top: 12),
+                  child: Center(child: CircularProgressIndicator()));
+            }
+            if (sessions.isEmpty) {
+              return Text(
+                  en
+                      ? 'No sessions yet. Book time with a mentor below.'
+                      : 'እስካሁን ክፍለ ጊዜ የለም። ከአማካሪ ጋር ቀጠሮ ያዙ።',
+                  style: Theme.of(context).textTheme.bodySmall);
+            }
+            bool isUpcoming(Map<String, dynamic> s) =>
+                s['status'] == 'scheduled' &&
+                _sessionTime(s)
+                    .isAfter(DateTime.now().subtract(const Duration(hours: 1)));
+            final upcoming = sessions.where(isUpcoming).toList();
+            final past = sessions.where((s) => !isUpcoming(s)).toList();
+            return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (final s in upcoming)
+                _sessionTile(s, colors, en, upcoming: true),
+              if (past.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(en ? 'Past' : 'ያለፉ',
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 6),
+                for (final s in past) _sessionTile(s, colors, en, upcoming: false),
+              ],
+            ]);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _sessionTile(Map<String, dynamic> s, ColorScheme colors, bool en,
+      {required bool upcoming}) {
+    final when = _sessionTime(s);
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    final cancelled = s['status'] == 'cancelled';
+    final completed = s['status'] == 'completed';
+    final mode = '${s['mode']}';
+    final modeIcon = mode == 'audio'
+        ? Icons.call_rounded
+        : mode == 'in_person'
+            ? Icons.people_rounded
+            : Icons.videocam_rounded;
+    final timeStr = TimeOfDay.fromDateTime(when).format(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: cancelled ? .25 : .45),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(children: [
+        Container(
+          width: 46,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: (upcoming ? colors.primary : colors.outline).withValues(alpha: .14),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(months[when.month - 1],
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: upcoming ? colors.primary : colors.onSurfaceVariant)),
+            Text('${when.day}',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: colors.onSurface)),
+          ]),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${s['mentorName'] ?? ''}',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontWeight: FontWeight.w700, decoration: cancelled ? TextDecoration.lineThrough : null)),
+            if ('${s['topic'] ?? ''}'.isNotEmpty)
+              Text('${s['topic']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: .7))),
+            const SizedBox(height: 3),
+            Row(children: [
+              Icon(modeIcon, size: 13, color: colors.onSurface.withValues(alpha: .55)),
+              const SizedBox(width: 4),
+              Text('$timeStr · ${s['durationMinutes'] ?? 30} min',
+                  style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: .6))),
+              if (cancelled || completed) ...[
+                const SizedBox(width: 6),
+                Text(cancelled ? (en ? '· Cancelled' : '· ተሰርዟል') : (en ? '· Done' : '· ተጠናቋል'),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cancelled ? colors.error : colors.primary)),
+              ],
+            ]),
+          ]),
+        ),
+        if (upcoming)
+          IconButton(
+            tooltip: en ? 'Cancel' : 'ሰርዝ',
+            onPressed: _busy ? null : () => _cancelSession('${s['id']}'),
+            icon: Icon(Icons.close_rounded, size: 20, color: colors.error.withValues(alpha: .8)),
+          ),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final language = widget.language;
@@ -8745,6 +8985,8 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
             _SectionHeader(
                 title: AppStrings.of(language, 'mentorship'),
                 subtitle: AppStrings.of(language, 'mentor_directory')),
+            const SizedBox(height: 16),
+            _sessionsSection(context, language),
             const SizedBox(height: 16),
             _SectionCard(
               title: AppStrings.of(language, 'request_mentorship'),
@@ -8833,6 +9075,7 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
                                   _busy ? null : () => _followMentor(mentor),
                               onUnfollow:
                                   _busy ? null : () => _unfollowMentor(mentor),
+                              onSchedule: () => _scheduleSession(mentor),
                             ),
                           ),
                       ],
@@ -8893,6 +9136,7 @@ class _MentorCard extends StatelessWidget {
     required this.onSelect,
     required this.onFollow,
     required this.onUnfollow,
+    this.onSchedule,
   });
 
   final MentorItem mentor;
@@ -8902,6 +9146,7 @@ class _MentorCard extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback? onFollow;
   final VoidCallback? onUnfollow;
+  final VoidCallback? onSchedule;
 
   @override
   Widget build(BuildContext context) {
@@ -8956,9 +9201,18 @@ class _MentorCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (onSchedule != null)
+                  FilledButton.icon(
+                      onPressed: busy ? null : onSchedule,
+                      icon: const Icon(Icons.event_available_rounded, size: 18),
+                      label: Text(language == AppLanguage.english
+                          ? 'Schedule'
+                          : 'ቀጠሮ ያዙ')),
                 FilledButton.tonal(
                     onPressed: busy ? null : onSelect,
-                    child: Text(t(language, 'select_church'))),
+                    child: Text(language == AppLanguage.english
+                        ? 'Request'
+                        : 'ጠይቅ')),
                 if (mentor.followedByMe)
                   OutlinedButton(
                       onPressed: busy ? null : onUnfollow,

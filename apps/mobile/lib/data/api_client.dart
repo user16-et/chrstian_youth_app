@@ -1295,6 +1295,47 @@ class ApiClient {
     return MentorshipRequestItem.fromJson(response as Map<String, dynamic>);
   }
 
+  // ---- Mentorship sessions (scheduling) ----
+  Future<List<Map<String, dynamic>>> fetchMentorshipSessions(String token) async {
+    final response = await _getJson('/mentorship/sessions',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> bookMentorshipSession(
+    String token, {
+    required String mentorId,
+    required String scheduledAt,
+    required String topic,
+    String mode = 'video',
+    int durationMinutes = 30,
+  }) async {
+    final response = await _postJson(
+      '/mentorship/sessions',
+      {
+        'mentorId': mentorId,
+        'scheduledAt': scheduledAt,
+        'topic': topic,
+        'mode': mode,
+        'durationMinutes': durationMinutes,
+      },
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return response as Map<String, dynamic>;
+  }
+
+  Future<dynamic> cancelMentorshipSession(String token, String sessionId) {
+    return _patchJson('/mentorship/sessions/$sessionId/cancel', const {},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> completeMentorshipSession(
+      String token, String sessionId, String notes) {
+    return _patchJson(
+        '/mentorship/sessions/$sessionId/complete', {'notes': notes},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<List<StoryItem>> fetchStories() async {
     final response = await _getJson('/stories');
     return (response as List<dynamic>)

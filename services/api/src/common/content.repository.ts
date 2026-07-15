@@ -2044,6 +2044,54 @@ export class ContentRepository implements OnModuleInit {
     return record;
   }
 
+  // ---- Mentorship sessions (scheduling) ----
+  async bookMentorshipSession(input: {
+    requesterId: string;
+    mentorId: string;
+    scheduledAt: string;
+    durationMinutes: number;
+    topic: string;
+    mode: string;
+  }) {
+    const result = await this.pool.query(
+      `INSERT INTO mentorship_sessions (mentor_id, requester_id, scheduled_at, duration_minutes, topic, mode)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, mentor_id AS "mentorId", scheduled_at AS "scheduledAt", duration_minutes AS "durationMinutes",
+                 topic, mode, status, notes, meeting_link AS "meetingLink", created_at AS "createdAt"`,
+      [input.mentorId, input.requesterId, input.scheduledAt, input.durationMinutes, input.topic, input.mode],
+    );
+    return result.rows[0];
+  }
+
+  async listMentorshipSessions(requesterId: string) {
+    const result = await this.pool.query(
+      `SELECT s.id, s.mentor_id AS "mentorId", m.full_name AS "mentorName", m.ministry AS "mentorMinistry",
+              s.scheduled_at AS "scheduledAt", s.duration_minutes AS "durationMinutes", s.topic, s.mode,
+              s.status, s.notes, s.meeting_link AS "meetingLink", s.created_at AS "createdAt"
+       FROM mentorship_sessions s
+       JOIN mentors m ON m.id = s.mentor_id
+       WHERE s.requester_id = $1
+       ORDER BY (s.status = 'scheduled' AND s.scheduled_at >= now()) DESC, s.scheduled_at DESC`,
+      [requesterId],
+    );
+    return result.rows;
+  }
+
+  async updateMentorshipSession(
+    requesterId: string,
+    sessionId: string,
+    fields: { status?: string; notes?: string },
+  ) {
+    const result = await this.pool.query(
+      `UPDATE mentorship_sessions
+       SET status = COALESCE(NULLIF($3,''), status), notes = COALESCE($4, notes)
+       WHERE id = $1 AND requester_id = $2
+       RETURNING id, status, notes`,
+      [sessionId, requesterId, fields.status ?? '', fields.notes ?? null],
+    );
+    return result.rows[0] ?? null;
+  }
+
   async listStories() {
     const result = await this.pool.query(
       `SELECT s.id, s.author_id, u.full_name AS author_name, s.title, s.body, s.language, s.created_at
