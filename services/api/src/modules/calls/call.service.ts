@@ -28,6 +28,10 @@ export class CallService {
   }
 
   canUseConversation(userId: string, conversationId: string) {
+    // A courtship match: both matched users may audio/video call each other.
+    if (conversationId.startsWith('match:')) {
+      return this.life.isRelationshipConnectionMember(userId, conversationId.slice('match:'.length));
+    }
     return this.life.isConversationMember(userId, conversationId);
   }
 

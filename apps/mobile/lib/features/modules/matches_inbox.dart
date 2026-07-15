@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../../data/call_client.dart';
+import '../../data/call_controller.dart';
 import '../../data/relationship_chat_client.dart';
 import '../../i18n/app_i18n.dart';
 import 'relationship_social.dart';
@@ -409,6 +411,23 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     }
   }
 
+  // In-app voice / video call with a match (peer-to-peer, faith-safe).
+  Future<void> _startCall(CallMedia media) async {
+    final controller = CallScope.maybeOf(context);
+    if (controller == null || !controller.ready || widget.partnerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              _tr(lang, 'Calling is unavailable right now.', 'ጥሪ አሁን አይገኝም።'))));
+      return;
+    }
+    await controller.startDirectCall(
+      conversationId: 'match:${widget.connectionId}',
+      calleeId: widget.partnerId,
+      media: media,
+      title: widget.partnerName,
+    );
+  }
+
   Future<void> _report() async {
     final reasons = <String, String>{
       'Inappropriate messages': _tr(lang, 'Inappropriate messages', 'ተገቢ ያልሆኑ መልእክቶች'),
@@ -518,13 +537,24 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
           ),
         ]),
         actions: [
-          if (widget.partnerId.isNotEmpty)
+          if (widget.partnerId.isNotEmpty) ...[
+            IconButton(
+              icon: const Icon(Icons.call_rounded),
+              tooltip: _tr(lang, 'Voice call', 'የድምጽ ጥሪ'),
+              onPressed: () => _startCall(CallMedia.audio),
+            ),
+            IconButton(
+              icon: const Icon(Icons.videocam_rounded),
+              tooltip: _tr(lang, 'Video call', 'የቪዲዮ ጥሪ'),
+              onPressed: () => _startCall(CallMedia.video),
+            ),
             IconButton(
               icon: const Icon(Icons.person_outline_rounded),
               tooltip: _tr(lang, 'View profile', 'መገለጫ ይመልከቱ'),
               onPressed: () => showRelationshipProfileSheet(context,
                   apiClient: widget.apiClient, token: widget.token, userId: widget.partnerId, language: lang),
             ),
+          ],
           if (widget.partnerId.isNotEmpty)
             PopupMenuButton<String>(
               onSelected: (value) {
@@ -574,21 +604,72 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     );
   }
 
-  Widget _emptyThread(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(32),
-        children: [
-          const SizedBox(height: 40),
-          Icon(Icons.favorite_rounded, size: 56, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: 14),
-          Text(
-              _status.isNotEmpty
-                  ? _status
-                  : _tr(lang, 'You matched with ${widget.partnerName}. Start with a kind, honest hello.',
-                      'ከ${widget.partnerName} ጋር ተዛመዱ። በደግነት ሰላም ይበሉ።'),
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        ],
-      );
+  Widget _emptyThread(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final first = widget.partnerName.split(' ').first;
+    final icebreakers = _en(lang)
+        ? [
+            'Hi $first! What first drew you closer to God?',
+            'What does a great Sunday look like for you?',
+            'Which worship song is on repeat for you lately?',
+            'What are you praying about this season?',
+            'What ministry are you most passionate about?',
+          ]
+        : [
+            'ሰላም $first! ወደ እግዚአብሔር እንዲቀርቡ ያደረገዎት ምንድን ነው?',
+            'ጥሩ እሁድ ለእርስዎ ምን ይመስላል?',
+            'በቅርቡ ደጋግመው የሚሰሙት የምስጋና መዝሙር የትኛው ነው?',
+            'በዚህ ወቅት ስለ ምን እየጸለዩ ነው?',
+            'በየትኛው አገልግሎት ላይ ይበልጥ ይነሳሳሉ?',
+          ];
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        const SizedBox(height: 24),
+        Icon(Icons.favorite_rounded, size: 56, color: colors.primary),
+        const SizedBox(height: 14),
+        Text(
+            _status.isNotEmpty
+                ? _status
+                : _tr(lang, 'You matched with ${widget.partnerName} 🎉\nStart with a kind, honest hello.',
+                    'ከ${widget.partnerName} ጋር ተዛመዱ 🎉\nበደግነት ሰላም ይበሉ።'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: colors.onSurfaceVariant)),
+        const SizedBox(height: 24),
+        Text(_tr(lang, 'Icebreakers', 'የመነሻ ጥያቄዎች'),
+            style: TextStyle(
+                fontWeight: FontWeight.w700, color: colors.onSurface)),
+        const SizedBox(height: 10),
+        for (final ib in icebreakers)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: colors.surfaceContainerHighest.withValues(alpha: .5),
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () {
+                  _input.text = ib;
+                  _input.selection =
+                      TextSelection.collapsed(offset: ib.length);
+                  FocusScope.of(context).requestFocus(FocusNode());
+                },
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(children: [
+                    Icon(Icons.chat_bubble_outline_rounded,
+                        size: 16, color: colors.primary),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(ib, style: const TextStyle(fontSize: 14))),
+                  ]),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
   Widget _bubble(BuildContext context, Map<String, dynamic> message) {
     final colors = Theme.of(context).colorScheme;

@@ -241,6 +241,13 @@ export class ConnectedLifeRepository {
       .then((result) => result.rowCount === 1);
   }
 
+  // Both people in a matched courtship connection may call each other.
+  isRelationshipConnectionMember(userId: string, connectionId: string) {
+    return this.pool
+      .query('SELECT 1 FROM relationship_connections WHERE id=$1 AND ($2=user1_id OR $2=user2_id)', [connectionId, userId])
+      .then((result) => result.rowCount === 1);
+  }
+
   // Enforces the recipient's message-privacy setting: everyone, followers (the
   // recipient must follow the sender), or nobody.
   async canMessage(senderId: string, recipientId: string) {
