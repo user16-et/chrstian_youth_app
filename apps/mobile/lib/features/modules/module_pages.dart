@@ -8914,6 +8914,7 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
   String _relationshipIntent = 'serious';
   bool _busy = false;
   String _status = '';
+  int _tab = 0; // 0 Discover, 1 Likes, 2 Matches, 3 Profile
 
   @override
   void initState() {
@@ -9069,6 +9070,80 @@ class _CourtshipScreenState extends State<CourtshipScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final language = widget.language;
+    final en = language == AppLanguage.english;
+    final token = widget.session?.token;
+    final loggedIn = token != null && token.isNotEmpty;
+    final colors = Theme.of(context).colorScheme;
+
+    Widget tabBody() {
+      if (_tab == 3) return _profileTab(context);
+      if (!loggedIn) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.favorite_rounded, size: 48, color: colors.primary),
+              const SizedBox(height: 12),
+              Text(
+                  en
+                      ? 'Sign in to discover and connect.'
+                      : 'ለማግኘትና ለመገናኘት ይግቡ።',
+                  textAlign: TextAlign.center),
+            ]),
+          ),
+        );
+      }
+      switch (_tab) {
+        case 0:
+          // Swipe deck — key on token so it rebuilds on account change.
+          return CourtshipSwipeScreen(
+              key: const ValueKey('courtship-discover'),
+              apiClient: widget.apiClient,
+              token: token,
+              language: language);
+        case 1:
+          return LikesYouScreen(
+              apiClient: widget.apiClient, token: token, language: language);
+        case 2:
+          return MatchesInboxScreen(
+              apiClient: widget.apiClient, token: token, language: language);
+        default:
+          return _profileTab(context);
+      }
+    }
+
+    return Scaffold(
+      body: SafeArea(bottom: false, child: tabBody()),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) {
+          setState(() => _tab = i);
+          if (i == 3) _refreshAccount();
+        },
+        destinations: [
+          NavigationDestination(
+              icon: const Icon(Icons.explore_outlined),
+              selectedIcon: const Icon(Icons.explore_rounded),
+              label: en ? 'Discover' : 'ያግኙ'),
+          NavigationDestination(
+              icon: const Icon(Icons.favorite_border_rounded),
+              selectedIcon: const Icon(Icons.favorite_rounded),
+              label: en ? 'Likes' : 'ወዳጆች'),
+          NavigationDestination(
+              icon: const Icon(Icons.forum_outlined),
+              selectedIcon: const Icon(Icons.forum_rounded),
+              label: en ? 'Matches' : 'ተዛማጆች'),
+          NavigationDestination(
+              icon: const Icon(Icons.person_outline_rounded),
+              selectedIcon: const Icon(Icons.person_rounded),
+              label: en ? 'Profile' : 'መገለጫ'),
+        ],
+      ),
+    );
+  }
+
+  Widget _profileTab(BuildContext context) {
     final language = widget.language;
     return FutureBuilder<List<CourtshipProfileItem>>(
       future: _profilesFuture,
@@ -9801,52 +9876,6 @@ class _RelationshipEcosystemPanelState
             ),
           );
         }),
-      Row(children: [
-        Expanded(
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-            onPressed: (widget.token == null || widget.token!.isEmpty)
-                ? null
-                : () async {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => CourtshipSwipeScreen(
-                            apiClient: widget.apiClient,
-                            token: widget.token!,
-                            language: widget.language)));
-                    await widget.onChanged();
-                  },
-            icon: const Icon(Icons.style_rounded),
-            label: Text(en ? 'Start matching' : 'ማዛመድ ጀምር'),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-            onPressed: (widget.token == null || widget.token!.isEmpty)
-                ? null
-                : () async {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => MatchesInboxScreen(
-                            apiClient: widget.apiClient,
-                            token: widget.token!,
-                            language: widget.language)));
-                    await widget.onChanged();
-                  },
-            icon: Builder(builder: (context) {
-              final unread = connections.fold<int>(
-                  0, (sum, c) => sum + ((c['unread'] is num) ? (c['unread'] as num).toInt() : 0));
-              return Badge(
-                isLabelVisible: unread > 0,
-                label: Text('${unread > 99 ? '99+' : unread}'),
-                child: const Icon(Icons.forum_rounded),
-              );
-            }),
-            label: Text(en ? 'Matches' : 'ተዛማጆች'),
-          ),
-        ),
-      ]),
-      const SizedBox(height: 12),
       _SectionCard(
           title: en ? 'Compatibility discovery' : 'ተስማሚነት ፍለጋ',
           children: discovery.isEmpty
