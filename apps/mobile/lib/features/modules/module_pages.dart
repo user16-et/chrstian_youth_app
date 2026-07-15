@@ -1773,6 +1773,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
         'Friend request sent.');
   }
 
+  Future<void> _acceptFromDirectory(UserDirectoryItem user) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty || user.friendRequestId.isEmpty) return;
+    await _runAction(
+        user.id,
+        () => widget.apiClient
+            .updateFriendRequest(token, user.friendRequestId, 'accepted'),
+        'Connected 🤝');
+    await _refreshRequests();
+    await _refreshFriends();
+  }
+
   Future<void> _withdrawFriend(UserDirectoryItem user) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
@@ -1926,28 +1938,53 @@ class _PeopleScreenState extends State<PeopleScreen> {
     final language = widget.language;
     final busy = _busyUserId == user.id;
     final blocked = user.blockedByMe || user.blockedMe;
+    final en = language == AppLanguage.english;
     final pendingByMe = user.friendStatus == 'pending' &&
         user.friendRequestedByMe &&
         user.friendRequestId.isNotEmpty;
+    final theyRequestedMe = user.friendStatus == 'pending' &&
+        !user.friendRequestedByMe &&
+        user.friendRequestId.isNotEmpty;
+    final isFriend = user.friendStatus == 'accepted';
+    // Friend button: mutual friendship (needs both to agree). Accept incoming
+    // requests right here instead of a dead 'Pending'.
+    late final Widget friendButton;
+    if (isFriend) {
+      friendButton = FilledButton.icon(
+        onPressed: null,
+        icon: const Icon(Icons.check_rounded),
+        label: Text(en ? 'Friends' : 'ጓደኛሞች'),
+      );
+    } else if (theyRequestedMe) {
+      friendButton = FilledButton.icon(
+        onPressed: busy ? null : () => _acceptFromDirectory(user),
+        icon: const Icon(Icons.person_add_alt_1_rounded),
+        label: Text(en ? 'Accept' : 'ተቀበል'),
+      );
+    } else if (pendingByMe) {
+      friendButton = OutlinedButton.icon(
+        onPressed: busy ? null : () => _withdrawFriend(user),
+        icon: const Icon(Icons.schedule_rounded),
+        label: Text(en ? 'Requested' : 'ተጠይቋል'),
+      );
+    } else {
+      friendButton = FilledButton.icon(
+        onPressed: busy ? null : () => _friend(user.id),
+        icon: const Icon(Icons.group_add_rounded),
+        label: Text(en ? 'Add friend' : 'ጓደኛ ጨምር'),
+      );
+    }
     return [
-      FilledButton.tonalIcon(
-        onPressed: () => _openUserProfile(user),
-        icon: const Icon(Icons.person_outline),
-        label: const Text('Profile'),
-      ),
       if (blocked && user.blockedByMe)
         OutlinedButton.icon(
           onPressed: busy ? null : () => _unblock(user.id),
           icon: const Icon(Icons.lock_open_rounded),
-          label: const Text('Unblock'),
+          label: Text(en ? 'Unblock' : 'ክፈት'),
         ),
       if (!blocked) ...[
-        FilledButton.icon(
-          onPressed: () => _openDirectChat(user),
-          icon: const Icon(Icons.chat_bubble_outline),
-          label: const Text('Chat'),
-        ),
-        FilledButton.tonalIcon(
+        friendButton,
+        // Follow: one-way — see their posts and stories, no approval needed.
+        OutlinedButton.icon(
           onPressed: busy
               ? null
               : user.followedByMe
@@ -1957,38 +1994,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
               ? Icons.person_remove_alt_1_rounded
               : Icons.person_add_alt_1),
           label: Text(user.followedByMe
-              ? 'Unfollow'
+              ? (en ? 'Unfollow' : 'መከተል አቁም')
               : AppStrings.of(language, 'follow_user')),
         ),
-        FilledButton.icon(
-          onPressed: busy
-              ? null
-              : user.friendStatus == 'accepted'
-                  ? null
-                  : pendingByMe
-                      ? () => _withdrawFriend(user)
-                      : user.friendStatus == 'pending'
-                          ? null
-                          : () => _friend(user.id),
-          icon: Icon(user.friendStatus == 'accepted'
-              ? Icons.handshake_rounded
-              : pendingByMe
-                  ? Icons.cancel_schedule_send_rounded
-                  : user.friendStatus == 'pending'
-                      ? Icons.schedule_rounded
-                      : Icons.group_add_rounded),
-          label: Text(user.friendStatus == 'accepted'
-              ? 'Connected'
-              : pendingByMe
-                  ? 'Withdraw'
-                  : user.friendStatus == 'pending'
-                      ? 'Pending'
-                      : 'Connect'),
+        FilledButton.tonalIcon(
+          onPressed: () => _openDirectChat(user),
+          icon: const Icon(Icons.chat_bubble_outline),
+          label: Text(en ? 'Chat' : 'ውይይት'),
         ),
-        OutlinedButton.icon(
+        IconButton(
+          tooltip: AppStrings.of(language, 'block_user'),
           onPressed: busy ? null : () => _block(user.id),
           icon: const Icon(Icons.block_rounded),
-          label: Text(AppStrings.of(language, 'block_user')),
         ),
       ],
     ];
