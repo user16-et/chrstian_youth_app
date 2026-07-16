@@ -19,6 +19,7 @@ const maxBytesByUsage: Record<MediaUsage, number> = {
   worship_recording: 500 * 1024 * 1024,
   resource_file: 100 * 1024 * 1024,
   event_banner: 15 * 1024 * 1024,
+  marketplace: 15 * 1024 * 1024,
 };
 
 const extensionsByType: Record<string, string[]> = {
@@ -174,7 +175,7 @@ export class MediaService {
 
   private contentTypeAllowed(usage: MediaUsage, contentType: string) {
     const kind = contentType.split('/')[0];
-    if (['profile_photo', 'church_logo', 'cover_photo', 'event_banner'].includes(usage)) return kind === 'image';
+    if (['profile_photo', 'church_logo', 'cover_photo', 'event_banner', 'marketplace'].includes(usage)) return kind === 'image';
     if (usage === 'sermon_media') return kind === 'audio' || kind === 'video' || contentType === 'application/pdf';
     if (usage === 'worship_recording') return kind === 'audio' || kind === 'video';
     if (usage === 'post_media') return ['image', 'video', 'audio'].includes(kind);

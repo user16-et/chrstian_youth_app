@@ -9,6 +9,7 @@ export const mediaUsages = [
   'worship_recording',
   'resource_file',
   'event_banner',
+  'marketplace',
 ] as const;
 
 export type MediaUsage = (typeof mediaUsages)[number];

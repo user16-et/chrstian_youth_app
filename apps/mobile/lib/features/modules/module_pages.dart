@@ -3108,7 +3108,7 @@ class _BibleScreenState extends State<BibleScreen> {
         else ...[
           if (catList.length > 1) ...[
             SizedBox(
-              height: 38,
+              height: 44,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: catList.length,
@@ -3119,6 +3119,8 @@ class _BibleScreenState extends State<BibleScreen> {
                     child: ChoiceChip(
                       label: Text(c == 'all' ? _tr('All', 'ሁሉም') : c),
                       selected: activeCat == c,
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (_) => setState(() {
                         _planCategory = c;
                         _showAllPlans = false;
@@ -3717,7 +3719,7 @@ class _BibleScreenState extends State<BibleScreen> {
                 children: [
                   if (dailyItems.length > 1)
                     SizedBox(
-                      height: 40,
+                      height: 44,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: dailyItems.length,
@@ -3726,6 +3728,8 @@ class _BibleScreenState extends State<BibleScreen> {
                           child: ChoiceChip(
                             label: Text(_dayLabel(dailyItems[index].dayOffset)),
                             selected: _selectedVerseIndex == index,
+                            visualDensity: VisualDensity.compact,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             onSelected: (_) =>
                                 setState(() => _selectedVerseIndex = index),
                           ),
@@ -11237,7 +11241,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         ),
       ),
       SizedBox(
-        height: 40,
+        height: 48,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -11251,6 +11255,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 avatar: Icon(c.$4, size: 16, color: selected ? colors.onPrimary : colors.primary),
                 label: Text(_en ? c.$2 : c.$3),
                 selected: selected,
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 onSelected: (_) {
                   setState(() => _category = c.$1);
                   _refreshBrowse();
