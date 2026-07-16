@@ -287,12 +287,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
               ]),
               // About panel: the static profile.
               _tab('about', [
-                _ChurchProfileSummary(
-                  profile: profile,
-                  leaders: leaders,
-                  ministries: ministries,
-                  schedules: schedules,
-                ),
+                _ChurchProfileSummary(profile: profile),
                 const SizedBox(height: 14),
                 _InfoGrid(
                   schedules: schedules,
@@ -1019,7 +1014,8 @@ class _ChurchMembersPanelState extends State<_ChurchMembersPanel> {
 
   Future<void> _load() async {
     try {
-      final members = await widget.apiClient.fetchChurchMembers(widget.churchId);
+      final members = await widget.apiClient
+          .fetchChurchMembers(widget.churchId, token: widget.session?.token);
       var requests = const <Map<String, dynamic>>[];
       if (widget.canManage && widget.session != null) {
         final raw = await widget.apiClient.fetchChurchMembershipRequests(widget.session!.token, widget.churchId);
@@ -1821,15 +1817,19 @@ class _ChurchLogo extends StatelessWidget {
 }
 
 class _MetricChip extends StatelessWidget {
-  const _MetricChip({required this.icon, required this.label});
+  const _MetricChip({required this.icon, required this.label, this.onTap});
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Chip(
-        avatar: Icon(icon, size: 17),
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-      );
+  Widget build(BuildContext context) {
+    final avatar = Icon(icon, size: 17);
+    final text = Text(label, maxLines: 1, overflow: TextOverflow.ellipsis);
+    return onTap == null
+        ? Chip(avatar: avatar, label: text)
+        : ActionChip(avatar: avatar, label: text, onPressed: onTap);
+  }
 }
 
 class _Notice extends StatelessWidget {
@@ -1847,18 +1847,13 @@ class _Notice extends StatelessWidget {
       );
 }
 
+// Compact "at a glance" card: contact details + doctrine. The full,
+// manageable lists (service times, ministries, leaders, events, branches,
+// groups, resources) live in _InfoGrid below, so they are not repeated here.
 class _ChurchProfileSummary extends StatelessWidget {
-  const _ChurchProfileSummary({
-    required this.profile,
-    required this.leaders,
-    required this.ministries,
-    required this.schedules,
-  });
+  const _ChurchProfileSummary({required this.profile});
 
   final Map<String, dynamic> profile;
-  final List<Map<String, dynamic>> leaders;
-  final List<Map<String, dynamic>> ministries;
-  final List<Map<String, dynamic>> schedules;
 
   String _text(String key) => profile[key]?.toString().trim() ?? '';
 
@@ -1872,6 +1867,11 @@ class _ChurchProfileSummary extends StatelessWidget {
     final phone = _text('phone');
     final email = _text('email');
     final website = _text('website');
+    final hasContact = address.isNotEmpty ||
+        phone.isNotEmpty ||
+        email.isNotEmpty ||
+        website.isNotEmpty;
+    if (!hasContact && doctrine.isEmpty) return const SizedBox.shrink();
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colors.surfaceContainerHighest.withValues(alpha: .55),
@@ -1881,101 +1881,39 @@ class _ChurchProfileSummary extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Church profile', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 10),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            if (address.isNotEmpty)
-              _MetricChip(icon: Icons.location_on_rounded, label: address),
-            if (phone.isNotEmpty)
-              _MetricChip(icon: Icons.call_rounded, label: phone),
-            if (email.isNotEmpty)
-              _MetricChip(icon: Icons.email_rounded, label: email),
-            if (website.isNotEmpty)
-              _MetricChip(icon: Icons.language_rounded, label: website),
-          ]),
-          const SizedBox(height: 12),
-          _MiniList(
-            title: 'Service times',
-            items: schedules,
-            empty: 'No service times listed yet.',
-            label: (item) =>
-                item['title']?.toString() ??
-                item['activity']?.toString() ??
-                'Service',
-            subtitle: (item) => [
-              item['day_of_week'] ?? item['dayOfWeek'],
-              item['start_time'] ?? item['startTime'],
-              item['location'],
-            ]
-                .where((part) => part != null && part.toString().isNotEmpty)
-                .join(' • '),
-          ),
-          const SizedBox(height: 10),
-          _MiniList(
-            title: 'Pastors and leaders',
-            items: leaders,
-            empty: 'No leaders listed yet.',
-            label: (item) =>
-                item['name']?.toString() ??
-                item['full_name']?.toString() ??
-                item['title']?.toString() ??
-                'Leader',
-            subtitle: (item) => item['role']?.toString() ?? '',
-          ),
-          const SizedBox(height: 10),
-          _MiniList(
-            title: 'Ministries',
-            items: ministries,
-            empty: 'No ministries listed yet.',
-            label: (item) => item['name']?.toString() ?? 'Ministry',
-            subtitle: (item) =>
-                item['description']?.toString() ??
-                item['department']?.toString() ??
-                '',
-          ),
-          if (doctrine.isNotEmpty) ...[
+          if (hasContact) ...[
             const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              if (address.isNotEmpty)
+                _MetricChip(icon: Icons.location_on_rounded, label: address),
+              if (phone.isNotEmpty)
+                _MetricChip(
+                    icon: Icons.call_rounded,
+                    label: phone,
+                    onTap: () => _openExternalUrl('tel:$phone')),
+              if (email.isNotEmpty)
+                _MetricChip(
+                    icon: Icons.email_rounded,
+                    label: email,
+                    onTap: () => _openExternalUrl('mailto:$email')),
+              if (website.isNotEmpty)
+                _MetricChip(
+                    icon: Icons.language_rounded,
+                    label: website,
+                    onTap: () => _openExternalUrl(
+                        website.startsWith('http') ? website : 'https://$website')),
+            ]),
+          ],
+          if (doctrine.isNotEmpty) ...[
+            const SizedBox(height: 12),
             Text('Doctrine', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
             Text(doctrine),
           ],
         ]),
       ),
     );
   }
-}
-
-class _MiniList extends StatelessWidget {
-  const _MiniList({
-    required this.title,
-    required this.items,
-    required this.empty,
-    required this.label,
-    required this.subtitle,
-  });
-
-  final String title;
-  final List<Map<String, dynamic>> items;
-  final String empty;
-  final String Function(Map<String, dynamic>) label;
-  final String Function(Map<String, dynamic>) subtitle;
-
-  @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          if (items.isEmpty)
-            Text(empty)
-          else
-            ...items.take(4).map((item) => ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(label(item)),
-                  subtitle:
-                      subtitle(item).isEmpty ? null : Text(subtitle(item)),
-                )),
-        ],
-      );
 }
 
 class _PinnedAnnouncements extends StatelessWidget {
@@ -2543,6 +2481,16 @@ String _postTime(String raw) {
   return '${m[dt.month - 1]} ${dt.day}';
 }
 
+// Friendly event date (e.g. "Jun 22, 2026 · 4:29 PM"); empty if unparseable.
+String _eventDate(String raw) {
+  final dt = DateTime.tryParse(raw)?.toLocal();
+  if (dt == null) return '';
+  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+  final ap = dt.hour < 12 ? 'AM' : 'PM';
+  return '${m[dt.month - 1]} ${dt.day}, ${dt.year} · $h:${dt.minute.toString().padLeft(2, '0')} $ap';
+}
+
 class _InfoGrid extends StatelessWidget {
   const _InfoGrid({
     required this.schedules,
@@ -2603,8 +2551,13 @@ class _InfoGrid extends StatelessWidget {
         ],
         const SizedBox(height: 14),
         _managed('Events', Icons.celebration_rounded, 'No public events yet.', 'events', events,
-            (item) => (Icons.celebration_rounded, item['title']?.toString() ?? '', '${item['location'] ?? ''} • ${item['starts_at'] ?? ''}', ''),
-            onTap: onOpenEvent),
+            (item) {
+          final parts = [
+            item['location']?.toString() ?? '',
+            _eventDate('${item['starts_at'] ?? item['startsAt'] ?? ''}'),
+          ].where((s) => s.isNotEmpty).join(' • ');
+          return (Icons.celebration_rounded, item['title']?.toString() ?? '', parts, '');
+        }, onTap: onOpenEvent),
         const SizedBox(height: 14),
         _managed('Branches', Icons.account_tree_rounded, 'No branches yet.', 'branches', branches,
             (item) => (Icons.account_tree_rounded, item['name']?.toString() ?? '', '${item['city'] ?? ''} • ${item['address'] ?? ''}', '')),

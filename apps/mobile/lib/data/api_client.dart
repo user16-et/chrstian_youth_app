@@ -405,35 +405,17 @@ class ApiClient {
     return response as Map<String, dynamic>;
   }
 
-  Future<List<ChurchMemberItem>> fetchChurchMembers(String churchId) async {
-    final response = await _getJson('/churches/$churchId/members');
+  Future<List<ChurchMemberItem>> fetchChurchMembers(String churchId,
+      {String? token}) async {
+    final response = await _getJson(
+      '/churches/$churchId/members',
+      headers: token == null || token.isEmpty
+          ? const {}
+          : {'Authorization': 'Bearer $token'},
+    );
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(ChurchMemberItem.fromJson)
-        .toList();
-  }
-
-  Future<List<ChurchBranchItem>> fetchChurchBranches(String churchId) async {
-    final response = await _getJson('/churches/$churchId/branches');
-    return (response as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .map(ChurchBranchItem.fromJson)
-        .toList();
-  }
-
-  Future<List<ChurchScheduleItem>> fetchChurchSchedules(String churchId) async {
-    final response = await _getJson('/churches/$churchId/schedules');
-    return (response as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .map(ChurchScheduleItem.fromJson)
-        .toList();
-  }
-
-  Future<List<SermonItem>> fetchChurchSermons(String churchId) async {
-    final response = await _getJson('/churches/$churchId/sermons');
-    return (response as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .map(SermonItem.fromJson)
         .toList();
   }
 
@@ -2429,17 +2411,6 @@ class ApiClient {
         .cast<Map<String, dynamic>>()
         .map(ChurchMembershipItem.fromJson)
         .toList();
-  }
-
-  Future<dynamic> joinChurch({
-    required String token,
-    required String churchId,
-  }) async {
-    return _postJson(
-      '/churches/$churchId/join',
-      const {},
-      headers: {'Authorization': 'Bearer $token'},
-    );
   }
 
   Future<dynamic> leaveChurch({
