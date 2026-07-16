@@ -26,6 +26,17 @@ import 'user_profile_sheet.dart';
 
 String _shortDate(String value) => friendlyDate(value);
 
+// A plain field label placed above an input — used instead of a floating
+// InputDecoration label on dropdowns that always have a selected value (a
+// floating label would otherwise overlap that value).
+Widget _fieldLabel(String text) => Builder(
+      builder: (context) => Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 6),
+        child:
+            Text(text, style: Theme.of(context).textTheme.labelLarge),
+      ),
+    );
+
 String _initialsOf(String name) {
   final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
   if (parts.isEmpty) return '?';
@@ -5786,10 +5797,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   decoration:
                       const InputDecoration(labelText: 'Favorite Bible verse')),
               const SizedBox(height: 12),
+              _fieldLabel(AppStrings.of(language, 'preferred_language')),
               DropdownButtonFormField<String>(
                 initialValue: _profileLanguage,
-                decoration: InputDecoration(
-                    labelText: AppStrings.of(language, 'preferred_language')),
+                isExpanded: true,
                 items: [
                   DropdownMenuItem(
                       value: 'en',
@@ -9279,16 +9290,17 @@ class _MentorshipScreenState extends State<MentorshipScreen> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        _fieldLabel(AppStrings.of(language, 'mentor_directory')),
                         DropdownButtonFormField<String>(
                           initialValue: _selectedMentorId,
-                          decoration: InputDecoration(
-                              labelText:
-                                  AppStrings.of(language, 'mentor_directory')),
+                          isExpanded: true,
                           items: mentors
                               .map((mentor) => DropdownMenuItem(
                                   value: mentor.id,
                                   child: Text(
-                                      '${mentor.fullName} • ${mentor.ministry}')))
+                                      '${mentor.fullName} • ${mentor.ministry}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis)))
                               .toList(),
                           onChanged: _busy
                               ? null
@@ -11859,17 +11871,26 @@ class _SellSheetState extends State<_SellSheet> {
           TextField(controller: _title, textCapitalization: TextCapitalization.sentences,
               decoration: InputDecoration(labelText: _t('Title', 'ርዕስ'), hintText: _t('e.g. iPhone 12 128GB', 'ለምሳሌ iPhone 12'))),
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: TextField(controller: _price, keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: _t('Price (ETB)', 'ዋጋ (ብር)'), prefixText: 'ETB '))),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _fieldLabel(_t('Price (ETB)', 'ዋጋ (ብር)')),
+              TextField(controller: _price, keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(prefixText: 'ETB ')),
+            ])),
             const SizedBox(width: 10),
-            Expanded(child: DropdownButtonFormField<String>(
-              initialValue: _category,
-              isExpanded: true,
-              decoration: InputDecoration(labelText: _t('Category', 'ምድብ')),
-              items: [for (final c in widget.categories) DropdownMenuItem(value: c, child: Text(c))],
-              onChanged: (v) => setState(() => _category = v ?? _category),
-            )),
+            Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _fieldLabel(_t('Category', 'ምድብ')),
+              // Plain label above (not a floating label) so it never overlaps
+              // the always-present selected category.
+              DropdownButtonFormField<String>(
+                initialValue: _category,
+                isExpanded: true,
+                items: [for (final c in widget.categories) DropdownMenuItem(value: c, child: Text(c))],
+                onChanged: (v) => setState(() => _category = v ?? _category),
+              ),
+            ])),
           ]),
           const SizedBox(height: 10),
           Text(_t('Condition', 'ሁኔታ'), style: const TextStyle(fontWeight: FontWeight.w600)),
