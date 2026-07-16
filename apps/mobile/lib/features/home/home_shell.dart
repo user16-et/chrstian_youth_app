@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/call_controller.dart';
+import '../../data/session_store.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 import '../modules/module_pages.dart';
@@ -35,6 +36,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  final SessionStore _sessionStore = SessionStore();
   int _index = 0;
   late Future<DashboardSnapshot> _snapshotFuture;
   AuthResult? _session;
@@ -44,6 +46,32 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _snapshotFuture = widget.apiClient.loadDashboard();
+    unawaited(_restoreSession());
+  }
+
+  /// Restore the persisted session on cold start. If the access token is at or
+  /// near expiry, rotate it via the refresh token; if that fails the stored
+  /// session is stale, so clear it and stay signed out.
+  Future<void> _restoreSession() async {
+    final stored = await _sessionStore.load();
+    if (stored == null || !mounted || _session != null) return;
+    final expiresAt = DateTime.tryParse(stored.expiresAt);
+    final nearExpiry = expiresAt == null ||
+        expiresAt.difference(DateTime.now()) < const Duration(minutes: 2);
+    if (!nearExpiry) {
+      _updateSession(stored);
+      return;
+    }
+    if (stored.refreshToken.isEmpty) {
+      await _sessionStore.clear();
+      return;
+    }
+    try {
+      final refreshed = await widget.apiClient.refresh(stored.refreshToken);
+      if (mounted) _updateSession(refreshed);
+    } catch (_) {
+      await _sessionStore.clear();
+    }
   }
 
   @override
@@ -71,6 +99,8 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _session = session;
     });
+    unawaited(
+        session == null ? _sessionStore.clear() : _sessionStore.save(session));
     unawaited(widget.callController.bind(session));
     _scheduleSessionRefresh(session);
     unawaited(_refreshDashboard());

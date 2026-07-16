@@ -2017,6 +2017,16 @@ class UserProfile {
       createdAt: json['createdAt'] as String? ?? '',
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'fullName': fullName,
+        'phoneNumber': phoneNumber,
+        'username': username,
+        'language': language,
+        'role': role,
+        'createdAt': createdAt,
+      };
 }
 
 class AuthResult {
@@ -2041,6 +2051,13 @@ class AuthResult {
           (json['user'] as Map<String, dynamic>? ?? const {})),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'token': token,
+        'refreshToken': refreshToken,
+        'expiresAt': expiresAt,
+        'user': user.toJson(),
+      };
 }
 
 class DashboardSnapshot {

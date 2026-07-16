@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/api_client.dart';
 import 'data/call_controller.dart';
@@ -28,6 +29,39 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
   ThemeMode _themeMode = ThemeMode.system;
 
   @override
+  void initState() {
+    super.initState();
+    _restorePreferences();
+  }
+
+  // Language and theme survive restarts; best-effort so a storage failure
+  // never blocks startup.
+  Future<void> _restorePreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final language = prefs.getString('pref_language');
+      final theme = prefs.getString('pref_theme_mode');
+      if (!mounted || (language == null && theme == null)) return;
+      setState(() {
+        if (language == 'am') _language = AppLanguage.amharic;
+        if (language == 'en') _language = AppLanguage.english;
+        _themeMode = switch (theme) {
+          'light' => ThemeMode.light,
+          'dark' => ThemeMode.dark,
+          _ => _themeMode,
+        };
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _persistPreference(String key, String value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, value);
+    } catch (_) {}
+  }
+
+  @override
   void dispose() {
     _callController.dispose();
     super.dispose();
@@ -37,12 +71,21 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
     setState(() {
       _language = language;
     });
+    _persistPreference(
+        'pref_language', language == AppLanguage.amharic ? 'am' : 'en');
   }
 
   void _setThemeMode(ThemeMode mode) {
     setState(() {
       _themeMode = mode;
     });
+    _persistPreference(
+        'pref_theme_mode',
+        switch (mode) {
+          ThemeMode.light => 'light',
+          ThemeMode.dark => 'dark',
+          ThemeMode.system => 'system',
+        });
   }
 
   @override

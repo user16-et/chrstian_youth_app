@@ -241,14 +241,19 @@ class ApiClient {
     if (uploadUrl.isEmpty || assetId.isEmpty) {
       throw const ApiException('media_upload_url_invalid');
     }
-    final uploadResponse = await http.put(
-      Uri.parse(uploadUrl),
-      headers: {
-        'content-type': contentType,
-        'content-length': byteSize.toString(),
-      },
-      body: bytes,
-    );
+    final uploadResponse = await http
+        .put(
+          Uri.parse(uploadUrl),
+          headers: {
+            'content-type': contentType,
+            'content-length': byteSize.toString(),
+          },
+          body: bytes,
+        )
+        // Generous bound: uploads are large and mobile networks slow, but a
+        // stalled transfer must still fail instead of hanging forever.
+        .timeout(const Duration(minutes: 5),
+            onTimeout: () => throw const ApiException('media_upload_timed_out'));
     if (uploadResponse.statusCode < 200 || uploadResponse.statusCode >= 300) {
       throw ApiException('media_upload_failed: ${uploadResponse.statusCode}');
     }
@@ -3242,8 +3247,18 @@ class ApiClient {
       });
     if (body != null) request.bodyBytes = utf8.encode(jsonEncode(body));
 
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+    // Bound every request so a dead network surfaces as an error instead of an
+    // infinite spinner (Ethiopian mobile networks drop connections regularly).
+    final streamedResponse = await request.send().timeout(
+          const Duration(seconds: 25),
+          onTimeout: () =>
+              throw ApiException('$method $path: request timed out'),
+        );
+    final response = await http.Response.fromStream(streamedResponse).timeout(
+          const Duration(seconds: 25),
+          onTimeout: () =>
+              throw ApiException('$method $path: response timed out'),
+        );
     final responseBody = utf8.decode(response.bodyBytes);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
