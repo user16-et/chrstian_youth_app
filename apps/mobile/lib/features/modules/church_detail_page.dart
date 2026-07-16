@@ -1649,10 +1649,8 @@ class _ChurchHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final cover =
-        profile['coverUrl'] as String? ?? profile['cover_url'] as String? ?? '';
-    final logo =
-        profile['logoUrl'] as String? ?? profile['logo_url'] as String? ?? '';
+    final cover = profile['coverUrl'] as String? ?? '';
+    final logo = profile['logoUrl'] as String? ?? '';
     final verified = profile['verified'] == true || fallback.verified;
     final description =
         profile['description'] as String? ?? fallback.description;
@@ -1861,9 +1859,7 @@ class _ChurchProfileSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final address = _text('address');
-    final doctrine = _text('doctrineStatement').isNotEmpty
-        ? _text('doctrineStatement')
-        : _text('doctrine_statement');
+    final doctrine = _text('doctrineStatement');
     final phone = _text('phone');
     final email = _text('email');
     final website = _text('website');
@@ -3411,9 +3407,7 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
       (
         'doctrineStatement',
         'Doctrine statement',
-        profile['doctrineStatement']?.toString() ??
-            profile['doctrine_statement']?.toString() ??
-            ''
+        profile['doctrineStatement']?.toString() ?? ''
       ),
       ('phone', 'Phone', profile['phone']?.toString() ?? ''),
       ('email', 'Email', profile['email']?.toString() ?? ''),
@@ -3509,12 +3503,8 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
 
     final profile = await _profile;
     final current = cover
-        ? (profile['coverUrl']?.toString() ??
-            profile['cover_url']?.toString() ??
-            '')
-        : (profile['logoUrl']?.toString() ??
-            profile['logo_url']?.toString() ??
-            '');
+        ? (profile['coverUrl']?.toString() ?? '')
+        : (profile['logoUrl']?.toString() ?? '');
     final controller = TextEditingController(text: current);
     if (!mounted) return;
     final ok = await showDialog<bool>(
