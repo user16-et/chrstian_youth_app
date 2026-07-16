@@ -2354,7 +2354,8 @@ class _PostCommentsSheetState extends State<_PostCommentsSheet> {
 
   Future<void> _load() async {
     try {
-      final c = await widget.apiClient.fetchPostComments(widget.postId);
+      final c = await widget.apiClient
+          .fetchPostComments(widget.postId, token: widget.token);
       if (mounted) setState(() { _comments = c; _loading = false; });
     } catch (_) {
       if (mounted) setState(() => _loading = false);

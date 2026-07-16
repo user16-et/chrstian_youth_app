@@ -65,8 +65,10 @@ class ApiClient {
     return FeedItem.fromJson(response as Map<String, dynamic>);
   }
 
-  Future<List<PostCommentItem>> fetchPostComments(String postId) async {
-    final response = await _getJson('/posts/$postId/comments');
+  Future<List<PostCommentItem>> fetchPostComments(String postId,
+      {String? token}) async {
+    final response =
+        await _getJson('/posts/$postId/comments', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(PostCommentItem.fromJson)
@@ -519,24 +521,26 @@ class ApiClient {
     );
   }
 
-  Future<List<GroupItem>> fetchGroups() async {
-    final response = await _getJson('/groups');
+  Future<List<GroupItem>> fetchGroups({String? token}) async {
+    final response = await _getJson('/groups', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(GroupItem.fromJson)
         .toList();
   }
 
-  Future<GroupItem?> fetchGroupById(String groupId) async {
-    final response = await _getJson('/groups/$groupId');
+  Future<GroupItem?> fetchGroupById(String groupId, {String? token}) async {
+    final response = await _getJson('/groups/$groupId', headers: _bearer(token));
     if (response == null) {
       return null;
     }
     return GroupItem.fromJson(response as Map<String, dynamic>);
   }
 
-  Future<List<GroupMembershipItem>> fetchGroupMembers(String groupId) async {
-    final response = await _getJson('/groups/$groupId/members');
+  Future<List<GroupMembershipItem>> fetchGroupMembers(String groupId,
+      {String? token}) async {
+    final response =
+        await _getJson('/groups/$groupId/members', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(GroupMembershipItem.fromJson)
@@ -837,8 +841,8 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
-  Future<List<PrayerRequestItem>> fetchPrayerRequests() async {
-    final response = await _getJson('/prayer/requests');
+  Future<List<PrayerRequestItem>> fetchPrayerRequests({String? token}) async {
+    final response = await _getJson('/prayer/requests', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(PrayerRequestItem.fromJson)
@@ -889,26 +893,28 @@ class ApiClient {
     return PrayerRequestItem.fromJson(response as Map<String, dynamic>);
   }
 
-  Future<List<PrayerChainItem>> fetchPrayerChains() async {
-    final response = await _getJson('/prayer/chains');
+  Future<List<PrayerChainItem>> fetchPrayerChains({String? token}) async {
+    final response = await _getJson('/prayer/chains', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(PrayerChainItem.fromJson)
         .toList();
   }
 
-  Future<List<PrayerChainMemberItem>> fetchPrayerChainMembers(
-      String chainId) async {
-    final response = await _getJson('/prayer/chains/$chainId/members');
+  Future<List<PrayerChainMemberItem>> fetchPrayerChainMembers(String chainId,
+      {String? token}) async {
+    final response = await _getJson('/prayer/chains/$chainId/members',
+        headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(PrayerChainMemberItem.fromJson)
         .toList();
   }
 
-  Future<List<PrayerChainPostItem>> fetchPrayerChainPosts(
-      String chainId) async {
-    final response = await _getJson('/prayer/chains/$chainId/posts');
+  Future<List<PrayerChainPostItem>> fetchPrayerChainPosts(String chainId,
+      {String? token}) async {
+    final response = await _getJson('/prayer/chains/$chainId/posts',
+        headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(PrayerChainPostItem.fromJson)
@@ -1339,8 +1345,8 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
-  Future<List<StoryItem>> fetchStories() async {
-    final response = await _getJson('/stories');
+  Future<List<StoryItem>> fetchStories({String? token}) async {
+    final response = await _getJson('/stories', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(StoryItem.fromJson)
@@ -3044,8 +3050,10 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
-  Future<Map<String, dynamic>> fetchGroupActivity(String groupId) async {
-    final response = await _getJson('/connected-life/groups/$groupId/activity');
+  Future<Map<String, dynamic>> fetchGroupActivity(String groupId,
+      {String? token}) async {
+    final response = await _getJson('/connected-life/groups/$groupId/activity',
+        headers: _bearer(token));
     return response as Map<String, dynamic>;
   }
 

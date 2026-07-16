@@ -21,11 +21,11 @@ class _PrayerChainsScreenState extends State<PrayerChainsScreen> {
   @override
   void initState() {
     super.initState();
-    _chainsFuture = widget.apiClient.fetchPrayerChains();
+    _chainsFuture = widget.apiClient.fetchPrayerChains(token: widget.session?.token);
   }
 
   Future<void> _refresh() async {
-    final future = widget.apiClient.fetchPrayerChains();
+    final future = widget.apiClient.fetchPrayerChains(token: widget.session?.token);
     setState(() {
       _chainsFuture = future;
     });
@@ -126,8 +126,10 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
   }
 
   Future<_PrayerChainSnapshot> _load() async {
-    final members = await widget.apiClient.fetchPrayerChainMembers(widget.chain.id);
-    final posts = await widget.apiClient.fetchPrayerChainPosts(widget.chain.id);
+    final members = await widget.apiClient
+        .fetchPrayerChainMembers(widget.chain.id, token: widget.session?.token);
+    final posts = await widget.apiClient
+        .fetchPrayerChainPosts(widget.chain.id, token: widget.session?.token);
     return _PrayerChainSnapshot(members: members, posts: posts);
   }
 

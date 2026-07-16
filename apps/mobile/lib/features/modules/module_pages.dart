@@ -25,7 +25,10 @@ import 'user_profile_sheet.dart';
 
 String _shortDate(String value) {
   if (value.isEmpty) return '';
-  return value.length >= 10 ? value.substring(0, 10) : value;
+  final dt = DateTime.tryParse(value)?.toLocal();
+  if (dt == null) return value.length >= 10 ? value.substring(0, 10) : value;
+  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
 }
 
 String _initialsOf(String name) {
@@ -1336,9 +1339,11 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _membersFuture = widget.apiClient.fetchGroupMembers(widget.group.id);
+    _membersFuture = widget.apiClient
+        .fetchGroupMembers(widget.group.id, token: widget.session?.token);
     _myMembershipsFuture = _loadMyMemberships();
-    _activityFuture = widget.apiClient.fetchGroupActivity(widget.group.id);
+    _activityFuture = widget.apiClient
+        .fetchGroupActivity(widget.group.id, token: widget.session?.token);
   }
 
   @override
@@ -1367,9 +1372,11 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
 
   void _refresh() {
     setState(() {
-      _membersFuture = widget.apiClient.fetchGroupMembers(widget.group.id);
+      _membersFuture = widget.apiClient
+          .fetchGroupMembers(widget.group.id, token: widget.session?.token);
       _myMembershipsFuture = _loadMyMemberships();
-      _activityFuture = widget.apiClient.fetchGroupActivity(widget.group.id);
+      _activityFuture = widget.apiClient
+          .fetchGroupActivity(widget.group.id, token: widget.session?.token);
     });
   }
 
@@ -6264,7 +6271,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<List<PostCommentItem>> _loadComments() async {
-    return widget.apiClient.fetchPostComments(_post.id);
+    return widget.apiClient
+        .fetchPostComments(_post.id, token: widget.session?.token);
   }
 
   Future<void> _refreshComments() async {
@@ -7217,7 +7225,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   @override
   void initState() {
     super.initState();
-    _requestsFuture = widget.apiClient.fetchPrayerRequests();
+    _requestsFuture = widget.apiClient.fetchPrayerRequests(token: widget.session?.token);
   }
 
   @override
@@ -7228,7 +7236,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   }
 
   Future<void> _refresh() async {
-    final future = widget.apiClient.fetchPrayerRequests();
+    final future = widget.apiClient.fetchPrayerRequests(token: widget.session?.token);
     setState(() {
       _requestsFuture = future;
     });
@@ -9536,7 +9544,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
   @override
   void initState() {
     super.initState();
-    _storiesFuture = widget.apiClient.fetchStories();
+    _storiesFuture = widget.apiClient.fetchStories(token: widget.session?.token);
   }
 
   @override
@@ -9547,7 +9555,7 @@ class _StoriesScreenState extends State<StoriesScreen> {
   }
 
   Future<void> _refresh() async {
-    final future = widget.apiClient.fetchStories();
+    final future = widget.apiClient.fetchStories(token: widget.session?.token);
     setState(() {
       _storiesFuture = future;
     });

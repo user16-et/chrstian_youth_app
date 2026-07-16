@@ -3475,7 +3475,7 @@ export class ContentRepository implements OnModuleInit {
       body: String(row.body),
       status: String(row.status),
       anonymous: row.anonymous === true,
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -3500,9 +3500,9 @@ export class ContentRepository implements OnModuleInit {
       title: String(row.title),
       body: String(row.body),
       answer: row.answer ? String(row.answer) : null,
-      answeredAt: row.answered_at ? String(row.answered_at) : null,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      answeredAt: row.answered_at ? this.iso(row.answered_at) : null,
+      createdAt: this.iso(row.created_at),
+      updatedAt: this.iso(row.updated_at),
     };
   }
 
@@ -3514,7 +3514,7 @@ export class ContentRepository implements OnModuleInit {
       createdBy: String(row.created_by),
       creatorName: String(row.creator_name),
       memberCount: Number(row.member_count ?? 0),
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -3523,7 +3523,7 @@ export class ContentRepository implements OnModuleInit {
       chainId: String(row.chain_id),
       userId: String(row.user_id),
       userName: String(row.user_name),
-      joinedAt: String(row.joined_at),
+      joinedAt: this.iso(row.joined_at),
     };
   }
 
@@ -3534,7 +3534,7 @@ export class ContentRepository implements OnModuleInit {
       userId: String(row.user_id),
       userName: String(row.user_name),
       body: String(row.body),
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -3676,7 +3676,7 @@ export class ContentRepository implements OnModuleInit {
       title: String(row.title),
       body: String(row.body),
       language: row.language === 'am' ? 'am' : 'en',
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -3991,7 +3991,7 @@ export class ContentRepository implements OnModuleInit {
       id: String(row.id),
       name: String(row.name),
       category: String(row.category),
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -4004,7 +4004,7 @@ export class ContentRepository implements OnModuleInit {
       userFullName: String(row.full_name),
       phoneNumber: String(row.phone_number),
       role: String(row.role),
-      joinedAt: String(row.joined_at),
+      joinedAt: this.iso(row.joined_at),
     };
   }
 
@@ -4015,7 +4015,7 @@ export class ContentRepository implements OnModuleInit {
       category: String(row.category),
       userId: String(row.user_id),
       role: String(row.role),
-      joinedAt: String(row.joined_at),
+      joinedAt: this.iso(row.joined_at),
     };
   }
 
@@ -4046,7 +4046,7 @@ export class ContentRepository implements OnModuleInit {
       authorId: String(row.author_id),
       authorFullName: String(row.author_full_name),
       body: String(row.body),
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -4057,7 +4057,7 @@ export class ContentRepository implements OnModuleInit {
       authorName: String(row.author_name),
       body: String(row.body),
       language: row.language === 'am' ? 'am' : 'en',
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
       likeCount: Number(row.like_count ?? 0),
       commentCount: Number(row.comment_count ?? 0),
       shareCount: Number(row.share_count ?? 0),
@@ -4084,7 +4084,7 @@ export class ContentRepository implements OnModuleInit {
       authorId: String(row.author_id),
       authorName: String(row.author_name),
       body: String(row.body),
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 

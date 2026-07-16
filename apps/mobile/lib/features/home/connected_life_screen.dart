@@ -352,7 +352,8 @@ class _ConnectedLifeScreenState extends State<ConnectedLifeScreen> {
   }
 
   Future<void> _group(Map<String, dynamic> group) async {
-    final activity = await widget.apiClient.fetchGroupActivity(group['id']);
+    final activity = await widget.apiClient
+        .fetchGroupActivity(group['id'], token: widget.session.token);
     if (!mounted) return;
     final posts = _items(activity, 'posts');
     final resources = _items(activity, 'resources');
