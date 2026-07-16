@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
 
 class PrayerChainsScreen extends StatefulWidget {
@@ -272,7 +273,7 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
                           for (final post in posts)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                              child: _PostCard(author: post.userName, body: post.body, time: post.createdAt),
+                              child: _PostCard(author: post.userName, body: post.body, time: relativeTime(post.createdAt)),
                             ),
                         ],
                       ),
@@ -339,7 +340,8 @@ class _GrowthScreenState extends State<GrowthScreen> {
   }
 
   Future<_GrowthSnapshot> _load() async {
-    final challenges = await widget.apiClient.fetchGrowthChallenges();
+    final challenges = await widget.apiClient
+        .fetchGrowthChallenges(token: widget.session?.token);
     GrowthSummaryItem? summary;
     if (widget.session != null) {
       summary = await widget.apiClient.fetchGrowthSummary(widget.session!.token);

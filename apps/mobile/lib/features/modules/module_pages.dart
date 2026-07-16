@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/date_format.dart';
 import '../../data/image_upload.dart';
 import '../../data/location_service.dart';
 import '../../i18n/app_i18n.dart';
@@ -23,13 +24,7 @@ import 'relationship_social.dart';
 import 'stories_feed.dart';
 import 'user_profile_sheet.dart';
 
-String _shortDate(String value) {
-  if (value.isEmpty) return '';
-  final dt = DateTime.tryParse(value)?.toLocal();
-  if (dt == null) return value.length >= 10 ? value.substring(0, 10) : value;
-  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
-}
+String _shortDate(String value) => friendlyDate(value);
 
 String _initialsOf(String name) {
   final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
@@ -5906,7 +5901,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: Icons.workspace_premium_rounded,
               items: items('achievements'),
               titleOf: (x) => '${x['title'] ?? x['badge'] ?? ''}',
-              subtitleOf: (x) => '${x['earnedAt'] ?? ''}'),
+              subtitleOf: (x) => x['earnedAt'] == null
+                  ? ''
+                  : 'Earned ${_friendlyDateTime('${x['earnedAt']}')}'),
           const SizedBox(height: 16),
           _ProfileList(
               title: en ? 'Notes and saved library' : 'ማስታወሻዎች እና የተቀመጡ ምንጮች',
@@ -7418,18 +7415,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   }
 }
 
-// Friendly date-time (e.g. "Jun 22, 2026 · 4:29 PM", or just the date when
-// there is no time). Falls back to the raw value if unparseable.
-String _friendlyDateTime(String raw) {
-  final dt = DateTime.tryParse(raw)?.toLocal();
-  if (dt == null) return raw.trim();
-  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  final date = '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
-  if (dt.hour == 0 && dt.minute == 0) return date;
-  final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-  final ap = dt.hour < 12 ? 'AM' : 'PM';
-  return '$date · $h:${dt.minute.toString().padLeft(2, '0')} $ap';
-}
+String _friendlyDateTime(String raw) => friendlyDateTime(raw);
 
 class MinistriesScreen extends StatefulWidget {
   const MinistriesScreen(

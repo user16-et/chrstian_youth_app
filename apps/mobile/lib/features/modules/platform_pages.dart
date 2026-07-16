@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
 import 'church_detail_page.dart';
 import 'group_detail_screen.dart';
@@ -368,7 +369,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             Text(item.body,
                                 maxLines: 2, overflow: TextOverflow.ellipsis),
                             const SizedBox(height: 4),
-                            Text(_notificationLabel(item.type),
+                            Text(
+                                item.createdAt.isEmpty
+                                    ? _notificationLabel(item.type)
+                                    : '${_notificationLabel(item.type)} • ${relativeTime(item.createdAt)}',
                                 style: Theme.of(context).textTheme.bodySmall),
                           ],
                         ),

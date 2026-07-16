@@ -945,8 +945,9 @@ class ApiClient {
     );
   }
 
-  Future<List<GrowthChallengeItem>> fetchGrowthChallenges() async {
-    final response = await _getJson('/growth/challenges');
+  Future<List<GrowthChallengeItem>> fetchGrowthChallenges({String? token}) async {
+    final response =
+        await _getJson('/growth/challenges', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(GrowthChallengeItem.fromJson)
@@ -2476,21 +2477,6 @@ class ApiClient {
         'mediaUrls': mediaUrls,
         if (pollQuestion != null) 'pollQuestion': pollQuestion,
         if (pollOptions.isNotEmpty) 'pollOptions': pollOptions,
-      },
-      headers: {'Authorization': 'Bearer $token'},
-    );
-  }
-
-  Future<dynamic> updateProfile({
-    required String token,
-    String? fullName,
-    String? language,
-  }) async {
-    return _patchJson(
-      '/users/me',
-      {
-        if (fullName != null) 'fullName': fullName,
-        if (language != null) 'language': language,
       },
       headers: {'Authorization': 'Bearer $token'},
     );
