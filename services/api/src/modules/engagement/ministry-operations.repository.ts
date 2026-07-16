@@ -41,7 +41,7 @@ export class MinistryOperationsRepository {
 
   async getProfile(ministryId: string, viewerId?: string) {
     const ministry = await this.one(
-      `SELECT m.*,m.ministry_type AS "ministryType",m.logo_url AS "logoUrl",m.cover_url AS "coverUrl",m.join_policy AS "joinPolicy",
+      `SELECT m.id,m.name,m.department,m.description,m.lead_name,m.created_at,m.church_id,m.branch_id,m.vision,m.mission,m.visibility,m.status,m.created_by,m.ministry_type AS "ministryType",m.logo_url AS "logoUrl",m.cover_url AS "coverUrl",m.join_policy AS "joinPolicy",
         c.name AS "churchName",b.name AS "branchName",
         (SELECT count(*)::int FROM ministry_memberships WHERE ministry_id=m.id AND status IN ('active','approved')) AS "memberCount",
         (SELECT count(*)::int FROM ministry_follows WHERE ministry_id=m.id) AS "followerCount",
@@ -50,20 +50,19 @@ export class MinistryOperationsRepository {
       [ministryId, viewerId ?? null],
     );
     if (!ministry) return null;
-    const [members, announcements, posts, events, tasks, resources, chats, attendance, schedules, opportunities, membership] = await Promise.all([
+    const [members, announcements, posts, events, tasks, resources, attendance, schedules, opportunities, membership] = await Promise.all([
       this.db.query(`SELECT mm.id,mm.role,mm.status,mm.reason,mm.joined_at AS "joinedAt",u.id AS "userId",u.full_name AS "userFullName" FROM ministry_memberships mm JOIN users u ON u.id=mm.user_id WHERE mm.ministry_id=$1 ORDER BY mm.joined_at`, [ministryId]),
       this.db.query(`SELECT * FROM ministry_announcements WHERE ministry_id=$1 AND publish_at<=now() AND (expire_at IS NULL OR expire_at>now()) ORDER BY pinned DESC,created_at DESC`, [ministryId]),
       this.db.query(`SELECT p.*,u.full_name AS "authorName" FROM posts p JOIN users u ON u.id=p.author_id WHERE p.ministry_id=$1 ORDER BY p.created_at DESC LIMIT 40`, [ministryId]),
       this.db.query(`SELECT * FROM events WHERE ministry_id=$1 ORDER BY starts_at`, [ministryId]),
       this.db.query(`SELECT t.*,u.full_name AS "assigneeName" FROM ministry_tasks t LEFT JOIN users u ON u.id=t.assignee_id WHERE t.ministry_id=$1 ORDER BY t.created_at DESC`, [ministryId]),
       this.db.query(`SELECT * FROM ministry_resources WHERE ministry_id=$1 ORDER BY created_at DESC`, [ministryId]),
-      this.db.query(`SELECT mc.*,u.full_name AS "authorName" FROM ministry_chats mc JOIN users u ON u.id=mc.author_id WHERE mc.ministry_id=$1 ORDER BY mc.pinned DESC,mc.created_at DESC LIMIT 80`, [ministryId]),
       this.db.query(`SELECT ma.*,u.full_name AS "userName" FROM ministry_attendance ma JOIN users u ON u.id=ma.user_id WHERE ma.ministry_id=$1 ORDER BY ma.attended_on DESC LIMIT 80`, [ministryId]),
       this.db.query(`SELECT * FROM ministry_schedules WHERE ministry_id=$1 ORDER BY created_at`, [ministryId]),
       this.db.query(`SELECT vo.*,(SELECT count(*)::int FROM ministry_volunteer_applications va WHERE va.opportunity_id=vo.id AND va.status='approved') AS "approvedCount" FROM ministry_volunteer_opportunities vo WHERE vo.ministry_id=$1 ORDER BY vo.created_at DESC`, [ministryId]),
       viewerId ? this.db.query(`SELECT id,role,status,reason,joined_at AS "joinedAt" FROM ministry_memberships WHERE ministry_id=$1 AND user_id=$2`, [ministryId, viewerId]) : Promise.resolve({ rows: [] }),
     ]);
-    return { ...ministry, members: members.rows, announcements: announcements.rows, posts: posts.rows, events: events.rows, tasks: tasks.rows, resources: resources.rows, chats: chats.rows, attendance: attendance.rows, schedules: schedules.rows, volunteerOpportunities: opportunities.rows, membership: membership.rows[0] ?? null, canManage: viewerId ? await this.canManage(viewerId, ministryId) : false };
+    return { ...ministry, members: members.rows, announcements: announcements.rows, posts: posts.rows, events: events.rows, tasks: tasks.rows, resources: resources.rows, attendance: attendance.rows, schedules: schedules.rows, volunteerOpportunities: opportunities.rows, membership: membership.rows[0] ?? null, canManage: viewerId ? await this.canManage(viewerId, ministryId) : false };
   }
 
   async join(userId: string, ministryId: string, input: Record<string, unknown>) {

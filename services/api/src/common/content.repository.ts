@@ -3567,6 +3567,12 @@ export class ContentRepository implements OnModuleInit {
     };
   }
 
+  // Serialize a timestamp column as ISO-8601 so clients can parse it; pg hands
+  // back a JS Date, and String(date) would emit an unparseable locale string.
+  private iso(value: unknown): string {
+    return value instanceof Date ? value.toISOString() : String(value ?? '');
+  }
+
   private mapMinistryMemberView(row: Record<string, unknown>): MinistryMemberViewRecord {
     return {
       ministryId: String(row.ministry_id),
@@ -3574,7 +3580,7 @@ export class ContentRepository implements OnModuleInit {
       userId: String(row.user_id),
       userFullName: String(row.full_name),
       role: String(row.role),
-      joinedAt: String(row.joined_at),
+      joinedAt: this.iso(row.joined_at),
     };
   }
 
@@ -3584,7 +3590,7 @@ export class ContentRepository implements OnModuleInit {
       ministryName: String(row.ministry_name),
       userId: String(row.user_id),
       role: String(row.role),
-      joinedAt: String(row.joined_at),
+      joinedAt: this.iso(row.joined_at),
     };
   }
 
@@ -3597,8 +3603,8 @@ export class ContentRepository implements OnModuleInit {
       assigneeId: row.assignee_id ? String(row.assignee_id) : null,
       assigneeName: row.assignee_name ? String(row.assignee_name) : null,
       status: String(row.status),
-      dueDate: row.due_date ? String(row.due_date) : null,
-      createdAt: String(row.created_at),
+      dueDate: row.due_date ? this.iso(row.due_date) : null,
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -3609,7 +3615,7 @@ export class ContentRepository implements OnModuleInit {
       ministryName: String(row.ministry_name),
       title: String(row.title),
       url: String(row.url),
-      createdAt: String(row.created_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -3632,8 +3638,8 @@ export class ContentRepository implements OnModuleInit {
       ministryName: String(row.ministry_name),
       userId: String(row.user_id),
       userName: String(row.user_name),
-      attendedOn: String(row.attended_on),
-      createdAt: String(row.created_at),
+      attendedOn: this.iso(row.attended_on),
+      createdAt: this.iso(row.created_at),
     };
   }
 

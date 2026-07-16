@@ -841,38 +841,6 @@ class MinistryResourceItem {
   }
 }
 
-class MinistryChatItem {
-  const MinistryChatItem({
-    required this.id,
-    required this.ministryId,
-    required this.ministryName,
-    required this.authorId,
-    required this.authorName,
-    required this.body,
-    required this.createdAt,
-  });
-
-  final String id;
-  final String ministryId;
-  final String ministryName;
-  final String authorId;
-  final String authorName;
-  final String body;
-  final String createdAt;
-
-  factory MinistryChatItem.fromJson(Map<String, dynamic> json) {
-    return MinistryChatItem(
-      id: json['id'] as String? ?? '',
-      ministryId: json['ministryId'] as String? ?? '',
-      ministryName: json['ministryName'] as String? ?? '',
-      authorId: json['authorId'] as String? ?? '',
-      authorName: json['authorName'] as String? ?? '',
-      body: json['body'] as String? ?? '',
-      createdAt: json['createdAt'] as String? ?? '',
-    );
-  }
-}
-
 class MinistryAttendanceItem {
   const MinistryAttendanceItem({
     required this.id,

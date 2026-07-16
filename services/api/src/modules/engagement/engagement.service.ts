@@ -147,10 +147,10 @@ export class EngagementService {
     }
     const profile = await this.ministryOperationsRepository.getProfile(ministryId, actorId);
     if (!profile) throw new NotFoundException('ministry_not_found');
-    // Internal operational data (chats, attendance, tasks) is for members and
-    // managers only; outsiders still see the public-facing profile.
+    // Internal operational data (attendance, tasks) is for members and managers
+    // only; outsiders still see the public-facing profile.
     const insider = profile.canManage === true || profile.membership != null;
-    if (!insider) return { ...profile, chats: [], attendance: [], tasks: [] };
+    if (!insider) return { ...profile, attendance: [], tasks: [] };
     return profile;
   }
 

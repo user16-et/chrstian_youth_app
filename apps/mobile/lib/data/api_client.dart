@@ -10,6 +10,11 @@ class ApiClient {
 
   final String baseUrl;
 
+  // Optional bearer header — used for otherwise-public GETs so authenticated
+  // requests stay authenticated (and load correctly in credentialed web builds).
+  Map<String, String> _bearer(String? token) =>
+      token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'};
+
   Future<DashboardSnapshot> loadDashboard({String? token}) async {
     final results = await Future.wait<dynamic>([
       fetchBootstrap(),
@@ -1097,17 +1102,20 @@ class ApiClient {
         .toList();
   }
 
-  Future<List<MinistryMemberItem>> fetchMinistryMembers(
-      String ministryId) async {
-    final response = await _getJson('/ministries/$ministryId/members');
+  Future<List<MinistryMemberItem>> fetchMinistryMembers(String ministryId,
+      {String? token}) async {
+    final response = await _getJson('/ministries/$ministryId/members',
+        headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(MinistryMemberItem.fromJson)
         .toList();
   }
 
-  Future<List<MinistryTaskItem>> fetchMinistryTasks(String ministryId) async {
-    final response = await _getJson('/ministries/$ministryId/tasks');
+  Future<List<MinistryTaskItem>> fetchMinistryTasks(String ministryId,
+      {String? token}) async {
+    final response =
+        await _getJson('/ministries/$ministryId/tasks', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(MinistryTaskItem.fromJson)
@@ -1132,38 +1140,20 @@ class ApiClient {
     );
   }
 
-  Future<List<MinistryResourceItem>> fetchMinistryResources(
-      String ministryId) async {
-    final response = await _getJson('/ministries/$ministryId/resources');
+  Future<List<MinistryResourceItem>> fetchMinistryResources(String ministryId,
+      {String? token}) async {
+    final response = await _getJson('/ministries/$ministryId/resources',
+        headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(MinistryResourceItem.fromJson)
         .toList();
   }
 
-  Future<List<MinistryChatItem>> fetchMinistryChats(String ministryId) async {
-    final response = await _getJson('/ministries/$ministryId/chats');
-    return (response as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .map(MinistryChatItem.fromJson)
-        .toList();
-  }
-
-  Future<dynamic> createMinistryChat({
-    required String token,
-    required String ministryId,
-    required String body,
-  }) async {
-    return _postJson(
-      '/ministries/$ministryId/chats',
-      {'body': body},
-      headers: {'Authorization': 'Bearer $token'},
-    );
-  }
-
-  Future<List<MinistryAttendanceItem>> fetchMinistryAttendance(
-      String ministryId) async {
-    final response = await _getJson('/ministries/$ministryId/attendance');
+  Future<List<MinistryAttendanceItem>> fetchMinistryAttendance(String ministryId,
+      {String? token}) async {
+    final response = await _getJson('/ministries/$ministryId/attendance',
+        headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(MinistryAttendanceItem.fromJson)

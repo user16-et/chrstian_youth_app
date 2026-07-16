@@ -7409,6 +7409,19 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   }
 }
 
+// Friendly date for ministry activity (e.g. "Jun 22, 2026 · 4:29 PM", or just
+// the date when there is no time). Falls back to the raw value if unparseable.
+String _ministryDate(String raw) {
+  final dt = DateTime.tryParse(raw)?.toLocal();
+  if (dt == null) return raw.trim();
+  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final date = '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
+  if (dt.hour == 0 && dt.minute == 0) return date;
+  final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+  final ap = dt.hour < 12 ? 'AM' : 'PM';
+  return '$date · $h:${dt.minute.toString().padLeft(2, '0')} $ap';
+}
+
 class MinistriesScreen extends StatefulWidget {
   const MinistriesScreen(
       {super.key,
@@ -7767,11 +7780,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
     final token = widget.session?.token;
     return Future.wait<dynamic>([
       widget.apiClient.fetchMinistryProfile(widget.ministry.id, token: token),
-      widget.apiClient.fetchMinistryMembers(widget.ministry.id),
-      widget.apiClient.fetchMinistryTasks(widget.ministry.id),
-      widget.apiClient.fetchMinistryResources(widget.ministry.id),
-      widget.apiClient.fetchMinistryChats(widget.ministry.id),
-      widget.apiClient.fetchMinistryAttendance(widget.ministry.id),
+      widget.apiClient.fetchMinistryMembers(widget.ministry.id, token: token),
+      widget.apiClient.fetchMinistryTasks(widget.ministry.id, token: token),
+      widget.apiClient.fetchMinistryResources(widget.ministry.id, token: token),
+      widget.apiClient.fetchMinistryAttendance(widget.ministry.id, token: token),
       token == null
           ? Future.value(const <UserMinistryMembershipItem>[])
           : widget.apiClient.fetchMyMinistryMemberships(token),
@@ -8261,10 +8273,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                 ? snapshot.data![3] as List<MinistryResourceItem>
                 : const <MinistryResourceItem>[];
             final attendance = snapshot.data != null
-                ? snapshot.data![5] as List<MinistryAttendanceItem>
+                ? snapshot.data![4] as List<MinistryAttendanceItem>
                 : const <MinistryAttendanceItem>[];
             final memberships = snapshot.data != null
-                ? snapshot.data![6] as List<UserMinistryMembershipItem>
+                ? snapshot.data![5] as List<UserMinistryMembershipItem>
                 : const <UserMinistryMembershipItem>[];
             final membership = profile['membership'] is Map
                 ? Map<String, dynamic>.from(profile['membership'] as Map)
@@ -8325,21 +8337,14 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                              '${AppStrings.of(language, 'member_count')}: ${profile['memberCount'] ?? members.length}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                        FilledButton(
-                          onPressed: _busy ? null : () => _joinOrLeave(joined),
-                          child: Text(joined
-                              ? AppStrings.of(language, 'leave_ministry')
-                              : AppStrings.of(language, 'join_ministry')),
-                        ),
-                      ],
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _busy ? null : () => _joinOrLeave(joined),
+                        child: Text(joined
+                            ? AppStrings.of(language, 'leave_ministry')
+                            : AppStrings.of(language, 'join_ministry')),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -8424,11 +8429,14 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                   children: [
                     ...profileList('events').take(3).map((raw) {
                       final item = raw as Map<String, dynamic>;
+                      final when = _ministryDate(
+                          '${item['starts_at'] ?? item['startsAt'] ?? ''}');
                       return _ListTileRow(
                           icon: Icons.event_rounded,
                           title: item['title']?.toString() ?? '',
-                          subtitle:
-                              '${item['location'] ?? ''} • ${item['starts_at'] ?? ''}');
+                          subtitle: [item['location']?.toString() ?? '', when]
+                              .where((s) => s.isNotEmpty)
+                              .join(' • '));
                     }),
                     ...profileList('posts').take(3).map((raw) {
                       final item = raw as Map<String, dynamic>;
@@ -8477,7 +8485,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                                     icon: Icons.person_rounded,
                                     title: member.userFullName,
                                     subtitle:
-                                        '${member.role} • ${member.joinedAt}',
+                                        '${member.role} • ${_ministryDate(member.joinedAt)}',
                                   ),
                                 ),
                             ],
@@ -8583,7 +8591,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                                   child: _ListTileRow(
                                     icon: Icons.how_to_reg_rounded,
                                     title: record.userName,
-                                    subtitle: record.attendedOn,
+                                    subtitle: _ministryDate(record.attendedOn),
                                   ),
                                 ),
                             ],
