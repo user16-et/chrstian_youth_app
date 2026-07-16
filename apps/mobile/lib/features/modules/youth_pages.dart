@@ -2,8 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
+import 'discover_pages.dart';
+import 'module_pages.dart';
 
+/// The youth home inside the Events pillar: upcoming gatherings, church
+/// announcements, volunteer opportunities, a personal prayer journal and
+/// quick Bible search — read-first, with the journal as the youth's own space.
 class YouthHubScreen extends StatefulWidget {
   const YouthHubScreen({super.key, required this.language, required this.apiClient, required this.session});
 
@@ -16,34 +22,33 @@ class YouthHubScreen extends StatefulWidget {
 }
 
 class _YouthHubScreenState extends State<YouthHubScreen> {
-  late Future<List<ChurchItem>> _churchesFuture;
+  late Future<List<EventItem>> _eventsFuture;
   late Future<List<ChurchAnnouncementItem>> _announcementsFuture;
+  late Future<List<OpportunityItem>> _opportunitiesFuture;
   late Future<List<PrayerJournalItem>> _journalFuture;
   Future<List<BibleSearchResultItem>>? _searchFuture;
-  final TextEditingController _announcementTitleController = TextEditingController();
-  final TextEditingController _announcementBodyController = TextEditingController();
   final TextEditingController _journalTitleController = TextEditingController();
   final TextEditingController _journalBodyController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   final Map<String, TextEditingController> _answerControllers = {};
-  String _selectedChurchId = '';
-  String _announcementPriority = 'normal';
   String _status = '';
   bool _busy = false;
+
+  bool get _en => widget.language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
 
   @override
   void initState() {
     super.initState();
-    _churchesFuture = widget.apiClient.fetchChurches();
+    _eventsFuture = widget.apiClient.fetchEvents(token: widget.session?.token);
     _announcementsFuture = widget.apiClient.fetchChurchAnnouncements();
+    _opportunitiesFuture = widget.apiClient.fetchOpportunities();
     _journalFuture = _loadJournal();
     _searchFuture = null;
   }
 
   @override
   void dispose() {
-    _announcementTitleController.dispose();
-    _announcementBodyController.dispose();
     _journalTitleController.dispose();
     _journalBodyController.dispose();
     _searchController.dispose();
@@ -62,57 +67,21 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
   }
 
   Future<void> _refreshAll() async {
-    final churchesFuture = widget.apiClient.fetchChurches();
+    final eventsFuture = widget.apiClient.fetchEvents(token: widget.session?.token);
     final announcementsFuture = widget.apiClient.fetchChurchAnnouncements();
+    final opportunitiesFuture = widget.apiClient.fetchOpportunities();
     final journalFuture = _loadJournal();
     setState(() {
-      _churchesFuture = churchesFuture;
+      _eventsFuture = eventsFuture;
       _announcementsFuture = announcementsFuture;
+      _opportunitiesFuture = opportunitiesFuture;
       _journalFuture = journalFuture;
     });
-    await Future.wait([churchesFuture, announcementsFuture, journalFuture]);
+    await Future.wait([eventsFuture, announcementsFuture, opportunitiesFuture, journalFuture]);
   }
 
   TextEditingController _answerControllerFor(String id) {
     return _answerControllers.putIfAbsent(id, () => TextEditingController());
-  }
-
-  Future<void> _createAnnouncement() async {
-    final token = widget.session?.token;
-    if (token == null || token.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
-      return;
-    }
-    if (_selectedChurchId.isEmpty || _announcementTitleController.text.trim().isEmpty || _announcementBodyController.text.trim().isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'no_search_results'));
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _status = AppStrings.of(widget.language, 'working');
-    });
-    try {
-      await widget.apiClient.createChurchAnnouncement(
-        token: token,
-        churchId: _selectedChurchId,
-        title: _announcementTitleController.text.trim(),
-        body: _announcementBodyController.text.trim(),
-        priority: _announcementPriority,
-      );
-      _announcementTitleController.clear();
-      _announcementBodyController.clear();
-      await _refreshAll();
-      if (!mounted) return;
-      setState(() => _status = AppStrings.of(widget.language, 'success'));
-    } catch (error) {
-      if (mounted) {
-        setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
   }
 
   Future<void> _createJournalEntry() async {
@@ -122,7 +91,7 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
       return;
     }
     if (_journalTitleController.text.trim().isEmpty || _journalBodyController.text.trim().isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'no_search_results'));
+      setState(() => _status = _t('Add a title and what you are praying for.', 'ርዕስ እና የሚጸልዩትን ያክሉ።'));
       return;
     }
     setState(() {
@@ -159,7 +128,7 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
     }
     final answer = _answerControllerFor(item.id).text.trim();
     if (answer.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'no_search_results'));
+      setState(() => _status = _t('Write how God answered first.', 'እግዚአብሔር እንዴት እንደመለሰ መጀመሪያ ይጻፉ።'));
       return;
     }
     setState(() {
@@ -194,9 +163,30 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
     setState(() {
       _searchFuture = widget.apiClient.searchBible(query,
           token: widget.session?.token,
-          version: widget.language == AppLanguage.english ? 'kjv' : 'amh');
+          version: _en ? 'kjv' : 'amh');
     });
     await _searchFuture;
+  }
+
+  void _openEvent(EventItem event) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => EventDetailScreen(
+        language: widget.language,
+        apiClient: widget.apiClient,
+        event: event,
+        session: widget.session,
+      ),
+    ));
+  }
+
+  void _openOpportunities() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => OpportunitiesScreen(
+        language: widget.language,
+        apiClient: widget.apiClient,
+        session: widget.session,
+      ),
+    ));
   }
 
   @override
@@ -218,57 +208,20 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
             ),
             const SizedBox(height: 16),
             _SectionCard(
+              title: _t('Upcoming gatherings', 'መጪ ስብሰባዎች'),
+              children: [_upcomingEvents()],
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
               title: t(language, 'church_announcements'),
               children: [
-                FutureBuilder<List<ChurchItem>>(
-                  future: _churchesFuture,
-                  builder: (context, snapshot) {
-                    final churches = snapshot.data ?? const <ChurchItem>[];
-                    if (churches.isNotEmpty && _selectedChurchId.isEmpty) {
-                      _selectedChurchId = churches.first.id;
-                    }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedChurchId.isEmpty && churches.isNotEmpty ? churches.first.id : _selectedChurchId.isEmpty ? null : _selectedChurchId,
-                          decoration: InputDecoration(labelText: t(language, 'select_church')),
-                          items: [
-                            for (final church in churches)
-                              DropdownMenuItem(value: church.id, child: Text('${church.name} • ${church.city}', maxLines: 1, overflow: TextOverflow.ellipsis)),
-                          ],
-                          onChanged: _busy ? null : (value) => setState(() => _selectedChurchId = value ?? ''),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(controller: _announcementTitleController, decoration: InputDecoration(labelText: t(language, 'announcement_title'))),
-                        const SizedBox(height: 12),
-                        TextField(controller: _announcementBodyController, decoration: InputDecoration(labelText: t(language, 'announcement_body')), maxLines: 3),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            for (final priority in const ['low', 'normal', 'high'])
-                              ChoiceChip(
-                                label: Text(priority == 'low' ? t(language, 'low') : priority == 'high' ? t(language, 'high') : t(language, 'normal')),
-                                selected: _announcementPriority == priority,
-                                onSelected: _busy ? null : (_) => setState(() => _announcementPriority = priority),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton(onPressed: _busy ? null : _createAnnouncement, child: Text(t(language, 'create_announcement'))),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
                 FutureBuilder<List<ChurchAnnouncementItem>>(
                   future: _announcementsFuture,
                   builder: (context, snapshot) {
                     final items = snapshot.data ?? const <ChurchAnnouncementItem>[];
                     if (snapshot.connectionState == ConnectionState.waiting && items.isEmpty) {
                       return const Padding(
-                        padding: EdgeInsets.only(top: 24),
+                        padding: EdgeInsets.symmetric(vertical: 24),
                         child: Center(child: CircularProgressIndicator()),
                       );
                     }
@@ -290,13 +243,25 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
             ),
             const SizedBox(height: 16),
             _SectionCard(
+              title: _t('Serve and grow', 'አገልግል እና እደግ'),
+              trailing: TextButton(
+                onPressed: _openOpportunities,
+                child: Text(_t('See all', 'ሁሉንም')),
+              ),
+              children: [_opportunitiesTeaser()],
+            ),
+            const SizedBox(height: 16),
+            _SectionCard(
               title: t(language, 'prayer_journal'),
               children: [
                 TextField(controller: _journalTitleController, decoration: InputDecoration(labelText: t(language, 'journal_title'))),
                 const SizedBox(height: 12),
                 TextField(controller: _journalBodyController, decoration: InputDecoration(labelText: t(language, 'journal_body')), maxLines: 3),
                 const SizedBox(height: 12),
-                FilledButton(onPressed: _busy ? null : _createJournalEntry, child: Text(t(language, 'add_note'))),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(onPressed: _busy ? null : _createJournalEntry, child: Text(t(language, 'add_note'))),
+                ),
                 const SizedBox(height: 16),
                 FutureBuilder<List<PrayerJournalItem>>(
                   future: _journalFuture,
@@ -304,12 +269,14 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
                     final items = snapshot.data ?? const <PrayerJournalItem>[];
                     if (snapshot.connectionState == ConnectionState.waiting && items.isEmpty) {
                       return const Padding(
-                        padding: EdgeInsets.only(top: 24),
+                        padding: EdgeInsets.symmetric(vertical: 24),
                         child: Center(child: CircularProgressIndicator()),
                       );
                     }
                     if (items.isEmpty) {
-                      return Text(t(language, 'no_prayer_journal'));
+                      return Text(widget.session == null
+                          ? AppStrings.of(language, 'login_required')
+                          : t(language, 'no_prayer_journal'));
                     }
                     return Column(
                       children: [
@@ -333,17 +300,31 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
             _SectionCard(
               title: t(language, 'bible_search'),
               children: [
-                TextField(controller: _searchController, decoration: InputDecoration(labelText: t(language, 'bible_search_hint')), onSubmitted: (_) => _searchBible()),
-                const SizedBox(height: 12),
-                FilledButton(onPressed: _searchBible, child: Text(t(language, 'search_bible'))),
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    labelText: t(language, 'bible_search_hint'),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.search_rounded),
+                      onPressed: _searchBible,
+                    ),
+                  ),
+                  onSubmitted: (_) => _searchBible(),
+                ),
                 const SizedBox(height: 16),
                 FutureBuilder<List<BibleSearchResultItem>>(
                   future: _searchFuture,
                   builder: (context, snapshot) {
-                    final items = snapshot.data ?? const <BibleSearchResultItem>[];
                     if (_searchFuture == null) {
-                      return Text(t(language, 'bible_search_hint'));
+                      return Text(_t('Search for a verse, note or plan.', 'ጥቅስ፣ ማስታወሻ ወይም እቅድ ይፈልጉ።'));
                     }
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    final items = snapshot.data ?? const <BibleSearchResultItem>[];
                     if (items.isEmpty) {
                       return Text(t(language, 'no_search_results'));
                     }
@@ -365,6 +346,192 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
               _StatusBanner(message: _status),
             ],
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _upcomingEvents() {
+    return FutureBuilder<List<EventItem>>(
+      future: _eventsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final now = DateTime.now().subtract(const Duration(hours: 6));
+        final upcoming = (snapshot.data ?? const <EventItem>[])
+            .where((event) {
+              final starts = DateTime.tryParse(event.startsAt);
+              return starts != null && starts.isAfter(now);
+            })
+            .toList()
+          ..sort((a, b) => a.startsAt.compareTo(b.startsAt));
+        if (upcoming.isEmpty) {
+          return Text(_t('No upcoming events yet — check back soon!', 'እስካሁን መጪ ዝግጅት የለም — በቅርቡ ይመለሱ!'));
+        }
+        return SizedBox(
+          height: 148,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: upcoming.length.clamp(0, 8),
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, i) => _EventRailCard(
+              event: upcoming[i],
+              en: _en,
+              onTap: () => _openEvent(upcoming[i]),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _opportunitiesTeaser() {
+    return FutureBuilder<List<OpportunityItem>>(
+      future: _opportunitiesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final items = snapshot.data ?? const <OpportunityItem>[];
+        if (items.isEmpty) {
+          return Text(_t('No open opportunities right now.', 'አሁን ክፍት እድል የለም።'));
+        }
+        return Column(
+          children: [
+            for (final item in items.take(3))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _OpportunityCard(item: item, en: _en, onTap: _openOpportunities),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _EventRailCard extends StatelessWidget {
+  const _EventRailCard({required this.event, required this.en, required this.onTap});
+
+  final EventItem event;
+  final bool en;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 236,
+      child: Material(
+        color: colors.surfaceContainerHighest.withValues(alpha: .4),
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    friendlyDateTime(event.startsAt),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: colors.onPrimaryContainer),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(event.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                const Spacer(),
+                Row(children: [
+                  Icon(Icons.place_rounded, size: 14, color: colors.onSurfaceVariant),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(event.location,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12.5, color: colors.onSurfaceVariant)),
+                  ),
+                  Icon(Icons.arrow_forward_rounded, size: 16, color: colors.primary),
+                ]),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OpportunityCard extends StatelessWidget {
+  const _OpportunityCard({required this.item, required this.en, required this.onTap});
+
+  final OpportunityItem item;
+  final bool en;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final deadline = item.deadline.isEmpty ? '' : friendlyDate(item.deadline);
+    return Material(
+      color: colors.surfaceContainerHighest.withValues(alpha: .4),
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                  color: colors.tertiaryContainer,
+                  borderRadius: BorderRadius.circular(14)),
+              child: Icon(Icons.volunteer_activism_rounded,
+                  color: colors.onTertiaryContainer, size: 21),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    item.organization,
+                    if (deadline.isNotEmpty) (en ? 'by $deadline' : 'እስከ $deadline'),
+                  ].where((s) => s.isNotEmpty).join(' • '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12.5, color: colors.onSurfaceVariant),
+                ),
+              ]),
+            ),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: colors.onSurfaceVariant),
+          ]),
         ),
       ),
     );
@@ -399,10 +566,11 @@ class _HubHeader extends StatelessWidget {
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.children});
+  const _SectionCard({required this.title, required this.children, this.trailing});
 
   final String title;
   final List<Widget> children;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -412,7 +580,12 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium),
+            Row(children: [
+              Expanded(
+                child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium),
+              ),
+              if (trailing != null) trailing!,
+            ]),
             const SizedBox(height: 12),
             ...children,
           ],
@@ -435,6 +608,12 @@ class _AnnouncementCard extends StatelessWidget {
       'low' => const Color(0xFF2E7D32),
       _ => const Color(0xFF455A64),
     };
+    final t = AppStrings.of;
+    final priorityLabel = switch (item.priority) {
+      'high' => t(language, 'high'),
+      'low' => t(language, 'low'),
+      _ => t(language, 'normal'),
+    };
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -448,7 +627,12 @@ class _AnnouncementCard extends StatelessWidget {
           Row(
             children: [
               Expanded(child: Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall)),
-              Chip(label: Text(item.priority, maxLines: 1, overflow: TextOverflow.ellipsis), side: BorderSide(color: color.withValues(alpha: 0.3))),
+              Chip(
+                label: Text(priorityLabel, maxLines: 1, overflow: TextOverflow.ellipsis),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                side: BorderSide(color: color.withValues(alpha: 0.3)),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -481,7 +665,15 @@ class _JournalCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
+          Row(children: [
+            Icon(item.answered ? Icons.check_circle_rounded : Icons.favorite_rounded,
+                size: 17,
+                color: item.answered ? const Color(0xFF2E7D32) : const Color(0xFF6A1B9A)),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
+            ),
+          ]),
           const SizedBox(height: 6),
           Text(item.body, maxLines: 3, overflow: TextOverflow.ellipsis),
           if (item.answer != null && item.answer!.isNotEmpty) ...[

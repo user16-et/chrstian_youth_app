@@ -866,21 +866,6 @@ class ApiClient {
         .toList();
   }
 
-  Future<ChurchAnnouncementItem> createChurchAnnouncement({
-    required String token,
-    required String churchId,
-    required String title,
-    required String body,
-    String priority = 'normal',
-  }) async {
-    final response = await _postJson(
-      '/churches/$churchId/announcements',
-      {'title': title, 'body': body, 'priority': priority},
-      headers: {'Authorization': 'Bearer $token'},
-    );
-    return ChurchAnnouncementItem.fromJson(response as Map<String, dynamic>);
-  }
-
   Future<PrayerRequestItem> createPrayerRequest({
     required String token,
     required String title,

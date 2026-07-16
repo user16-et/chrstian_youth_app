@@ -230,7 +230,7 @@ class AppStrings {
           'Events, chat, prayer, stories, mentorship, giving, and account access.',
       'youth_hub': 'Youth hub',
       'youth_hub_subtitle':
-          'Creative space for announcements, prayer journaling, and Bible search.',
+          'Gatherings, announcements, ways to serve, your prayer journal and Bible search — all in one place.',
       'youth_journey': 'Youth journey',
       'youth_journey_subtitle':
           'A guided path through Bible, church, friendships, prayer, calling, and discipleship.',
@@ -641,7 +641,7 @@ class AppStrings {
       'note_deleted': 'ማስታወሻ ተሰርዟል',
       'more_subtitle': 'ዝግጅቶች፣ ውይይት፣ ጸሎት፣ ምስክርነቶች፣ ምክር፣ መስጠት እና የመለያ መዳረሻ።',
       'youth_hub': 'የወጣቶች ማዕከል',
-      'youth_hub_subtitle': 'ለማሳወቂያዎች፣ የጸሎት መዝገብ እና የመጽሐፍ ቅዱስ ፍለጋ የፈጠራ ቦታ።',
+      'youth_hub_subtitle': 'ስብሰባዎች፣ ማስታወቂያዎች፣ የአገልግሎት እድሎች፣ የጸሎት መዝገብዎ እና የመጽሐፍ ቅዱስ ፍለጋ — ሁሉም በአንድ ቦታ።',
       'youth_journey': 'የወጣቶች ጉዞ',
       'youth_journey_subtitle':
           'መጽሐፍ ቅዱስ፣ ቤተ ክርስቲያን፣ ጓደኝነት፣ ጸሎት፣ ጥሪ እና ዲሲፕሊን የሚያገኙበት የመመሪያ ጉዞ።',
