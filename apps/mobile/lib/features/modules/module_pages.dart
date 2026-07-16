@@ -8049,68 +8049,22 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
     );
   }
 
-  Widget _managedMinistryContent(Map<String, dynamic> profile) {
-    final specs = <String, (String, IconData)>{
-      'announcements': ('Announcements', Icons.campaign_rounded),
-      'schedules': ('Schedules', Icons.schedule_rounded),
-      'events': ('Events', Icons.event_rounded),
-      'posts': ('Posts', Icons.dynamic_feed_rounded),
-      'resources': ('Resources', Icons.folder_rounded),
-      'volunteerOpportunities': (
-        'Volunteer needs',
-        Icons.volunteer_activism_rounded
-      ),
-      'tasks': ('Tasks', Icons.task_alt_rounded),
-    };
-    final children = <Widget>[];
-    for (final entry in specs.entries) {
-      final routeSection = entry.key == 'volunteerOpportunities'
-          ? 'volunteer-opportunities'
-          : entry.key;
-      final items = (profile[entry.key] as List<dynamic>? ?? const [])
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
-      if (items.isEmpty) continue;
-      children.add(Padding(
-        padding: const EdgeInsets.only(top: 10, bottom: 4),
-        child: Text(entry.value.$1,
-            style: Theme.of(context).textTheme.titleMedium),
-      ));
-      children.addAll(items.take(6).map((item) => Card(
-            child: ListTile(
-              leading: Icon(entry.value.$2),
-              title: Text(_ministryItemTitle(item),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                item['description']?.toString() ??
-                    item['body']?.toString() ??
-                    '',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Wrap(spacing: 2, children: [
-                IconButton(
-                  tooltip: 'Edit',
-                  onPressed: _busy
-                      ? null
-                      : () => _editMinistryContent(routeSection, item),
-                  icon: const Icon(Icons.edit_rounded),
-                ),
-                IconButton(
-                  tooltip: 'Delete',
-                  onPressed: _busy
-                      ? null
-                      : () => _deleteMinistryContent(routeSection, item),
-                  icon: const Icon(Icons.delete_outline_rounded),
-                ),
-              ]),
-            ),
-          )));
-    }
-    if (children.isEmpty) return const Text('No managed ministry content yet.');
-    return Column(
-        crossAxisAlignment: CrossAxisAlignment.start, children: children);
+  // Inline Edit/Delete menu shown at the end of a managed content row so
+  // leaders manage each item where it is displayed (no separate manage list).
+  Widget _ministryManageMenu(String section, Map<String, dynamic> item) {
+    return PopupMenuButton<String>(
+      tooltip: 'Manage',
+      icon: const Icon(Icons.more_vert_rounded),
+      enabled: !_busy,
+      onSelected: (value) {
+        if (value == 'edit') _editMinistryContent(section, item);
+        if (value == 'delete') _deleteMinistryContent(section, item);
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: 'edit', child: Text('Edit')),
+        PopupMenuItem(value: 'delete', child: Text('Delete')),
+      ],
+    );
   }
 
   Future<void> _openMinistryManager() async {
@@ -8387,15 +8341,14 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                     ],
                     if (canManage) ...[
                       const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: _busy ? null : _openMinistryManager,
-                        icon: const Icon(Icons.dashboard_customize_rounded),
-                        label: const Text('Open leader dashboard'),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _busy ? null : _openMinistryManager,
+                          icon: const Icon(Icons.dashboard_customize_rounded),
+                          label: const Text('Open leader dashboard'),
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      Text('Manage ministry content',
-                          style: Theme.of(context).textTheme.titleLarge),
-                      _managedMinistryContent(profile),
                     ],
                   ],
                 ),
@@ -8408,7 +8361,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                       return _ListTileRow(
                           icon: Icons.campaign_rounded,
                           title: item['title']?.toString() ?? '',
-                          subtitle: item['body']?.toString() ?? '');
+                          subtitle: item['body']?.toString() ?? '',
+                          trailing: canManage
+                              ? _ministryManageMenu('announcements', item)
+                              : null);
                     }),
                     ...profileList('schedules').take(3).map((raw) {
                       final item = raw as Map<String, dynamic>;
@@ -8416,7 +8372,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                           icon: Icons.schedule_rounded,
                           title: item['title']?.toString() ?? '',
                           subtitle:
-                              '${item['day_of_week'] ?? ''} • ${item['start_time'] ?? ''} - ${item['end_time'] ?? ''}');
+                              '${item['day_of_week'] ?? ''} • ${item['start_time'] ?? ''} - ${item['end_time'] ?? ''}',
+                          trailing: canManage
+                              ? _ministryManageMenu('schedules', item)
+                              : null);
                     }),
                     if (profileList('announcements').isEmpty &&
                         profileList('schedules').isEmpty)
@@ -8436,7 +8395,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                           title: item['title']?.toString() ?? '',
                           subtitle: [item['location']?.toString() ?? '', when]
                               .where((s) => s.isNotEmpty)
-                              .join(' • '));
+                              .join(' • '),
+                          trailing: canManage
+                              ? _ministryManageMenu('events', item)
+                              : null);
                     }),
                     ...profileList('posts').take(3).map((raw) {
                       final item = raw as Map<String, dynamic>;
@@ -8444,7 +8406,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                           icon: Icons.dynamic_feed_rounded,
                           title:
                               item['authorName']?.toString() ?? 'Ministry post',
-                          subtitle: item['body']?.toString() ?? '');
+                          subtitle: item['body']?.toString() ?? '',
+                          trailing: canManage
+                              ? _ministryManageMenu('posts', item)
+                              : null);
                     }),
                     ...profileList('volunteerOpportunities').take(3).map((raw) {
                       final item = raw as Map<String, dynamic>;
@@ -8452,7 +8417,11 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                           icon: Icons.volunteer_activism_rounded,
                           title: item['title']?.toString() ?? '',
                           subtitle:
-                              '${item['approvedCount'] ?? 0}/${item['needed_count'] ?? 1} volunteers approved');
+                              '${item['approvedCount'] ?? 0}/${item['needed_count'] ?? 1} volunteers approved',
+                          trailing: canManage
+                              ? _ministryManageMenu(
+                                  'volunteer-opportunities', item)
+                              : null);
                     }),
                     if (profileList('events').isEmpty &&
                         profileList('posts').isEmpty &&
@@ -8525,6 +8494,12 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                               title: task.title,
                               subtitle:
                                   '${task.assigneeName ?? task.assigneeId ?? AppStrings.of(language, 'not_ready')} • ${task.status}',
+                              trailing: canManage
+                                  ? _ministryManageMenu('tasks', {
+                                      'id': task.id,
+                                      'title': task.title,
+                                    })
+                                  : null,
                             ),
                           )),
                   ],
@@ -8554,6 +8529,13 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                                     icon: Icons.link_rounded,
                                     title: resource.title,
                                     subtitle: resource.url,
+                                    trailing: canManage
+                                        ? _ministryManageMenu('resources', {
+                                            'id': resource.id,
+                                            'title': resource.title,
+                                            'url': resource.url,
+                                          })
+                                        : null,
                                   ),
                                 ),
                             ],
@@ -12191,12 +12173,14 @@ class _ListTileRow extends StatelessWidget {
       {required this.icon,
       required this.title,
       required this.subtitle,
-      this.onTap});
+      this.onTap,
+      this.trailing});
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -12219,10 +12203,11 @@ class _ListTileRow extends StatelessWidget {
             child: Icon(icon, color: Colors.white, size: 21)),
         title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
         subtitle: Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis),
-        trailing: onTap == null
-            ? null
-            : Icon(Icons.arrow_outward_rounded,
-                size: 19, color: colors.secondary),
+        trailing: trailing ??
+            (onTap == null
+                ? null
+                : Icon(Icons.arrow_outward_rounded,
+                    size: 19, color: colors.secondary)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         onTap: onTap,
       ),
