@@ -148,7 +148,8 @@ class SuperAppHome extends StatelessWidget {
                   child: _Hero(
                       en: en,
                       name: session?.user.fullName,
-                      onExplore: onOpenExplore)),
+                      onExplore: onOpenExplore,
+                      onOpenBible: onOpenBible)),
               const SizedBox(height: 16),
               Row(children: [
                 Expanded(
@@ -826,81 +827,137 @@ class _Reveal extends StatelessWidget {
 }
 
 class _Hero extends StatelessWidget {
-  const _Hero({required this.en, required this.name, required this.onExplore});
+  const _Hero({
+    required this.en,
+    required this.name,
+    required this.onExplore,
+    required this.onOpenBible,
+  });
   final bool en;
   final String? name;
   final VoidCallback onExplore;
+  final VoidCallback onOpenBible;
+
+  // One short spark per weekday so the hero feels alive without a network call.
+  static const _sparksEn = [
+    'His mercies are new this morning.', // Mon
+    'Walk by faith, not by sight.',
+    'You are the light of the world.',
+    'Be strong and courageous today.',
+    'Let everything praise the Lord!',
+    'Rest in Him — He holds tomorrow.',
+    'This is the day the Lord has made.', // Sun
+  ];
+  static const _sparksAm = [
+    'ምሕረቱ በዚህ ጠዋት አዲስ ነው።',
+    'በእምነት እንጂ በማየት አንመላለስም።',
+    'እናንተ የዓለም ብርሃን ናችሁ።',
+    'ዛሬ ጠንካራና ደፋር ሁን።',
+    'ሁሉ እግዚአብሔርን ያመስግን!',
+    'በእርሱ ዕረፍ — ነገን እርሱ ይይዛል።',
+    'ይህች እግዚአብሔር የሠራት ቀን ናት።',
+  ];
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
     final firstName =
         name == null || name!.isEmpty ? '' : name!.split(' ').first;
+    final hour = now.hour;
+    final timeGreeting = hour < 12
+        ? (en ? 'Good morning' : 'እንደምን አደርክ')
+        : hour < 18
+            ? (en ? 'Good afternoon' : 'እንደምን ዋልክ')
+            : (en ? 'Good evening' : 'እንደምን አመሸህ');
     final greeting = firstName.isEmpty
-        ? (en ? 'Welcome home.' : 'እንኳን ደህና መጡ።')
-        : (en ? 'Peace, $firstName.' : 'ሰላም፣ $firstName።');
+        ? (en ? '$timeGreeting!' : '$timeGreeting!')
+        : '$timeGreeting, $firstName';
+    final spark = (en ? _sparksEn : _sparksAm)[(now.weekday - 1) % 7];
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    final dateChip = '${days[now.weekday - 1]} · ${months[now.month - 1]} ${now.day}';
     return Container(
-      constraints: const BoxConstraints(minHeight: 270),
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(34),
+        borderRadius: BorderRadius.circular(32),
         gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF102F25), Color(0xFF23664D)]),
+            colors: [Color(0xFF06342C), Color(0xFF0E7C6B)]),
         boxShadow: const [
           BoxShadow(
-              color: Color(0x3312372A), blurRadius: 32, offset: Offset(0, 16))
+              color: Color(0x2E06342C), blurRadius: 28, offset: Offset(0, 14))
         ],
       ),
-      child: Stack(children: [
-        const Positioned(
-            right: 30,
-            bottom: 28,
-            child: Icon(Icons.auto_awesome_rounded,
-                color: Color(0x44FFD98A), size: 82)),
+      child: Stack(clipBehavior: Clip.none, children: [
+        // Warm sunrise glow bleeding in from the corner.
         Positioned(
-            right: -25,
-            top: -40,
+            right: -60,
+            bottom: -70,
             child: Container(
-                width: 175,
-                height: 175,
+                width: 220,
+                height: 220,
                 decoration: const BoxDecoration(
-                    shape: BoxShape.circle, color: Color(0x26D6A84B)))),
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    Color(0x66F4A23B),
+                    Color(0x00F4A23B),
+                  ]),
+                ))),
+        const Positioned(
+            right: 2,
+            top: 2,
+            child: Icon(Icons.auto_awesome_rounded,
+                color: Color(0x59FFD98A), size: 34)),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .12),
+                color: Colors.white.withValues(alpha: .13),
                 borderRadius: BorderRadius.circular(99)),
-            child: Text(en ? 'CHRISTIAN SUPER APP' : 'የክርስቲያን ሱፐር አፕ',
+            child: Text(dateChip,
                 style: const TextStyle(
                     color: Color(0xFFFFD98A),
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 1.1)),
+                    letterSpacing: 1.4)),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Text(greeting,
               style: Theme.of(context)
                   .textTheme
-                  .displayMedium
-                  ?.copyWith(color: Colors.white, fontSize: 39)),
-          const SizedBox(height: 10),
-          Text(
-              en
-                  ? 'A digital home for worship, Scripture, friendship, service and purpose.'
-                  : 'ለአምልኮ፣ ለቃል፣ ለወዳጅነት፣ ለአገልግሎት እና ለዓላማ ዲጂታል ቤት።',
+                  .displaySmall
+                  ?.copyWith(color: Colors.white, fontSize: 30)),
+          const SizedBox(height: 8),
+          Text('“$spark”',
               style: const TextStyle(
-                  color: Colors.white70, fontSize: 16, height: 1.5)),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.gold,
-                foregroundColor: AppTheme.forest),
-            onPressed: onExplore,
-            icon: const Icon(Icons.explore_rounded),
-            label: Text(en ? 'Explore the ecosystem' : 'ሙሉ ሥርዓቱን ያስሱ'),
-          ),
+                  color: Color(0xFFD9EFE7),
+                  fontSize: 16,
+                  fontStyle: FontStyle.italic,
+                  height: 1.45)),
+          const SizedBox(height: 20),
+          Wrap(spacing: 10, runSpacing: 10, children: [
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.gold,
+                  foregroundColor: const Color(0xFF3A2A10),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 18, vertical: 13)),
+              onPressed: onOpenBible,
+              icon: const Icon(Icons.menu_book_rounded, size: 19),
+              label: Text(en ? "Today's Word" : 'የዛሬው ቃል'),
+            ),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(color: Colors.white.withValues(alpha: .45)),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 18, vertical: 13)),
+              onPressed: onExplore,
+              icon: const Icon(Icons.explore_rounded, size: 19),
+              label: Text(en ? 'Explore' : 'ያስሱ'),
+            ),
+          ]),
         ]),
       ]),
     );
@@ -919,37 +976,55 @@ class _Quick extends StatelessWidget {
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            color.withValues(alpha: .16),
-            colors.surfaceContainerHighest.withValues(alpha: .75),
-          ],
-        ),
-        border: Border.all(color: color.withValues(alpha: .18)),
+        borderRadius: BorderRadius.circular(26),
+        color: dark
+            ? color.withValues(alpha: .16)
+            : Color.lerp(color, Colors.white, .88),
+        border: Border.all(color: color.withValues(alpha: dark ? .38 : .22)),
+        boxShadow: dark
+            ? null
+            : [
+                BoxShadow(
+                    color: color.withValues(alpha: .14),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8))
+              ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(26),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 17, horizontal: 8),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
             child: Column(children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 46,
+                height: 46,
                 decoration: BoxDecoration(
-                    color: color, borderRadius: BorderRadius.circular(14)),
-                child: Icon(icon, color: Colors.white, size: 21),
+                    gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color.lerp(color, Colors.white, .18)!,
+                          Color.lerp(color, Colors.black, .22)!,
+                        ]),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                          color: color.withValues(alpha: .35),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5))
+                    ]),
+                child: Icon(icon, color: Colors.white, size: 22),
               ),
-              const SizedBox(height: 8),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w900))
+              const SizedBox(height: 9),
+              Text(title,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 13.5))
             ]),
           ),
         ),

@@ -337,7 +337,13 @@ class _GlowOrb extends StatelessWidget {
         width: size,
         height: size,
         decoration: BoxDecoration(
-            shape: BoxShape.circle, color: color.withValues(alpha: .16)),
+          shape: BoxShape.circle,
+          // A soft ambient glow that fades out, not a hard-edged disc.
+          gradient: RadialGradient(colors: [
+            color.withValues(alpha: .22),
+            color.withValues(alpha: 0),
+          ]),
+        ),
       ));
 }
 
