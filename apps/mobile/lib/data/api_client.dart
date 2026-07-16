@@ -21,8 +21,8 @@ class ApiClient {
       fetchSummary(),
       fetchFeed(token: token),
       fetchChurches(),
-      fetchGroups(),
-      fetchEvents(),
+      fetchGroups(token: token),
+      fetchEvents(token: token),
     ]);
 
     return DashboardSnapshot(
@@ -719,8 +719,8 @@ class ApiClient {
     return _deleteJson('/groups/$groupId/resources/$resourceId', headers: {'Authorization': 'Bearer $token'});
   }
 
-  Future<List<EventItem>> fetchEvents() async {
-    final response = await _getJson('/events');
+  Future<List<EventItem>> fetchEvents({String? token}) async {
+    final response = await _getJson('/events', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(EventItem.fromJson)
@@ -748,9 +748,10 @@ class ApiClient {
     return (response as Map<String, dynamic>);
   }
 
-  Future<List<EventRegistrationItem>> fetchEventRegistrations(
-      String eventId) async {
-    final response = await _getJson('/events/$eventId/registrations');
+  Future<List<EventRegistrationItem>> fetchEventRegistrations(String eventId,
+      {String? token}) async {
+    final response = await _getJson('/events/$eventId/registrations',
+        headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(EventRegistrationItem.fromJson)

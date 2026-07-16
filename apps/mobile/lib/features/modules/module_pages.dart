@@ -5053,14 +5053,15 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _registrationsFuture =
-        widget.apiClient.fetchEventRegistrations(widget.event.id);
+    _registrationsFuture = widget.apiClient
+        .fetchEventRegistrations(widget.event.id, token: widget.session?.token);
     _detailFuture = widget.apiClient
         .fetchEventDetail(widget.event.id, widget.session?.token);
   }
 
   Future<void> _refresh() async {
-    final future = widget.apiClient.fetchEventRegistrations(widget.event.id);
+    final future = widget.apiClient
+        .fetchEventRegistrations(widget.event.id, token: widget.session?.token);
     final detailFuture = widget.apiClient
         .fetchEventDetail(widget.event.id, widget.session?.token);
     if (!mounted) {
@@ -5197,7 +5198,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   title: widget.event.title,
                   children: [
                     Text(
-                        '${detail['location'] ?? widget.event.location} • ${detail['startsAt'] ?? widget.event.startsAt}',
+                        '${detail['location'] ?? widget.event.location} • ${_friendlyDateTime('${detail['startsAt'] ?? widget.event.startsAt}')}',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 12),
@@ -5307,7 +5308,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                                   title: registration.userFullName,
                                   subtitle: registration.checkedInAt == null
                                       ? AppStrings.of(language, 'registered')
-                                      : '${AppStrings.of(language, 'checked_in')} • ${registration.checkedInAt}',
+                                      : '${AppStrings.of(language, 'checked_in')} • ${_friendlyDateTime('${registration.checkedInAt}')}',
                                 ),
                               ),
                           ],
@@ -5356,7 +5357,7 @@ class _EventDiscoveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SectionCard(title: event.title, children: [
-      Text('${event.location} • ${event.startsAt}',
+      Text('${event.location} • ${_friendlyDateTime(event.startsAt)}',
           maxLines: 2, overflow: TextOverflow.ellipsis),
       const SizedBox(height: 8),
       Text(
@@ -5411,7 +5412,7 @@ class _EventDetailCollections extends StatelessWidget {
           'sessions',
           Icons.schedule_rounded,
           (x) => x['title'] ?? '',
-          (x) => '${x['starts_at'] ?? x['startsAt'] ?? ''}'),
+          (x) => _friendlyDateTime('${x['starts_at'] ?? x['startsAt'] ?? ''}')),
       const SizedBox(height: 12),
       _list(
           en ? 'Speakers' : 'ተናጋሪዎች',
@@ -5887,7 +5888,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               items: items('events'),
               titleOf: (x) => '${x['title'] ?? ''}',
               subtitleOf: (x) =>
-                  '${x['status'] ?? ''} • ${x['checkedInAt'] ?? x['startsAt'] ?? ''}'),
+                  '${x['status'] ?? ''} • ${_friendlyDateTime('${x['checkedInAt'] ?? x['startsAt'] ?? ''}')}'),
           const SizedBox(height: 16),
           _ProfileGrid(
               title: en ? 'Volunteer profile' : 'የበፈቃድ አገልግሎት መገለጫ',
@@ -7417,9 +7418,9 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   }
 }
 
-// Friendly date for ministry activity (e.g. "Jun 22, 2026 · 4:29 PM", or just
-// the date when there is no time). Falls back to the raw value if unparseable.
-String _ministryDate(String raw) {
+// Friendly date-time (e.g. "Jun 22, 2026 · 4:29 PM", or just the date when
+// there is no time). Falls back to the raw value if unparseable.
+String _friendlyDateTime(String raw) {
   final dt = DateTime.tryParse(raw)?.toLocal();
   if (dt == null) return raw.trim();
   const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -8396,7 +8397,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                   children: [
                     ...profileList('events').take(3).map((raw) {
                       final item = raw as Map<String, dynamic>;
-                      final when = _ministryDate(
+                      final when = _friendlyDateTime(
                           '${item['starts_at'] ?? item['startsAt'] ?? ''}');
                       return _ListTileRow(
                           icon: Icons.event_rounded,
@@ -8462,7 +8463,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                                     icon: Icons.person_rounded,
                                     title: member.userFullName,
                                     subtitle:
-                                        '${member.role} • ${_ministryDate(member.joinedAt)}',
+                                        '${member.role} • ${_friendlyDateTime(member.joinedAt)}',
                                   ),
                                 ),
                             ],
@@ -8581,7 +8582,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                                   child: _ListTileRow(
                                     icon: Icons.how_to_reg_rounded,
                                     title: record.userName,
-                                    subtitle: _ministryDate(record.attendedOn),
+                                    subtitle: _friendlyDateTime(record.attendedOn),
                                   ),
                                 ),
                             ],
@@ -11008,7 +11009,7 @@ class _RelationshipEcosystemPanelState
                   icon: Icons.event_available_rounded,
                   title: '${item['title'] ?? ''}',
                   subtitle:
-                      '${item['location'] ?? ''} • ${item['startsAt'] ?? ''}'),
+                      '${item['location'] ?? ''} • ${_friendlyDateTime('${item['startsAt'] ?? ''}')}'),
           ]),
     ]);
   }

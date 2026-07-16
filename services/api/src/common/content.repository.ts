@@ -4024,8 +4024,8 @@ export class ContentRepository implements OnModuleInit {
       id: String(row.id),
       title: String(row.title),
       location: String(row.location),
-      startsAt: String(row.starts_at),
-      createdAt: String(row.created_at),
+      startsAt: this.iso(row.starts_at),
+      createdAt: this.iso(row.created_at),
     };
   }
 
@@ -4034,8 +4034,8 @@ export class ContentRepository implements OnModuleInit {
       eventId: String(row.event_id),
       userId: String(row.user_id),
       userFullName: String(row.user_full_name),
-      checkedInAt: row.checked_in_at ? String(row.checked_in_at) : null,
-      createdAt: String(row.created_at),
+      checkedInAt: row.checked_in_at ? this.iso(row.checked_in_at) : null,
+      createdAt: this.iso(row.created_at),
     };
   }
 
