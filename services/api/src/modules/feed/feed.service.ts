@@ -84,7 +84,12 @@ export class FeedService {
     if (!cursor) return undefined;
     try {
       const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<FeedCursor>;
-      return parsed.createdAt && parsed.id ? { createdAt: parsed.createdAt, id: parsed.id } : undefined;
+      if (!parsed.createdAt || !parsed.id) return undefined;
+      // Normalize to ISO: legacy cursors carried a JS locale date string that
+      // Postgres cannot parse ("GMT+0300 (East Africa Time)").
+      const at = new Date(parsed.createdAt);
+      if (Number.isNaN(at.getTime())) return undefined;
+      return { createdAt: at.toISOString(), id: parsed.id };
     } catch {
       return undefined;
     }

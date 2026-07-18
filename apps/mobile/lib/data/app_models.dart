@@ -1755,6 +1755,13 @@ class ChatMessageItem {
   }
 }
 
+/// One page of the community feed plus the cursor to fetch the next page.
+class FeedPage {
+  const FeedPage({required this.items, required this.nextCursor});
+  final List<FeedItem> items;
+  final String? nextCursor;
+}
+
 class FeedItem {
   const FeedItem({
     required this.id,

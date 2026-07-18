@@ -59,6 +59,20 @@ class ApiClient {
     return items.cast<Map<String, dynamic>>().map(FeedItem.fromJson).toList();
   }
 
+  /// One page of the feed with the cursor for the next one (infinite scroll).
+  Future<FeedPage> fetchFeedPage(
+      {String? token, String? cursor, int limit = 20}) async {
+    final query = '?limit=$limit'
+        '${cursor == null || cursor.isEmpty ? '' : '&cursor=${Uri.encodeQueryComponent(cursor)}'}';
+    final response = await _getJson('/feed$query', headers: _bearer(token));
+    final map = response as Map<String, dynamic>;
+    final items = (map['items'] as List<dynamic>? ?? const <dynamic>[])
+        .cast<Map<String, dynamic>>()
+        .map(FeedItem.fromJson)
+        .toList();
+    return FeedPage(items: items, nextCursor: map['nextCursor'] as String?);
+  }
+
   Future<FeedItem> fetchPostById(String postId, {String? token}) async {
     final response = await _getJson('/posts/$postId',
         headers: token == null || token.isEmpty ? const {} : {'Authorization': 'Bearer $token'});

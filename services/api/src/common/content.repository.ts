@@ -1296,7 +1296,7 @@ export class ContentRepository implements OnModuleInit {
        LIMIT $5`,
       values,
     );
-    return result.rows.map((row) => ({ post: this.mapPostView(row), cursor: { createdAt: String(row.feed_created_at), id: String(row.feed_event_id) } }));
+    return result.rows.map((row) => ({ post: this.mapPostView(row), cursor: { createdAt: this.iso(row.feed_created_at), id: String(row.feed_event_id) } }));
   }
 
   async hasFeedEvents(userId: string) {
@@ -1326,7 +1326,7 @@ export class ContentRepository implements OnModuleInit {
        LIMIT $4`,
       [input.language ?? null, input.cursor?.createdAt ?? null, input.cursor?.id ?? null, input.limit + 1, input.viewerId ?? null],
     );
-    return result.rows.map((row) => ({ post: this.mapPostView(row), cursor: { createdAt: String(row.feed_created_at), id: String(row.id) } }));
+    return result.rows.map((row) => ({ post: this.mapPostView(row), cursor: { createdAt: this.iso(row.feed_created_at), id: String(row.id) } }));
   }
 
   async getPostById(postId: string, viewerId?: string) {

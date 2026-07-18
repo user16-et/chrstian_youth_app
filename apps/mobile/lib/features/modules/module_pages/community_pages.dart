@@ -63,6 +63,72 @@ class _FeedScreenState extends State<FeedScreen> {
   String _status = '';
   // Inline optimistic like/share overrides, keyed by post id, cleared on refresh.
   final Map<String, FeedItem> _feedOverrides = {};
+  // Infinite scroll: cursor-paged feed replaces the dashboard's single page
+  // once loaded; more pages append as the user nears the bottom.
+  final ScrollController _feedScroll = ScrollController();
+  List<FeedItem>? _pagedFeed;
+  String? _nextCursor;
+  bool _loadingMore = false;
+  bool _pagesInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _feedScroll.addListener(_maybeLoadMore);
+    _loadFirstFeedPage();
+  }
+
+  @override
+  void didUpdateWidget(covariant FeedScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Signing in/out changes likedByMe/savedByMe — refetch from page one.
+    if (oldWidget.session?.token != widget.session?.token) _loadFirstFeedPage();
+  }
+
+  Future<void> _loadFirstFeedPage() async {
+    try {
+      final page = await widget.apiClient
+          .fetchFeedPage(token: widget.session?.token, limit: 20);
+      if (!mounted) return;
+      setState(() {
+        _pagedFeed = page.items;
+        _nextCursor = page.nextCursor;
+        _pagesInitialized = true;
+      });
+    } catch (_) {
+      // Keep the dashboard snapshot as the fallback page.
+      if (mounted) setState(() => _pagesInitialized = true);
+    }
+  }
+
+  void _maybeLoadMore() {
+    if (!_feedScroll.hasClients || _loadingMore || _nextCursor == null) return;
+    if (_feedScroll.position.extentAfter > 500) return;
+    _loadMoreFeed();
+  }
+
+  Future<void> _loadMoreFeed() async {
+    final cursor = _nextCursor;
+    if (cursor == null || _loadingMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final page = await widget.apiClient.fetchFeedPage(
+          token: widget.session?.token, cursor: cursor, limit: 20);
+      if (!mounted) return;
+      setState(() {
+        final seen = {...?_pagedFeed?.map((item) => item.id)};
+        _pagedFeed = [
+          ...?_pagedFeed,
+          ...page.items.where((item) => !seen.contains(item.id)),
+        ];
+        _nextCursor = page.nextCursor;
+      });
+    } catch (_) {
+      // A failed page load is retried the next time the user scrolls.
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
 
   FeedItem _effective(FeedItem item) => _feedOverrides[item.id] ?? item;
 
@@ -193,6 +259,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   @override
   void dispose() {
+    _feedScroll.dispose();
     _postBodyController.dispose();
     _mediaUrlController.dispose();
     _pollQuestionController.dispose();
@@ -342,7 +409,8 @@ class _FeedScreenState extends State<FeedScreen> {
     return FutureBuilder<DashboardSnapshot>(
       future: widget.snapshotFuture,
       builder: (context, snapshot) {
-        final feed = snapshot.data?.feed ?? const <FeedItem>[];
+        final feed =
+            _pagedFeed ?? snapshot.data?.feed ?? const <FeedItem>[];
         final filteredByLanguage = _languageFilter == 'all'
             ? feed
             : feed.where((item) => item.language == _languageFilter).toList();
@@ -375,9 +443,13 @@ class _FeedScreenState extends State<FeedScreen> {
         return RefreshIndicator(
           onRefresh: () async {
             setState(_feedOverrides.clear);
-            await widget.onDataChanged();
+            await Future.wait([
+              widget.onDataChanged(),
+              _loadFirstFeedPage(),
+            ]);
           },
           child: ListView(
+            controller: _feedScroll,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(20),
             children: [
@@ -882,6 +954,38 @@ class _FeedScreenState extends State<FeedScreen> {
                                         ],
                                       ),
                                     ),
+                                  ),
+                                ),
+                              ),
+                            // Infinite-scroll footer: fetching state, then
+                            // an end-of-feed note once the cursor is done.
+                            if (_loadingMore)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 18),
+                                child: Center(
+                                    child: SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2.4))),
+                              )
+                            else if (_pagesInitialized &&
+                                _nextCursor == null &&
+                                _query.isEmpty &&
+                                !_savedOnly)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                child: Center(
+                                  child: Text(
+                                    widget.language == AppLanguage.english
+                                        ? "You're all caught up 🎉"
+                                        : 'ሁሉንም አይተዋል 🎉',
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                        fontWeight: FontWeight.w600),
                                   ),
                                 ),
                               ),
