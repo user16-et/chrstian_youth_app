@@ -49,6 +49,8 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   final TextEditingController _postBodyController = TextEditingController();
   final TextEditingController _mediaUrlController = TextEditingController();
+  // Photos picked and uploaded through the media pipeline for the next post.
+  final List<String> _pickedMedia = [];
   final TextEditingController _pollQuestionController = TextEditingController();
   final TextEditingController _pollOptionsController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
@@ -199,6 +201,19 @@ class _FeedScreenState extends State<FeedScreen> {
     super.dispose();
   }
 
+  Future<void> _pickPhoto() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(
+          () => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    if (_pickedMedia.length >= 10) return;
+    final url = await pickAndUploadImage(context,
+        apiClient: widget.apiClient, token: token, usage: 'post_media');
+    if (url != null && mounted) setState(() => _pickedMedia.add(url));
+  }
+
   Future<void> _publishPost() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
@@ -209,16 +224,18 @@ class _FeedScreenState extends State<FeedScreen> {
     }
 
     final success = await _runAction(() async {
+      // Picked photos first; the URL field remains for videos/remote media.
+      final urlMedia = _mediaUrlController.text
+          .split(',')
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
       await widget.apiClient.createPost(
         token: token,
         body: _postBodyController.text,
         language: widget.language.code,
         postType: _postType,
-        mediaUrls: _mediaUrlController.text
-            .split(',')
-            .map((value) => value.trim())
-            .where((value) => value.isNotEmpty)
-            .toList(),
+        mediaUrls: [..._pickedMedia, ...urlMedia],
         pollQuestion:
             _postType == 'poll' ? _pollQuestionController.text.trim() : null,
         pollOptions: _pollOptionsController.text
@@ -231,6 +248,7 @@ class _FeedScreenState extends State<FeedScreen> {
       _mediaUrlController.clear();
       _pollQuestionController.clear();
       _pollOptionsController.clear();
+      _pickedMedia.clear();
       await widget.onDataChanged();
     });
 
@@ -403,13 +421,85 @@ class _FeedScreenState extends State<FeedScreen> {
                           onSelected: (_) =>
                               setState(() => _postType = type.$1)),
                   ]),
-                  if (["image", "video", "carousel"].contains(_postType)) ...[
+                  if (["image", "carousel"].contains(_postType)) ...[
+                    const SizedBox(height: 12),
+                    // Real photo uploads through the media pipeline — no URLs.
+                    SizedBox(
+                      height: 84,
+                      child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (var i = 0; i < _pickedMedia.length; i++)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Stack(children: [
+                                  ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.network(_pickedMedia[i],
+                                          width: 84,
+                                          height: 84,
+                                          fit: BoxFit.cover)),
+                                  Positioned(
+                                      top: 2,
+                                      right: 2,
+                                      child: InkWell(
+                                        onTap: () => setState(
+                                            () => _pickedMedia.removeAt(i)),
+                                        child: const CircleAvatar(
+                                            radius: 11,
+                                            backgroundColor: Colors.black54,
+                                            child: Icon(Icons.close_rounded,
+                                                size: 14,
+                                                color: Colors.white)),
+                                      )),
+                                ]),
+                              ),
+                            if (_pickedMedia.length < 10)
+                              InkWell(
+                                onTap: _busy ? null : _pickPhoto,
+                                child: Container(
+                                  width: 84,
+                                  height: 84,
+                                  decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .outline),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerHighest),
+                                  child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.add_a_photo_rounded,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary),
+                                        Text(
+                                            widget.language ==
+                                                    AppLanguage.english
+                                                ? 'Photo'
+                                                : 'ፎቶ',
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary)),
+                                      ]),
+                                ),
+                              ),
+                          ]),
+                    ),
+                  ],
+                  if (_postType == "video") ...[
                     const SizedBox(height: 12),
                     TextField(
                         controller: _mediaUrlController,
                         decoration: const InputDecoration(
-                            labelText: "Media URL(s)",
-                            hintText: "Separate carousel URLs with commas")),
+                            labelText: "Video URL",
+                            hintText: "Link to the video (e.g. YouTube)")),
                   ],
                   if (_postType == "poll") ...[
                     const SizedBox(height: 12),

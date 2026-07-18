@@ -7,6 +7,7 @@ import '../../data/app_models.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 import '../modules/module_pages.dart';
+import '../modules/my_profile_screen.dart';
 import '../modules/platform_pages.dart';
 import '../modules/prayer_growth_pages.dart';
 import '../modules/privacy_security_screen.dart';
@@ -237,6 +238,18 @@ class _AccountPortalState extends State<AccountPortal> {
         ] else ...[
           _AccountActions(
             english: _english,
+            onMyProfile: () => _open(MyProfileScreen(
+              language: widget.language,
+              apiClient: widget.apiClient,
+              session: session,
+              onEditProfile: () => _open(ProfileScreen(
+                language: widget.language,
+                apiClient: widget.apiClient,
+                session: session,
+                onAuthChanged: widget.onAuthChanged,
+                onDataChanged: widget.onDataChanged,
+              )),
+            )),
             onJourney: () => _open(BelieverJourneyScreen(
                 apiClient: widget.apiClient,
                 session: session,
@@ -784,6 +797,7 @@ class _AccountHero extends StatelessWidget {
 class _AccountActions extends StatelessWidget {
   const _AccountActions({
     required this.english,
+    required this.onMyProfile,
     required this.onJourney,
     required this.onConnected,
     required this.onProfile,
@@ -796,6 +810,7 @@ class _AccountActions extends StatelessWidget {
 
   final bool english;
   final VoidCallback onConnected;
+  final VoidCallback onMyProfile;
   final VoidCallback onJourney;
   final VoidCallback onProfile;
   final VoidCallback onMemberships;
@@ -807,6 +822,11 @@ class _AccountActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final actions = [
+      (
+        Icons.account_circle_rounded,
+        english ? 'My profile' : 'የእኔ መገለጫ',
+        onMyProfile
+      ),
       (
         Icons.route_rounded,
         english ? 'My Christian journey' : 'የክርስቲያን ጉዞዬ',
