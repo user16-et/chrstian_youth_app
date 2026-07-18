@@ -61,7 +61,7 @@ export class StoriesRepository {
       `SELECT s.id,s.media_url AS "mediaUrl",s.media_type AS "mediaType",s.caption,s.background,
               s.created_at AS "createdAt",s.expires_at AS "expiresAt",
               EXISTS(SELECT 1 FROM user_story_views v WHERE v.story_id=s.id AND v.viewer_id=$2) AS "viewedByMe",
-              (SELECT count(*)::int FROM user_story_views v WHERE v.story_id=s.id) AS "viewCount"
+              CASE WHEN s.user_id=$2 THEN (SELECT count(*)::int FROM user_story_views v WHERE v.story_id=s.id) END AS "viewCount"
        FROM user_stories s
        WHERE s.user_id=$1 AND s.expires_at>now() AND ${NOT_BLOCKED('$2', 's.user_id')}
        ORDER BY s.created_at`,
