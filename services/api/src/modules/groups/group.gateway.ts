@@ -13,7 +13,7 @@ import { Server, Socket } from 'socket.io';
 import { GroupRealtime } from './group-realtime.service';
 import { GroupsService } from './groups.service';
 
-type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string } } };
+type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string }; authReady?: Promise<void> } };
 
 // Realtime group/channel wall: posts, pins, deletes and typing broadcast to a
 // per-group room so members see the wall update live.
@@ -35,6 +35,11 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
   }
 
   async handleConnection(client: AuthedSocket) {
+    client.data.authReady = this.authenticate(client);
+    await client.data.authReady;
+  }
+
+  private async authenticate(client: AuthedSocket) {
     const token = this.extractToken(client);
     if (!token) {
       client.disconnect(true);
@@ -50,9 +55,16 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
     }
   }
 
+  // A frame can arrive before the async connection auth has finished, so every
+  // handler resolves the user through this gate instead of reading data.user.
+  private async authedUser(client: AuthedSocket) {
+    await client.data.authReady;
+    return client.data.user;
+  }
+
   @SubscribeMessage('join')
   async join(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     if (!user || !id || !(await this.service.memberRole(user.id, id))) {
       return { ok: false, error: 'access_denied' };
@@ -70,7 +82,7 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
 
   @SubscribeMessage('post')
   async post(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     if (!user || !id) return { ok: false, error: 'group_required' };
     try {
@@ -87,7 +99,7 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
 
   @SubscribeMessage('post:delete')
   async delete(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     const postId = String(body?.postId ?? '').trim();
     if (!user || !id || !postId) return { ok: false, error: 'post_required' };
@@ -102,7 +114,7 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
 
   @SubscribeMessage('post:pin')
   async pin(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     const postId = String(body?.postId ?? '').trim();
     if (!user || !id || !postId) return { ok: false, error: 'post_required' };
@@ -118,7 +130,7 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
 
   @SubscribeMessage('poll:create')
   async pollCreate(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     if (!user || !id) return { ok: false, error: 'group_required' };
     try {
@@ -135,7 +147,7 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
 
   @SubscribeMessage('poll:vote')
   async pollVote(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     const pollId = String(body?.pollId ?? '').trim();
     if (!user || !id || !pollId) return { ok: false, error: 'poll_required' };
@@ -157,7 +169,7 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
 
   @SubscribeMessage('poll:close')
   async pollClose(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     const pollId = String(body?.pollId ?? '').trim();
     if (!user || !id || !pollId) return { ok: false, error: 'poll_required' };
@@ -172,7 +184,7 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayInit {
 
   @SubscribeMessage('typing')
   async typing(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.groupId ?? '').trim();
     if (!user || !id || !(await this.service.memberRole(user.id, id))) {
       return { ok: false, error: 'access_denied' };

@@ -15,7 +15,7 @@ import { ConferenceRegistry } from '../../common/conference-registry';
 import { CallService } from './call.service';
 
 type CallUser = { id: string; fullName: string; username: string };
-type AuthedSocket = Socket & { data: { user?: CallUser; conferenceRooms?: Set<string> } };
+type AuthedSocket = Socket & { data: { user?: CallUser; conferenceRooms?: Set<string>; authReady?: Promise<void> } };
 
 /**
  * Signaling for WebRTC calls. This gateway carries invitations, presence, and
@@ -45,6 +45,11 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async handleConnection(client: AuthedSocket) {
+    client.data.authReady = this.authenticate(client);
+    await client.data.authReady;
+  }
+
+  private async authenticate(client: AuthedSocket) {
     const token = this.extractToken(client);
     if (!token) {
       client.disconnect(true);
@@ -60,11 +65,18 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  // A frame can arrive before the async connection auth has finished, so every
+  // handler resolves the user through this gate instead of reading data.user.
+  private async authedUser(client: AuthedSocket) {
+    await client.data.authReady;
+    return client.data.user;
+  }
+
   // ---- 1:1 call invitation / ring lifecycle ----
 
   @SubscribeMessage('call:invite')
   async invite(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const conversationId = String(body?.conversationId ?? '').trim();
     const calleeId = String(body?.calleeId ?? '').trim();
     const media = body?.media === 'video' ? 'video' : 'audio';
@@ -89,7 +101,7 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('call:accept')
   async accept(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const callId = String(body?.callId ?? '').trim();
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
     await client.join(this.callRoom(callId));
@@ -99,8 +111,8 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call:decline')
-  decline(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+  async decline(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = await this.authedUser(client);
     const callId = String(body?.callId ?? '').trim();
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
     this.server.to(this.callRoom(callId)).emit('call:declined', { callId, by: user });
@@ -108,8 +120,8 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call:cancel')
-  cancel(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+  async cancel(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = await this.authedUser(client);
     const callId = String(body?.callId ?? '').trim();
     const calleeId = String(body?.calleeId ?? '').trim();
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
@@ -120,7 +132,7 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('call:end')
   async end(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const callId = String(body?.callId ?? '').trim();
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
     this.server.to(this.callRoom(callId)).emit('call:ended', { callId, by: user });
@@ -132,7 +144,7 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('room:join')
   async roomJoin(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const groupId = String(body?.groupId ?? '').trim();
     if (!user || !groupId || !(await this.service.canUseRoom(user.id, groupId))) {
       return { ok: false, error: 'group_access_denied' };
@@ -149,7 +161,7 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('room:leave')
   async roomLeave(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const groupId = String(body?.groupId ?? '').trim();
     if (!user || !groupId) return { ok: false, error: 'room_invalid' };
     const room = this.groupRoom(groupId);
@@ -163,7 +175,7 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // Room moderators (church leaders / group admins) can mute a participant.
   @SubscribeMessage('room:mute')
   async roomMute(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const groupId = String(body?.groupId ?? '').trim();
     const targetId = String(body?.targetId ?? '').trim();
     if (!user || !groupId || !targetId) return { ok: false, error: 'invalid_request' };
@@ -174,8 +186,8 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // A participant broadcasts their own mic state so others can show it.
   @SubscribeMessage('room:mic')
-  roomMic(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+  async roomMic(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = await this.authedUser(client);
     const groupId = String(body?.groupId ?? '').trim();
     if (!user || !groupId) return { ok: false };
     client.to(this.groupRoom(groupId)).emit('peer:mic', { groupId, peerId: user.id, enabled: body?.enabled === true });
@@ -185,8 +197,8 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ---- Shared SDP/ICE relay ----
 
   @SubscribeMessage('signal')
-  signal(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+  async signal(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
+    const user = await this.authedUser(client);
     const to = String(body?.to ?? '').trim();
     if (!user || !to) return { ok: false, error: 'signal_invalid' };
     // Relay the opaque SDP/ICE payload to the target peer, stamped with the sender.

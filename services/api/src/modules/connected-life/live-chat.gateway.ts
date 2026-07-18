@@ -11,7 +11,7 @@ import { Server, Socket } from 'socket.io';
 
 import { ConnectedLifeService } from './connected-life.service';
 
-type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string; username: string } } };
+type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string; username: string }; authReady?: Promise<void> } };
 
 @WebSocketGateway({ namespace: 'chat', cors: { origin: true, credentials: true } })
 export class LiveChatGateway implements OnGatewayConnection {
@@ -23,6 +23,11 @@ export class LiveChatGateway implements OnGatewayConnection {
   constructor(private readonly service: ConnectedLifeService) {}
 
   async handleConnection(client: AuthedSocket) {
+    client.data.authReady = this.authenticate(client);
+    await client.data.authReady;
+  }
+
+  private async authenticate(client: AuthedSocket) {
     const token = this.extractToken(client);
     if (!token) {
       client.disconnect(true);
@@ -38,9 +43,16 @@ export class LiveChatGateway implements OnGatewayConnection {
     }
   }
 
+  // A frame can arrive before the async connection auth has finished, so every
+  // handler resolves the user through this gate instead of reading data.user.
+  private async authedUser(client: AuthedSocket) {
+    await client.data.authReady;
+    return client.data.user;
+  }
+
   @SubscribeMessage('conversation:subscribe')
   async subscribe(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const userId = client.data.user?.id;
+    const userId = (await this.authedUser(client))?.id;
     const conversationId = String(body?.conversationId ?? '').trim();
     if (!userId || !conversationId || !(await this.service.canUseConversation(userId, conversationId))) {
       return { ok: false, error: 'conversation_access_denied' };
@@ -58,7 +70,7 @@ export class LiveChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('message:send')
   async send(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const userId = client.data.user?.id;
+    const userId = (await this.authedUser(client))?.id;
     const conversationId = String(body?.conversationId ?? '').trim();
     if (!userId || !conversationId) return { ok: false, error: 'conversation_required' };
     const message = await this.service.messageAsUser(userId, conversationId, body ?? {});
@@ -69,7 +81,7 @@ export class LiveChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('message:read')
   async read(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const userId = client.data.user?.id;
+    const userId = (await this.authedUser(client))?.id;
     const conversationId = String(body?.conversationId ?? '').trim();
     if (!userId || !conversationId) return { ok: false, error: 'conversation_required' };
     const receipt = await this.service.markReadAsUser(userId, conversationId, body?.messageId ? String(body.messageId) : undefined);
@@ -80,7 +92,7 @@ export class LiveChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('message:unread')
   async unread(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const userId = client.data.user?.id;
+    const userId = (await this.authedUser(client))?.id;
     const conversationId = String(body?.conversationId ?? '').trim();
     if (!userId || !conversationId) return { ok: false, error: 'conversation_required' };
     const receipt = await this.service.markUnreadAsUser(userId, conversationId, body?.messageId ? String(body.messageId) : undefined);
@@ -91,7 +103,7 @@ export class LiveChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('message:edit')
   async edit(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const userId = client.data.user?.id;
+    const userId = (await this.authedUser(client))?.id;
     const conversationId = String(body?.conversationId ?? '').trim();
     const messageId = String(body?.messageId ?? '').trim();
     if (!userId || !conversationId || !messageId) return { ok: false, error: 'message_required' };
@@ -103,7 +115,7 @@ export class LiveChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('message:delete')
   async delete(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const userId = client.data.user?.id;
+    const userId = (await this.authedUser(client))?.id;
     const conversationId = String(body?.conversationId ?? '').trim();
     const messageId = String(body?.messageId ?? '').trim();
     if (!userId || !conversationId || !messageId) return { ok: false, error: 'message_required' };
@@ -115,7 +127,7 @@ export class LiveChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('typing')
   async typing(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const conversationId = String(body?.conversationId ?? '').trim();
     if (!user || !conversationId || !(await this.service.canUseConversation(user.id, conversationId))) {
       return { ok: false, error: 'conversation_access_denied' };

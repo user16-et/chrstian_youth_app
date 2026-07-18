@@ -18,6 +18,9 @@ class LiveChatClient {
       StreamController<Map<String, dynamic>>.broadcast();
 
   io.Socket? _socket;
+  // Conversations we should be in — replayed on every (re)connect so a network
+  // blip or an auth race can never leave the client silently unsubscribed.
+  final Set<String> _subscriptions = {};
 
   Stream<Map<String, dynamic>> get messages => _messages.stream;
   Stream<Map<String, dynamic>> get typing => _typing.stream;
@@ -37,6 +40,12 @@ class LiveChatClient {
           .enableReconnection()
           .build(),
     );
+    socket.on('connect', (_) {
+      for (final conversationId in _subscriptions) {
+        socket.emit(
+            'conversation:subscribe', {'conversationId': conversationId});
+      }
+    });
     socket.on('message:new', (data) => _add(_messages, data));
     socket.on('typing', (data) => _add(_typing, data));
     socket.on('message:read', (data) => _add(_reads, data));
@@ -48,10 +57,15 @@ class LiveChatClient {
   }
 
   void subscribe(String conversationId) {
-    _socket?.emit('conversation:subscribe', {'conversationId': conversationId});
+    _subscriptions.add(conversationId);
+    if (connected) {
+      _socket?.emit(
+          'conversation:subscribe', {'conversationId': conversationId});
+    }
   }
 
   void unsubscribe(String conversationId) {
+    _subscriptions.remove(conversationId);
     _socket
         ?.emit('conversation:unsubscribe', {'conversationId': conversationId});
   }

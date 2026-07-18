@@ -11,7 +11,7 @@ import { Server, Socket } from 'socket.io';
 
 import { RelationshipService } from './relationship.service';
 
-type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string } } };
+type AuthedSocket = Socket & { data: { user?: { id: string; fullName: string }; authReady?: Promise<void> } };
 
 // Realtime chat for matched couples: instant message delivery, typing
 // indicators and read receipts over a per-connection room.
@@ -25,6 +25,11 @@ export class RelationshipChatGateway implements OnGatewayConnection {
   constructor(private readonly service: RelationshipService) {}
 
   async handleConnection(client: AuthedSocket) {
+    client.data.authReady = this.authenticate(client);
+    await client.data.authReady;
+  }
+
+  private async authenticate(client: AuthedSocket) {
     const token = this.extractToken(client);
     if (!token) {
       client.disconnect(true);
@@ -43,9 +48,16 @@ export class RelationshipChatGateway implements OnGatewayConnection {
     }
   }
 
+  // A frame can arrive before the async connection auth has finished, so every
+  // handler resolves the user through this gate instead of reading data.user.
+  private async authedUser(client: AuthedSocket) {
+    await client.data.authReady;
+    return client.data.user;
+  }
+
   @SubscribeMessage('join')
   async join(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.connectionId ?? '').trim();
     if (!user || !id || !(await this.service.isMember(user.id, id))) {
       return { ok: false, error: 'access_denied' };
@@ -63,7 +75,7 @@ export class RelationshipChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('message')
   async message(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.connectionId ?? '').trim();
     if (!user || !id) return { ok: false, error: 'connection_required' };
     try {
@@ -83,7 +95,7 @@ export class RelationshipChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('typing')
   async typing(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.connectionId ?? '').trim();
     if (!user || !id || !(await this.service.isMember(user.id, id))) {
       return { ok: false, error: 'access_denied' };
@@ -99,7 +111,7 @@ export class RelationshipChatGateway implements OnGatewayConnection {
 
   @SubscribeMessage('read')
   async read(@ConnectedSocket() client: AuthedSocket, @MessageBody() body: any) {
-    const user = client.data.user;
+    const user = await this.authedUser(client);
     const id = String(body?.connectionId ?? '').trim();
     if (!user || !id || !(await this.service.isMember(user.id, id))) {
       return { ok: false, error: 'access_denied' };
