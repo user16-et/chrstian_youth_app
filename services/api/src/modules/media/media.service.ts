@@ -43,6 +43,7 @@ const extensionsByType: Record<string, string[]> = {
 export class MediaService {
   private readonly config = loadConfig();
   private storageClient?: S3Client;
+  private presignStorageClient?: S3Client;
 
   constructor(
     private readonly users: UserRepository,
@@ -74,7 +75,7 @@ export class MediaService {
     });
 
     const uploadUrl = await getSignedUrl(
-      this.client(),
+      this.presignClient(),
       new PutObjectCommand({
         Bucket: this.config.mediaBucket as string,
         Key: objectKey,
@@ -156,6 +157,24 @@ export class MediaService {
       },
     });
     return this.storageClient;
+  }
+
+  // Presigned URLs embed the host in the signature, so they must be signed
+  // against an endpoint the *client device* can reach (e.g. the machine's LAN
+  // IP or a public domain), not the Docker-internal hostname. Falls back to
+  // the internal endpoint when no public one is configured.
+  private presignClient() {
+    this.presignStorageClient ??= new S3Client({
+      region: this.config.mediaRegion,
+      endpoint:
+        this.config.mediaPublicEndpoint ?? this.config.mediaEndpoint ?? undefined,
+      forcePathStyle: this.config.mediaForcePathStyle,
+      credentials: {
+        accessKeyId: this.config.mediaAccessKeyId as string,
+        secretAccessKey: this.config.mediaSecretAccessKey as string,
+      },
+    });
+    return this.presignStorageClient;
   }
 
   private requireStorageConfigured() {

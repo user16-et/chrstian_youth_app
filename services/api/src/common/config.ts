@@ -29,6 +29,7 @@ export interface AppConfig {
   mediaBucket: string | null;
   mediaRegion: string;
   mediaEndpoint: string | null;
+  mediaPublicEndpoint: string | null;
   mediaAccessKeyId: string | null;
   mediaSecretAccessKey: string | null;
   mediaPublicBaseUrl: string | null;
@@ -89,6 +90,7 @@ export function loadConfig(): AppConfig {
     mediaBucket: optional('MEDIA_BUCKET'),
     mediaRegion: process.env.MEDIA_REGION?.trim() || 'us-east-1',
     mediaEndpoint: optional('MEDIA_ENDPOINT'),
+    mediaPublicEndpoint: optional('MEDIA_PUBLIC_ENDPOINT'),
     mediaAccessKeyId: optional('MEDIA_ACCESS_KEY_ID'),
     mediaSecretAccessKey: optional('MEDIA_SECRET_ACCESS_KEY'),
     mediaPublicBaseUrl: optional('MEDIA_PUBLIC_BASE_URL'),

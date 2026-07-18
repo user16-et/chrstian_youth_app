@@ -131,7 +131,11 @@ services:
       MEDIA_BUCKET: christian-super-app-media
       MEDIA_REGION: us-east-1
       MEDIA_ENDPOINT: http://minio:9000
-      MEDIA_PUBLIC_BASE_URL: http://127.0.0.1:9000/christian-super-app-media
+      # The host phones/browsers actually reach for uploads and images. For
+      # on-device testing set MEDIA_PUBLIC_HOST to your machine's LAN IP
+      # (e.g. MEDIA_PUBLIC_HOST=192.168.1.20 docker compose up -d api).
+      MEDIA_PUBLIC_ENDPOINT: http://${MEDIA_PUBLIC_HOST:-127.0.0.1}:9000
+      MEDIA_PUBLIC_BASE_URL: http://${MEDIA_PUBLIC_HOST:-127.0.0.1}:9000/christian-super-app-media
       MEDIA_ACCESS_KEY_ID: minioadmin
       MEDIA_SECRET_ACCESS_KEY: minioadmin
       MEDIA_FORCE_PATH_STYLE: "true"
