@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
 import '../modules/discover_pages.dart';
 import '../modules/module_pages.dart';
 import '../modules/platform_pages.dart';
 import '../modules/prayer_growth_pages.dart';
+import '../modules/stories_feed.dart';
 import 'connected_life_screen.dart';
 import '../modules/youth_pages.dart';
 
@@ -72,7 +74,7 @@ extension AppPillarX on AppPillar {
       };
 }
 
-class SuperAppHome extends StatelessWidget {
+class SuperAppHome extends StatefulWidget {
   const SuperAppHome({
     super.key,
     required this.language,
@@ -93,6 +95,41 @@ class SuperAppHome extends StatelessWidget {
   final VoidCallback onOpenExplore;
   final VoidCallback onOpenCommunity;
   final VoidCallback onOpenBible;
+
+  @override
+  State<SuperAppHome> createState() => _SuperAppHomeState();
+}
+
+class _SuperAppHomeState extends State<SuperAppHome> {
+  Future<GrowthSummaryItem>? _growthFuture;
+
+  AppLanguage get language => widget.language;
+  ApiClient get apiClient => widget.apiClient;
+  AuthResult? get session => widget.session;
+  Future<DashboardSnapshot> get snapshotFuture => widget.snapshotFuture;
+  Future<void> Function() get onRefresh => widget.onRefresh;
+  VoidCallback get onOpenExplore => widget.onOpenExplore;
+  VoidCallback get onOpenCommunity => widget.onOpenCommunity;
+  VoidCallback get onOpenBible => widget.onOpenBible;
+
+  @override
+  void initState() {
+    super.initState();
+    _reloadGrowth();
+  }
+
+  @override
+  void didUpdateWidget(covariant SuperAppHome oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session?.token != widget.session?.token) _reloadGrowth();
+  }
+
+  void _reloadGrowth() {
+    final token = widget.session?.token;
+    _growthFuture = token == null || token.isEmpty
+        ? null
+        : widget.apiClient.fetchGrowthSummary(token);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -140,6 +177,7 @@ class SuperAppHome extends StatelessWidget {
                 groups: const [],
                 events: const [],
               );
+          final feedPreview = data.feed.take(3).toList();
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
@@ -148,9 +186,18 @@ class SuperAppHome extends StatelessWidget {
                   child: _Hero(
                       en: en,
                       name: session?.user.fullName,
+                      growthFuture: _growthFuture,
                       onExplore: onOpenExplore,
                       onOpenBible: onOpenBible)),
-              const SizedBox(height: 16),
+              // Friends' faces first — the strongest "something new" signal.
+              if (session != null) ...[
+                const SizedBox(height: 14),
+                StoriesRail(
+                    apiClient: apiClient,
+                    token: session!.token,
+                    language: language),
+              ],
+              const SizedBox(height: 14),
               Row(children: [
                 Expanded(
                     child: _Quick(
@@ -173,22 +220,60 @@ class SuperAppHome extends StatelessWidget {
                         title: en ? 'Fellowship' : 'ኅብረት',
                         onTap: onOpenCommunity)),
               ]),
+              // A fresh slice of the feed — home changes every open without
+              // becoming a doomscroll. Hidden entirely when the feed is empty.
+              if (feedPreview.isNotEmpty) ...[
+                const SizedBox(height: 28),
+                _Heading(
+                    kicker: en ? 'FROM YOUR COMMUNITY' : 'ከማህበረሰብዎ',
+                    title: en ? 'Happening now' : 'አሁን እየሆነ ያለው'),
+                const SizedBox(height: 12),
+                for (final post in feedPreview) ...[
+                  _HomeFeedCard(
+                      post: post,
+                      en: en,
+                      onTap: () => _openPost(context, post)),
+                  const SizedBox(height: 10),
+                ],
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.tonalIcon(
+                    onPressed: onOpenCommunity,
+                    icon: const Icon(Icons.dynamic_feed_rounded, size: 19),
+                    label: Text(
+                        en ? 'Open community feed' : 'የማህበረሰብ ዜና ክፈት'),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              _EventCard(data: data, en: en, onTap: onOpenExplore),
               const SizedBox(height: 28),
               _Heading(
                   kicker: en ? 'ONE APP. WHOLE LIFE.' : 'አንድ መተግበሪያ። ሙሉ ሕይወት።',
-                  title: en ? 'Your eight pillars' : 'ስምንቱ ዋና መሠረቶች'),
-              const SizedBox(height: 14),
-              PillarGrid(
-                  language: language,
-                  onPillar: (pillar) => _openPillar(context, pillar)),
+                  title: en ? 'Explore the pillars' : 'መሠረቶቹን ያስሱ'),
+              const SizedBox(height: 12),
+              // Compact shortcuts only — the Explore tab owns the full grid.
+              SizedBox(
+                height: 46,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: AppPillar.values.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, i) {
+                    final pillar = AppPillar.values[i];
+                    return _PillarChip(
+                        pillar: pillar,
+                        en: en,
+                        onTap: () => _openPillar(context, pillar));
+                  },
+                ),
+              ),
               const SizedBox(height: 28),
               _Heading(
                   kicker: en ? 'LIVE COMMUNITY' : 'ሕያው ማህበረሰብ',
                   title: en ? 'Growing together' : 'አብረን እያደግን'),
               const SizedBox(height: 14),
               _Stats(data: data, en: en),
-              const SizedBox(height: 16),
-              _EventCard(data: data, en: en, onTap: onOpenExplore),
             ],
           );
         },
@@ -207,6 +292,144 @@ class SuperAppHome extends StatelessWidget {
         onDataChanged: onRefresh,
       ),
     ));
+  }
+
+  void _openPost(BuildContext context, FeedItem post) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PostDetailScreen(
+        language: language,
+        item: post,
+        apiClient: apiClient,
+        session: session,
+        onReport: () async {},
+        onDataChanged: onRefresh,
+      ),
+    ));
+  }
+}
+
+/// A compact feed post preview on Home: author, snippet, age and counts.
+class _HomeFeedCard extends StatelessWidget {
+  const _HomeFeedCard({required this.post, required this.en, required this.onTap});
+  final FeedItem post;
+  final bool en;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final initial = post.author.isEmpty ? '?' : post.author[0].toUpperCase();
+    return Material(
+      color: colors.surface,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: colors.outline.withValues(alpha: .16)),
+          ),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            CircleAvatar(
+                radius: 19,
+                backgroundColor: colors.primaryContainer,
+                child: Text(initial,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: colors.onPrimaryContainer))),
+            const SizedBox(width: 12),
+            Expanded(
+              child:
+                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
+                    child: Text(post.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                  Text(relativeTime(post.createdAt),
+                      style: TextStyle(
+                          fontSize: 12, color: colors.onSurfaceVariant)),
+                ]),
+                const SizedBox(height: 4),
+                Text(post.body,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(height: 1.35)),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Icon(Icons.favorite_rounded,
+                      size: 14,
+                      color: post.likedByMe
+                          ? colors.secondary
+                          : colors.onSurfaceVariant),
+                  const SizedBox(width: 4),
+                  Text('${post.likeCount}',
+                      style: TextStyle(
+                          fontSize: 12, color: colors.onSurfaceVariant)),
+                  const SizedBox(width: 14),
+                  Icon(Icons.mode_comment_outlined,
+                      size: 14, color: colors.onSurfaceVariant),
+                  const SizedBox(width: 4),
+                  Text('${post.commentCount}',
+                      style: TextStyle(
+                          fontSize: 12, color: colors.onSurfaceVariant)),
+                ]),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// A small pillar shortcut pill; the Explore tab owns the full grid.
+class _PillarChip extends StatelessWidget {
+  const _PillarChip({required this.pillar, required this.en, required this.onTap});
+  final AppPillar pillar;
+  final bool en;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: dark
+          ? pillar.color.withValues(alpha: .22)
+          : Color.lerp(pillar.color, Colors.white, .86),
+      borderRadius: BorderRadius.circular(23),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(23),
+            border:
+                Border.all(color: pillar.color.withValues(alpha: dark ? .45 : .25)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(pillar.icon,
+                size: 18,
+                color: dark
+                    ? Color.lerp(pillar.color, Colors.white, .45)
+                    : pillar.color),
+            const SizedBox(width: 7),
+            Text(pillar.title(en),
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
+                    color: dark
+                        ? Color.lerp(pillar.color, Colors.white, .6)
+                        : Color.lerp(pillar.color, Colors.black, .25))),
+          ]),
+        ),
+      ),
+    );
   }
 }
 
@@ -830,11 +1053,13 @@ class _Hero extends StatelessWidget {
   const _Hero({
     required this.en,
     required this.name,
+    required this.growthFuture,
     required this.onExplore,
     required this.onOpenBible,
   });
   final bool en;
   final String? name;
+  final Future<GrowthSummaryItem>? growthFuture;
   final VoidCallback onExplore;
   final VoidCallback onOpenBible;
 
@@ -910,18 +1135,52 @@ class _Hero extends StatelessWidget {
             child: Icon(Icons.auto_awesome_rounded,
                 color: Color(0x59FFD98A), size: 34)),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .13),
-                borderRadius: BorderRadius.circular(99)),
-            child: Text(dateChip,
-                style: const TextStyle(
-                    color: Color(0xFFFFD98A),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.4)),
-          ),
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .13),
+                  borderRadius: BorderRadius.circular(99)),
+              child: Text(dateChip,
+                  style: const TextStyle(
+                      color: Color(0xFFFFD98A),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.4)),
+            ),
+            const SizedBox(width: 8),
+            // Streak flame — the daily-return nudge (only once it exists).
+            if (growthFuture != null)
+              FutureBuilder<GrowthSummaryItem>(
+                future: growthFuture,
+                builder: (context, snapshot) {
+                  final g = snapshot.data;
+                  final streak = g == null
+                      ? 0
+                      : [g.prayerStreak, g.bibleStreak, g.serviceStreak]
+                          .reduce((a, b) => a > b ? a : b);
+                  if (streak <= 0) return const SizedBox.shrink();
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: const Color(0x33E8674C),
+                        borderRadius: BorderRadius.circular(99)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.local_fire_department_rounded,
+                          size: 14, color: Color(0xFFFFB59F)),
+                      const SizedBox(width: 4),
+                      Text(
+                          en ? '$streak-day streak' : 'የ$streak ቀን ተከታታይ',
+                          style: const TextStyle(
+                              color: Color(0xFFFFD9CD),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900)),
+                    ]),
+                  );
+                },
+              ),
+          ]),
           const SizedBox(height: 16),
           Text(greeting,
               style: Theme.of(context)
