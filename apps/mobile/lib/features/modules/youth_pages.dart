@@ -372,8 +372,12 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
         if (upcoming.isEmpty) {
           return Text(_t('No upcoming events yet — check back soon!', 'እስካሁን መጪ ዝግጅት የለም — በቅርቡ ይመለሱ!'));
         }
+        // The rail height must grow with the user's text scale, or the card
+        // content overflows on devices with larger accessibility fonts.
+        final textScale =
+            (MediaQuery.textScalerOf(context).scale(14) / 14).clamp(1.0, 1.6);
         return SizedBox(
-          height: 148,
+          height: 148 * textScale,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: upcoming.length.clamp(0, 8),
