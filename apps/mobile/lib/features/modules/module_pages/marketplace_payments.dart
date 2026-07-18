@@ -552,7 +552,10 @@ class _ListingDetailPageState extends State<_ListingDetailPage> {
           : l == null
               ? Center(child: Text(_t('Listing not found.', 'ማስታወቂያ አልተገኘም።')))
               : _content(l, colors),
-      bottomNavigationBar: (l == null || l['sold'] == true)
+      // No contact bar on your own listing — you manage it from Selling.
+      bottomNavigationBar: (l == null ||
+              l['sold'] == true ||
+              '${l['sellerId'] ?? ''}' == widget.session?.user.id)
           ? null
           : SafeArea(
               child: Padding(

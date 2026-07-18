@@ -305,7 +305,10 @@ class _LifeWorkspaceScreenState extends State<LifeWorkspaceScreen> {
         title: _s(item['fullName']),
         subtitle:
             '${_s(item['city'])} • ${_s(item['occupation'])}\n${_s(item['friendStatus'])}',
-        actions: [
+        // Never offer messaging yourself.
+        actions: _s(item['id']) == widget.session.user.id
+            ? const []
+            : [
           FilledButton.tonal(
             onPressed: _busy
                 ? null

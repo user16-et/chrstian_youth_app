@@ -263,7 +263,10 @@ class _ConnectedLifeScreenState extends State<ConnectedLifeScreen> {
             badge: item['friendStatus']?.toString().isNotEmpty == true
                 ? item['friendStatus'].toString()
                 : (item['followedByMe'] == true ? 'Following' : null),
-            actions: [
+            // Never offer follow/friend/message actions on your own account.
+            actions: '${item['id']}' == widget.session.user.id
+                ? const []
+                : [
               FilledButton.tonal(
                   onPressed: item['followedByMe'] == true
                       ? null

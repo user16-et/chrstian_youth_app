@@ -1835,15 +1835,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     Chip(label: Text('${ministries.length} ministries')),
                 ],
               ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _openDirectChat(user);
-                },
-                icon: const Icon(Icons.chat_bubble_outline),
-                label: const Text('Chat'),
-              ),
+              if (user.id != widget.session?.user.id) ...[
+                const SizedBox(height: 16),
+                // No chat-with-yourself: only offer chat for other people.
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _openDirectChat(user);
+                  },
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('Chat'),
+                ),
+              ],
             ],
           ),
         ),
@@ -1889,6 +1892,17 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   List<Widget> _actionsFor(UserDirectoryItem user) {
     final language = widget.language;
+    // Never offer friend/follow/chat actions on your own account.
+    if (user.id == widget.session?.user.id) {
+      return [
+        Chip(
+          avatar: const Icon(Icons.person_rounded, size: 16),
+          label: Text(language == AppLanguage.english ? 'This is you' : 'ይህ እርስዎ ነዎት'),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ];
+    }
     final busy = _busyUserId == user.id;
     final blocked = user.blockedByMe || user.blockedMe;
     final en = language == AppLanguage.english;
