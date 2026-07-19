@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_models.dart';
 
@@ -2974,9 +2975,60 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  // GET paths worth keeping a disk copy of: the reads that make the app feel
+  // alive on a cold, offline, or flaky start. Auth-scoped responses are keyed
+  // by a token digest so users never see each other's cache.
+  static const List<String> _cacheablePaths = [
+    '/app/bootstrap',
+    '/app/summary',
+    '/feed',
+    '/churches',
+    '/groups',
+    '/events',
+    '/bible/daily-verses',
+    '/bible/versions',
+    '/bible/books',
+    '/bible/home',
+    '/community/home',
+    '/feed/stories',
+    '/profile/me',
+  ];
+
+  bool _isCacheable(String path) {
+    final bare = path.split('?').first;
+    return _cacheablePaths.contains(bare);
+  }
+
+  String _cacheKey(String path, Map<String, String> headers) {
+    final auth = headers['Authorization'] ?? '';
+    return 'apicache:${auth.hashCode}:$path';
+  }
+
+  // Network-first with a stale fallback: a failed request serves the last
+  // good copy instead of an error, so the app still opens with content when
+  // the connection drops.
   Future<dynamic> _getJson(String path,
       {Map<String, String> headers = const {}}) async {
-    return _requestJson('GET', path, headers: headers);
+    final cacheable = _isCacheable(path);
+    try {
+      final result = await _requestJson('GET', path, headers: headers);
+      if (cacheable && result != null) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_cacheKey(path, headers), jsonEncode(result));
+        } catch (_) {}
+      }
+      return result;
+    } catch (error) {
+      if (cacheable) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final cached = prefs.getString(_cacheKey(path, headers));
+          if (cached != null) return jsonDecode(cached);
+        } catch (_) {}
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> fetchConnectedLife(String token) async {

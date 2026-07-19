@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/call_controller.dart';
+import '../../data/daily_verse_notifier.dart';
 import '../../data/session_store.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
@@ -47,6 +48,9 @@ class _HomeShellState extends State<HomeShell> {
     super.initState();
     _snapshotFuture = widget.apiClient.loadDashboard();
     unawaited(_restoreSession());
+    // Re-arm the daily-verse notification with today's verse on every open.
+    unawaited(DailyVerseNotifier.instance
+        .refresh(widget.apiClient, widget.language));
   }
 
   /// Restore the persisted session on cold start. If the access token is at or
