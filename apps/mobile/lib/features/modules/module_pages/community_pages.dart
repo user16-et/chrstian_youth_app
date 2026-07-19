@@ -157,7 +157,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _toggleFeedLike(FeedItem item) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final current = _effective(item);
@@ -183,7 +183,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _shareFeed(FeedItem item) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     // Copy the post so the user can paste it anywhere, and record the share.
@@ -211,7 +211,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _repostFeed(FeedItem item) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final en = widget.language == AppLanguage.english;
@@ -274,6 +274,85 @@ class _FeedScreenState extends State<FeedScreen> {
       if (mounted) {
         setState(() => _feedOverrides[item.id] = current);
         _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
+  }
+
+  Future<void> _editOwnPost(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final controller = TextEditingController(text: _effective(item).body);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(en ? 'Edit post' : 'ልጥፍ አርትዕ'),
+        content: TextField(
+            controller: controller,
+            maxLines: 6,
+            minLines: 2,
+            autofocus: true),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(en ? 'Save' : 'አስቀምጥ')),
+        ],
+      ),
+    );
+    final body = controller.text.trim();
+    controller.dispose();
+    if (saved != true || body.isEmpty) return;
+    final current = _effective(item);
+    setState(() => _feedOverrides[item.id] = current.copyWith(body: body));
+    try {
+      await widget.apiClient.editPost(token, item.id, body);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _feedOverrides[item.id] = current);
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
+  }
+
+  Future<void> _deleteOwnPost(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(en ? 'Delete this post?' : 'ይህ ልጥፍ ይሰረዝ?'),
+        content: Text(en
+            ? 'This removes the post for everyone.'
+            : 'ይህ ልጥፉን ለሁሉም ያስወግዳል።'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(en ? 'Delete' : 'ሰርዝ')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.apiClient.deletePost(token, item.id);
+      if (!mounted) return;
+      setState(() {
+        _pagedFeed = _pagedFeed?.where((p) => p.id != item.id).toList();
+        _feedOverrides.remove(item.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(en ? 'Post deleted.' : 'ልጥፍ ተሰርዟል።')));
+      await widget.onDataChanged();
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
       }
     }
   }
@@ -359,7 +438,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _reactFeed(FeedItem item, String emoji) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final current = _effective(item);
@@ -399,8 +478,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _pickPhoto() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     if (_pickedMedia.length >= 10) return;
@@ -412,9 +490,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _publishPost() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() {
-        _status = AppStrings.of(widget.language, 'login_required');
-      });
+      promptSignIn(context, widget.language);
       return;
     }
 
@@ -479,8 +555,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _savePost(FeedItem item) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final result = await widget.apiClient.toggleSavedPost(token, item.id);
@@ -493,9 +568,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _reportPost(FeedItem item) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() {
-        _status = AppStrings.of(widget.language, 'login_required');
-      });
+      promptSignIn(context, widget.language);
       return;
     }
 
@@ -909,6 +982,23 @@ class _FeedScreenState extends State<FeedScreen> {
                                                     : Icons
                                                         .bookmark_border_rounded),
                                               ),
+                                              if (item.authorId.isNotEmpty &&
+                                                  item.authorId ==
+                                                      widget.session?.user.id)
+                                                PopupMenuButton<String>(
+                                                  tooltip: 'My post options',
+                                                  onSelected: (v) => v == 'edit'
+                                                      ? _editOwnPost(item)
+                                                      : _deleteOwnPost(item),
+                                                  itemBuilder: (context) => const [
+                                                    PopupMenuItem(
+                                                        value: 'edit',
+                                                        child: Text('Edit')),
+                                                    PopupMenuItem(
+                                                        value: 'delete',
+                                                        child: Text('Delete')),
+                                                  ],
+                                                ),
                                             ],
                                           ),
                                           if (item.repostOf != null &&
@@ -1474,8 +1564,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   Future<void> _join() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(() async {
@@ -1488,8 +1577,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   Future<void> _leave() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(() async {
@@ -1502,8 +1590,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   Future<void> _createResource() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final title = _resourceTitleController.text.trim();
@@ -1810,8 +1897,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _follow(String userId) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(
@@ -1823,8 +1909,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _unfollow(String userId) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(
@@ -1836,8 +1921,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _block(String userId) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(
@@ -1849,8 +1933,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _unblock(String userId) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(
@@ -1862,8 +1945,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _friend(String userId) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(
@@ -1887,8 +1969,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _withdrawFriend(UserDirectoryItem user) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     if (user.friendRequestId.isEmpty) {
@@ -1981,9 +2062,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     Chip(label: Text('${ministries.length} ministries')),
                 ],
               ),
-              if (user.id != widget.session?.user.id) ...[
+              // Chat only for friends (and never yourself).
+              if (user.id != widget.session?.user.id &&
+                  user.friendStatus == 'accepted') ...[
                 const SizedBox(height: 16),
-                // No chat-with-yourself: only offer chat for other people.
                 FilledButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
@@ -1992,6 +2074,13 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   icon: const Icon(Icons.chat_bubble_outline),
                   label: const Text('Chat'),
                 ),
+              ] else if (user.id != widget.session?.user.id) ...[
+                const SizedBox(height: 12),
+                Text(
+                    widget.language == AppLanguage.english
+                        ? 'Add each other as friends to start chatting.'
+                        : 'ለመወያየት እርስ በርስ ጓደኛ ይሁኑ።',
+                    style: Theme.of(context).textTheme.bodySmall),
               ],
             ],
           ),
@@ -2008,8 +2097,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _openDirectChat(UserDirectoryItem user) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await showModalBottomSheet<void>(
@@ -2110,11 +2198,13 @@ class _PeopleScreenState extends State<PeopleScreen> {
               ? (en ? 'Unfollow' : 'መከተል አቁም')
               : AppStrings.of(language, 'follow_user')),
         ),
-        FilledButton.tonalIcon(
-          onPressed: () => _openDirectChat(user),
-          icon: const Icon(Icons.chat_bubble_outline),
-          label: Text(en ? 'Chat' : 'ውይይት'),
-        ),
+        // Chat only appears once you're friends — add a friend first.
+        if (isFriend)
+          FilledButton.tonalIcon(
+            onPressed: () => _openDirectChat(user),
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: Text(en ? 'Chat' : 'ውይይት'),
+          ),
         IconButton(
           tooltip: AppStrings.of(language, 'block_user'),
           onPressed: busy ? null : () => _block(user.id),

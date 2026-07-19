@@ -268,16 +268,21 @@ export class ConnectedLifeRepository {
   // recipient must follow the sender), or nobody.
   async canMessage(senderId: string, recipientId: string) {
     const result = await this.pool.query(
-      `SELECT COALESCE(ps.message_privacy,'everyone') AS mode,
-              EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=$2 AND f.following_id=$1) AS recipient_follows_sender
+      `SELECT COALESCE(ps.message_privacy,'friends') AS mode,
+              EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=$2 AND f.following_id=$1) AS recipient_follows_sender,
+              EXISTS(SELECT 1 FROM friend_requests fr WHERE fr.status='accepted'
+                     AND ((fr.sender_id=$1 AND fr.receiver_id=$2) OR (fr.sender_id=$2 AND fr.receiver_id=$1))) AS are_friends
        FROM (SELECT 1) x LEFT JOIN privacy_settings ps ON ps.user_id=$2`,
       [senderId, recipientId],
     );
     const row = result.rows[0];
-    const mode = String(row?.mode ?? 'everyone');
+    const mode = String(row?.mode ?? 'friends');
     if (mode === 'nobody') return false;
-    if (mode === 'followers') return row?.recipient_follows_sender === true;
-    return true;
+    // Explicit opt-ins still work; the default now requires an accepted
+    // friendship so strangers can't open a 1:1 chat.
+    if (mode === 'everyone') return true;
+    if (mode === 'followers') return row?.recipient_follows_sender === true || row?.are_friends === true;
+    return row?.are_friends === true;
   }
 
   private async scopeAccess(userId: string, input: { scopeType: ScopeType; scopeId: string; otherUserId?: string }) {

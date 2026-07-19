@@ -273,19 +273,22 @@ class _ConnectedLifeScreenState extends State<ConnectedLifeScreen> {
                       : () => _run(() => widget.apiClient
                           .followUser(token: token, userId: item['id'])),
                   child: Text(en ? 'Follow' : 'ተከተል')),
-              OutlinedButton(
-                  onPressed: () => _run(
-                      () =>
-                          widget.apiClient.sendFriendRequest(token, item['id']),
-                      success:
-                          en ? 'Friend request sent.' : 'የጓደኝነት ጥያቄ ተልኳል።'),
-                  child: Text(en ? 'Friend' : 'ጓደኛ')),
-              OutlinedButton(
-                  onPressed: () => _run(
-                      () =>
-                          widget.apiClient.startConversation(token, item['id']),
-                      success: en ? 'Conversation opened.' : 'ውይይት ተከፍቷል።'),
-                  child: Text(en ? 'Message' : 'መልዕክት')),
+              if (item['friendStatus'] != 'accepted')
+                OutlinedButton(
+                    onPressed: () => _run(
+                        () => widget.apiClient
+                            .sendFriendRequest(token, item['id']),
+                        success:
+                            en ? 'Friend request sent.' : 'የጓደኝነት ጥያቄ ተልኳል።'),
+                    child: Text(en ? 'Friend' : 'ጓደኛ')),
+              // Message only once you're friends.
+              if (item['friendStatus'] == 'accepted')
+                OutlinedButton(
+                    onPressed: () => _run(
+                        () => widget.apiClient
+                            .startConversation(token, item['id']),
+                        success: en ? 'Conversation opened.' : 'ውይይት ተከፍቷል።'),
+                    child: Text(en ? 'Message' : 'መልዕክት')),
             ],
           ),
       ]);

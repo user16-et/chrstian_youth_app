@@ -44,31 +44,78 @@ Future<String?> pickAndUploadImage(
   }
   if (file == null) return null; // cancelled
 
-  messenger.showSnackBar(const SnackBar(content: Text('Uploading image…'), duration: Duration(seconds: 30)));
-  try {
-    final bytes = await file.readAsBytes();
-    final asset = await apiClient.uploadMediaAsset(
-      token: token,
-      usage: usage,
-      fileName: file.name,
-      contentType: _contentTypeFor(file.name, file.mimeType),
-      byteSize: bytes.length,
-      bytes: bytes,
-      scopeType: scopeType,
-      scopeId: scopeId,
-    );
-    messenger.hideCurrentSnackBar();
-    final url = asset['publicUrl']?.toString() ?? '';
-    if (url.isEmpty) {
-      messenger.showSnackBar(const SnackBar(content: Text('Upload finished but no URL was returned.')));
-      return null;
-    }
-    return url;
-  } catch (error) {
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(content: Text('Upload failed: ${_clean(error)}')));
+  final bytes = await file.readAsBytes();
+  if (bytes.isEmpty) {
+    messenger.showSnackBar(const SnackBar(
+        content: Text('That image could not be read — try another photo.')));
     return null;
   }
+  if (!context.mounted) return null;
+
+  // Preview + live progress while the bytes go up, so a stuck or failed
+  // upload is visible instead of silently producing a broken image.
+  final progress = ValueNotifier<double>(0);
+  final urlFuture = apiClient.uploadMediaAsset(
+    token: token,
+    usage: usage,
+    fileName: file.name,
+    contentType: _contentTypeFor(file.name, file.mimeType),
+    byteSize: bytes.length,
+    bytes: bytes,
+    scopeType: scopeType,
+    scopeId: scopeId,
+    onProgress: (sent) => progress.value = sent,
+  );
+  final url = await showDialog<String?>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) {
+      urlFuture.then((asset) {
+        if (dialogContext.mounted) {
+          Navigator.of(dialogContext)
+              .pop(asset['publicUrl']?.toString() ?? '');
+        }
+      }).catchError((Object error) {
+        if (dialogContext.mounted) Navigator.of(dialogContext).pop(null);
+        messenger.showSnackBar(
+            SnackBar(content: Text('Upload failed: ${_clean(error)}')));
+      });
+      return AlertDialog(
+        contentPadding: const EdgeInsets.all(16),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.memory(bytes,
+                height: 200, width: double.maxFinite, fit: BoxFit.cover),
+          ),
+          const SizedBox(height: 14),
+          ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (context, value, _) => Column(children: [
+              LinearProgressIndicator(
+                  value: value >= 1 ? null : value,
+                  minHeight: 6,
+                  borderRadius: BorderRadius.circular(3)),
+              const SizedBox(height: 8),
+              Text(
+                  value >= 1
+                      ? 'Processing…'
+                      : 'Uploading ${(value * 100).round()}%',
+                  style: Theme.of(context).textTheme.bodySmall),
+            ]),
+          ),
+        ]),
+      );
+    },
+  );
+  progress.dispose();
+  if (url == null) return null; // failed (snackbar already shown)
+  if (url.isEmpty) {
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Upload finished but no URL was returned.')));
+    return null;
+  }
+  return url;
 }
 
 /// A tappable avatar that lets the user pick + upload a new image, calling

@@ -13,6 +13,7 @@ import '../modules/module_pages.dart';
 import '../modules/platform_pages.dart';
 import 'super_app_hub.dart';
 import 'account_portal.dart';
+import 'sign_in_scope.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({
@@ -195,7 +196,11 @@ class _HomeShellState extends State<HomeShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 980;
-        final body = IndexedStack(index: _index, children: pages);
+        // Any gated action can send a signed-out user to the account tab.
+        final body = SignInScope(
+          requestSignIn: () => setState(() => _index = 4),
+          child: IndexedStack(index: _index, children: pages),
+        );
         return Scaffold(
           appBar: _AppHeader(
             language: language,

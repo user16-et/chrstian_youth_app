@@ -1355,6 +1355,27 @@ export class ContentRepository implements OnModuleInit {
     return result.rowCount === 0 ? null : this.mapPostView(result.rows[0]);
   }
 
+  // Author-only edit; returns the updated core fields or null when the post
+  // doesn't exist / isn't theirs.
+  async updatePostBody(postId: string, authorId: string, body: string) {
+    const result = await this.pool.query(
+      `UPDATE posts SET body=$3 WHERE id=$1 AND author_id=$2 AND removed_at IS NULL
+       RETURNING id, body`,
+      [postId, authorId, body],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  // Author-only soft delete — the feed queries already filter removed_at.
+  async removePostByAuthor(postId: string, authorId: string) {
+    const result = await this.pool.query(
+      `UPDATE posts SET removed_at=now(), removed_by=$2
+       WHERE id=$1 AND author_id=$2 AND removed_at IS NULL RETURNING id`,
+      [postId, authorId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async createPost(input: { authorId: string; body: string; language: 'en' | 'am'; postType?: string; mediaUrls?: string[]; pollQuestion?: string; pollOptions?: string[] }) {
     const record: PostRecord = {
       id: randomUUID(),

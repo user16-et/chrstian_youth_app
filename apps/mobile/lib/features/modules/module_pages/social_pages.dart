@@ -103,8 +103,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _toggleLike() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final liked = _post.likedByMe;
@@ -131,8 +130,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _share() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(() async {
@@ -146,8 +144,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _react(String reaction) async {
     final token = widget.session?.token;
     if (token == null) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(() async {
@@ -158,8 +155,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _repost() async {
     final token = widget.session?.token;
     if (token == null) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(() async {
@@ -171,8 +167,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _comment() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final body = _commentController.text.trim();
@@ -194,8 +189,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _replyToComment(PostCommentItem comment) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     final controller = _replyControllerFor(comment.id);
@@ -214,8 +208,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _votePoll(int optionIndex) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await _runAction(() async {
@@ -227,8 +220,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _followAuthor() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     if (_post.authorId.isEmpty || widget.session?.user.id == _post.authorId) {
@@ -600,9 +592,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _send() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() {
-        _status = AppStrings.of(widget.language, 'login_required');
-      });
+      promptSignIn(context, widget.language);
       return;
     }
     final body = _messageController.text.trim();
@@ -779,9 +769,7 @@ class _ReportingScreenState extends State<ReportingScreen> {
   Future<void> _submit() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() {
-        _status = AppStrings.of(widget.language, 'login_required');
-      });
+      promptSignIn(context, widget.language);
       return;
     }
 
@@ -1038,9 +1026,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   Future<void> _share() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(() {
-        _status = AppStrings.of(widget.language, 'login_required');
-      });
+      promptSignIn(context, widget.language);
       return;
     }
     setState(() {
@@ -1078,8 +1064,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   Future<void> _prayed(PrayerRequestItem request) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
-      setState(
-          () => _status = AppStrings.of(widget.language, 'login_required'));
+      promptSignIn(context, widget.language);
       return;
     }
     await widget.apiClient.markPrayerPrayed(token, request.id);

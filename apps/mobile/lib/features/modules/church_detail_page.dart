@@ -7,6 +7,7 @@ import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/call_controller.dart';
 import '../../data/image_upload.dart';
+import '../home/sign_in_scope.dart';
 import '../../i18n/app_i18n.dart';
 
 import 'live_chat_panel.dart';
@@ -61,7 +62,7 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
 
   Future<void> _run(Future<dynamic> Function() action, String success) async {
     if (widget.session == null) {
-      setState(() => _status = 'Log in to continue.');
+      promptSignIn(context, widget.language);
       return;
     }
     setState(() => _busy = true);
@@ -76,8 +77,10 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() =>
-            _status = error.toString().replaceFirst('HttpException: ', ''));
+        final raw = error.toString().replaceFirst('HttpException: ', '');
+        setState(() => _status = raw.contains('already_member_of_another_church')
+            ? 'You can only be a member of one church. Leave your current church first, or join as a visitor instead.'
+            : raw);
       }
     } finally {
       if (mounted) setState(() => _busy = false);

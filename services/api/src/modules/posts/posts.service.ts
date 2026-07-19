@@ -88,6 +88,25 @@ export class PostsService {
     return post;
   }
 
+  async update(actorToken: string, postId: string, body: string) {
+    const actor = await this.userRepository.authenticate(actorToken);
+    if (!actor) throw new NotFoundException('authenticated_user_not_found');
+    if (!body.trim()) throw new BadRequestException('body_required');
+    const updated = await this.contentRepository.updatePostBody(postId, actor.id, body.trim());
+    if (!updated) throw new NotFoundException('post_not_found');
+    void this.queues.searchIndexing({ entityType: 'post', entityId: postId, operation: 'upsert' });
+    return updated;
+  }
+
+  async remove(actorToken: string, postId: string) {
+    const actor = await this.userRepository.authenticate(actorToken);
+    if (!actor) throw new NotFoundException('authenticated_user_not_found');
+    const removed = await this.contentRepository.removePostByAuthor(postId, actor.id);
+    if (!removed) throw new NotFoundException('post_not_found');
+    void this.queues.searchIndexing({ entityType: 'post', entityId: postId, operation: 'delete' });
+    return { id: postId, status: 'deleted' };
+  }
+
   comments(postId: string) {
     return this.contentRepository.listPostComments(postId);
   }

@@ -305,21 +305,34 @@ class _LifeWorkspaceScreenState extends State<LifeWorkspaceScreen> {
         title: _s(item['fullName']),
         subtitle:
             '${_s(item['city'])} • ${_s(item['occupation'])}\n${_s(item['friendStatus'])}',
-        // Never offer messaging yourself.
+        // Message only for friends — and never yourself.
         actions: _s(item['id']) == widget.session.user.id
             ? const []
-            : [
-          FilledButton.tonal(
-            onPressed: _busy
-                ? null
-                : () => _run(
-                      () => widget.apiClient
-                          .startConversation(_token, _s(item['id'])),
-                      _t('Conversation opened.', 'ውይይት ተከፍቷል።'),
+            : item['friendStatus'] == 'accepted'
+                ? [
+                    FilledButton.tonal(
+                      onPressed: _busy
+                          ? null
+                          : () => _run(
+                                () => widget.apiClient
+                                    .startConversation(_token, _s(item['id'])),
+                                _t('Conversation opened.', 'ውይይት ተከፍቷል።'),
+                              ),
+                      child: Text(_t('Message', 'መልዕክት')),
                     ),
-            child: Text(_t('Message', 'መልዕክት')),
-          ),
-        ],
+                  ]
+                : [
+                    OutlinedButton(
+                      onPressed: _busy
+                          ? null
+                          : () => _run(
+                                () => widget.apiClient
+                                    .sendFriendRequest(_token, _s(item['id'])),
+                                _t('Friend request sent.', 'የጓደኝነት ጥያቄ ተልኳል።'),
+                              ),
+                      child: Text(_t('Add friend', 'ጓደኛ ጨምር')),
+                    ),
+                  ],
       );
 
   Widget _campaign(Map<String, dynamic> item) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -124,6 +125,16 @@ class ApiClient {
     );
   }
 
+  Future<dynamic> editPost(String token, String postId, String body) {
+    return _patchJson('/posts/$postId', {'body': body},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> deletePost(String token, String postId) {
+    return _deleteJson('/posts/$postId',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<dynamic> sharePost({
     required String token,
     required String postId,
@@ -238,6 +249,7 @@ class ApiClient {
     required Uint8List bytes,
     String? scopeType,
     String? scopeId,
+    void Function(double sentFraction)? onProgress,
   }) async {
     final signed = await _postJson(
       '/media/upload-url',
@@ -256,19 +268,29 @@ class ApiClient {
     if (uploadUrl.isEmpty || assetId.isEmpty) {
       throw const ApiException('media_upload_url_invalid');
     }
-    final uploadResponse = await http
-        .put(
-          Uri.parse(uploadUrl),
-          headers: {
-            'content-type': contentType,
-            'content-length': byteSize.toString(),
-          },
-          body: bytes,
-        )
-        // Generous bound: uploads are large and mobile networks slow, but a
-        // stalled transfer must still fail instead of hanging forever.
-        .timeout(const Duration(minutes: 5),
-            onTimeout: () => throw const ApiException('media_upload_timed_out'));
+    // Streamed PUT so the UI can show real upload progress.
+    final request = http.StreamedRequest('PUT', Uri.parse(uploadUrl))
+      ..headers['content-type'] = contentType
+      ..contentLength = byteSize;
+    () async {
+      const chunkSize = 64 * 1024;
+      for (var offset = 0; offset < bytes.length; offset += chunkSize) {
+        final end =
+            offset + chunkSize > bytes.length ? bytes.length : offset + chunkSize;
+        request.sink.add(bytes.sublist(offset, end));
+        onProgress?.call(end / bytes.length);
+        // Yield so progress updates paint between chunks.
+        await Future<void>.delayed(Duration.zero);
+      }
+      unawaited(request.sink.close());
+    }();
+    // Generous bound: uploads are large and mobile networks slow, but a
+    // stalled transfer must still fail instead of hanging forever.
+    final streamed = await request.send().timeout(const Duration(minutes: 5),
+        onTimeout: () => throw const ApiException('media_upload_timed_out'));
+    final uploadResponse = await http.Response.fromStream(streamed).timeout(
+        const Duration(minutes: 1),
+        onTimeout: () => throw const ApiException('media_upload_timed_out'));
     if (uploadResponse.statusCode < 200 || uploadResponse.statusCode >= 300) {
       throw ApiException('media_upload_failed: ${uploadResponse.statusCode}');
     }

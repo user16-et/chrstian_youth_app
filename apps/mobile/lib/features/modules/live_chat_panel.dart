@@ -176,6 +176,14 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
       return _t("You don't have access to this conversation.",
           'ወደዚህ ውይይት መዳረሻ የለዎትም።');
     }
+    if (message.contains('messages_restricted')) {
+      return _t('You can chat once you are friends. Send a friend request first.',
+          'ጓደኛ ከሆናችሁ በኋላ መወያየት ይችላሉ። መጀመሪያ የጓደኝነት ጥያቄ ይላኩ።');
+    }
+    if (message.contains('adult_minor_direct_message_restricted')) {
+      return _t('Direct messages between adults and minors are not allowed.',
+          'በአዋቂዎችና በአካለ መጠን ባልደረሱ መካከል ቀጥተኛ መልዕክት አይፈቀድም።');
+    }
     if (message.contains('login_required') || message.contains('invalid_session')) {
       return AppStrings.of(widget.language, 'login_required');
     }

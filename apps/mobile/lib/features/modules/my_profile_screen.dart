@@ -5,6 +5,7 @@ import '../../data/app_models.dart';
 import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
 import 'module_pages.dart' show PostDetailScreen;
+import 'stories_feed.dart' show GlobalStoryViewerScreen;
 
 /// The signed-in user's own profile: who they are, their posts, and their
 /// active 24-hour stories — the personal timeline in one place.
@@ -367,7 +368,10 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               final bg = bgHex.startsWith('#') && bgHex.length == 7
                   ? Color(int.parse('FF${bgHex.substring(1)}', radix: 16))
                   : null;
-              return Container(
+              return InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: _openMyStories,
+                child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
@@ -418,12 +422,31 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
                         ]),
                   ),
                 ]),
+                ),
               );
             },
           ),
         ]);
       },
     );
+  }
+
+  // Opens my active stories in the full viewer (progress bars, delete,
+  // viewer list).
+  Future<void> _openMyStories() async {
+    final user = widget.session.user;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => GlobalStoryViewerScreen(
+        apiClient: widget.apiClient,
+        token: widget.session.token,
+        users: [
+          {'userId': user.id, 'fullName': user.fullName},
+        ],
+        myUserId: user.id,
+        language: widget.language,
+      ),
+    ));
+    if (mounted) await _refresh();
   }
 
   Widget _aboutTab(Map<String, dynamic> identity, Map<String, dynamic> profile) {

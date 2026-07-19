@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { parseBearerToken, requireBearerToken } from '../../common/request-auth';
@@ -33,6 +33,20 @@ export class PostsController {
   @Post()
   create(@Headers('authorization') authorization: string | undefined, @Body() body: CreatePostDto) {
     return this.postsService.create(requireBearerToken(authorization), body);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Edit your own post' })
+  @Patch('/:id')
+  update(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() body: { body?: string }) {
+    return this.postsService.update(requireBearerToken(authorization), id, String(body?.body ?? ''));
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete your own post' })
+  @Delete('/:id')
+  remove(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.postsService.remove(requireBearerToken(authorization), id);
   }
 
   @ApiBearerAuth()

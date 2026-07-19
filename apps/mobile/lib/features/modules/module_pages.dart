@@ -23,6 +23,7 @@ import 'prayer_growth_pages.dart';
 import 'relationship_social.dart';
 import 'stories_feed.dart';
 import 'user_profile_sheet.dart';
+import '../home/sign_in_scope.dart';
 
 part 'module_pages/church_directory.dart';
 part 'module_pages/community_pages.dart';

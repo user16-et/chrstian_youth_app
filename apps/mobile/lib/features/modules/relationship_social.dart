@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/api_client.dart';
 import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
+import 'user_profile_sheet.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
 String _t(AppLanguage l, String en, String am) => _en(l) ? en : am;
@@ -340,6 +341,18 @@ class _RelationshipProfileSheetState extends State<_RelationshipProfileSheet> {
       final profile = await widget.apiClient.viewRelationshipProfile(widget.token, widget.userId);
       if (mounted) setState(() { _profile = profile; _loading = false; });
     } catch (error) {
+      final raw = error.toString();
+      // Not everyone has a courtship profile — for those people fall back to
+      // their normal social profile instead of showing an error.
+      if (raw.contains('relationship_profile_not_found')) {
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        await showUserProfileSheet(context,
+            apiClient: widget.apiClient,
+            userId: widget.userId,
+            token: widget.token);
+        return;
+      }
       if (mounted) setState(() { _error = friendlyRelationshipError(error, language); _loading = false; });
     }
   }
