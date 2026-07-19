@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
+import 'module_pages.dart' show PostDetailScreen;
 
 /// The signed-in user's own profile: who they are, their posts, and their
 /// active 24-hour stories — the personal timeline in one place.
@@ -236,7 +237,10 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             .map((e) => '$e')
             .where((s) => s.isNotEmpty)
             .toList();
-        return Container(
+        return InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _openPost('${post['id'] ?? ''}'),
+          child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: colors.surface,
@@ -274,11 +278,41 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               Text('${post['comments'] ?? 0}',
                   style: TextStyle(
                       fontSize: 12.5, color: colors.onSurfaceVariant)),
+              const Spacer(),
+              Icon(Icons.chevron_right_rounded,
+                  size: 18, color: colors.onSurfaceVariant),
             ]),
           ]),
+          ),
         );
       },
     );
+  }
+
+  // Opens the full post (comments, reactions) for an item of my timeline.
+  Future<void> _openPost(String postId) async {
+    if (postId.isEmpty) return;
+    try {
+      final post = await widget.apiClient.fetchPostById(postId,
+          token: widget.session.token);
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => PostDetailScreen(
+          language: widget.language,
+          item: post,
+          apiClient: widget.apiClient,
+          session: widget.session,
+          onReport: () async {},
+          onDataChanged: () async {},
+        ),
+      ));
+      if (mounted) await _refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(error.toString().replaceFirst('HttpException: ', ''))));
+    }
   }
 
   Widget _storiesTab() {

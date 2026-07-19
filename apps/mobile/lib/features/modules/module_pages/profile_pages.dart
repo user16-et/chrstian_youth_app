@@ -158,6 +158,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Persists a freshly uploaded profile or cover photo, then refreshes so the
+  // new image shows everywhere immediately.
+  Future<void> _savePhoto({String? profileImage, String? coverImage}) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.updateProfileDashboard(token, {
+        if (profileImage != null) 'profileImage': profileImage,
+        if (coverImage != null) 'coverImage': coverImage,
+      });
+      await _reload();
+      await widget.onDataChanged();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(widget.language == AppLanguage.english
+                ? 'Photo updated.'
+                : 'ፎቶ ተቀይሯል።')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _changeCoverPhoto() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final url = await pickAndUploadImage(context,
+        apiClient: widget.apiClient, token: token, usage: 'cover_photo');
+    if (url != null) await _savePhoto(coverImage: url);
+  }
+
   Future<void> _save() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
@@ -228,12 +266,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 16),
           _SectionCard(title: en ? 'Public profile' : 'የሚታይ መገለጫ', children: [
             Row(children: [
-              CircleAvatar(
-                  radius: 34,
-                  child: Text((_profile?.fullName.isNotEmpty == true
-                          ? _profile!.fullName[0]
-                          : '?')
-                      .toUpperCase())),
+              ImageUploadAvatar(
+                apiClient: widget.apiClient,
+                token: widget.session?.token ?? '',
+                usage: 'profile_photo',
+                radius: 34,
+                currentUrl: '${identity['profileImage'] ?? identity['photoUrl'] ?? ''}',
+                initials: (_profile?.fullName.isNotEmpty == true
+                        ? _profile!.fullName[0]
+                        : '?')
+                    .toUpperCase(),
+                onUploaded: (url) => _savePhoto(profileImage: url),
+              ),
               const SizedBox(width: 14),
               Expanded(
                   child: Column(
@@ -256,6 +300,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _InfoChip(label: '${community['friends'] ?? 0} friends'),
               _InfoChip(label: '${items('achievements').length} badges'),
             ]),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _changeCoverPhoto,
+                icon: const Icon(Icons.image_rounded, size: 18),
+                label: Text(en ? 'Change cover photo' : 'የሽፋን ፎቶ ቀይር'),
+              ),
+            ),
           ]),
           const SizedBox(height: 16),
           _SectionCard(

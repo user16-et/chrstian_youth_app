@@ -1,26 +1,48 @@
 part of '../module_pages.dart';
 
 /// An inline feed action button (like / comment / share).
+// Icon-only feed action: the icon carries the meaning (tooltip for a11y),
+// with just the count beside it when non-zero.
 class _FeedAction extends StatelessWidget {
-  const _FeedAction({required this.icon, required this.label, required this.color, required this.onTap, this.onLongPress});
+  const _FeedAction({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onTap,
+    this.count = 0,
+    this.emoji = '',
+    this.onLongPress,
+  });
   final IconData icon;
-  final String label;
+  final String tooltip;
   final Color color;
+  final int count;
+
+  /// When set, rendered instead of the icon (the viewer's own reaction).
+  final String emoji;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) => Expanded(
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(icon, size: 20, color: color),
-              const SizedBox(width: 6),
-              Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
-            ]),
+        child: Tooltip(
+          message: tooltip,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (emoji.isNotEmpty)
+                  Text(emoji, style: const TextStyle(fontSize: 18))
+                else
+                  Icon(icon, size: 20, color: color),
+                if (count > 0) ...[
+                  const SizedBox(width: 5),
+                  Text('$count', style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 13)),
+                ],
+              ]),
+            ),
           ),
         ),
       );
@@ -164,6 +186,16 @@ class _FeedScreenState extends State<FeedScreen> {
       setState(() => _status = AppStrings.of(widget.language, 'login_required'));
       return;
     }
+    // Copy the post so the user can paste it anywhere, and record the share.
+    final en = widget.language == AppLanguage.english;
+    await Clipboard.setData(
+        ClipboardData(text: '${item.author}: ${item.body}'));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(en
+              ? 'Post copied — paste it anywhere to share.'
+              : 'ልጥፉ ተቀድቷል — ለማጋራት የትም ይለጥፉት።')));
+    }
     final current = _effective(item);
     setState(() => _feedOverrides[item.id] = current.copyWith(shareCount: current.shareCount + 1));
     try {
@@ -172,6 +204,102 @@ class _FeedScreenState extends State<FeedScreen> {
       if (mounted) {
         setState(() => _feedOverrides[item.id] = current);
         _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
+  }
+
+  Future<void> _repostFeed(FeedItem item) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    final en = widget.language == AppLanguage.english;
+    final captionController = TextEditingController();
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 4, 20, MediaQuery.of(context).viewInsets.bottom + 24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(en ? 'Repost to your feed' : 'ወደ የእርስዎ ገጽ ድጋሚ ለጥፍ',
+              style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 6),
+          Text('${item.author}: ${item.body}',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          TextField(
+            controller: captionController,
+            maxLines: 2,
+            decoration: InputDecoration(
+                hintText: en
+                    ? 'Add your thoughts (optional)'
+                    : 'ሀሳብዎን ያክሉ (አማራጭ)'),
+          ),
+          const SizedBox(height: 14),
+          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(en ? 'Cancel' : 'ሰርዝ')),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.repeat_rounded, size: 18),
+                label: Text(en ? 'Repost' : 'ድጋሚ ለጥፍ')),
+          ]),
+        ]),
+      ),
+    );
+    final caption = captionController.text.trim();
+    captionController.dispose();
+    if (confirmed != true) return;
+    final current = _effective(item);
+    setState(() => _feedOverrides[item.id] =
+        current.copyWith(repostCount: current.repostCount + 1));
+    try {
+      await widget.apiClient.repostPost(
+          token, item.id, caption, widget.language.code);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(en
+                ? 'Reposted to your feed.'
+                : 'ወደ ገጽዎ ድጋሚ ተለጥፏል።')));
+        await widget.onDataChanged();
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _feedOverrides[item.id] = current);
+        _status = error.toString().replaceFirst('HttpException: ', '');
+      }
+    }
+  }
+
+  // A repost points at its original — let readers open it.
+  Future<void> _openOriginalPost(FeedItem item) async {
+    final id = item.repostOf;
+    if (id == null || id.isEmpty) return;
+    try {
+      final post =
+          await widget.apiClient.fetchPostById(id, token: widget.session?.token);
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => PostDetailScreen(
+          language: widget.language,
+          item: post,
+          apiClient: widget.apiClient,
+          session: widget.session,
+          onReport: () async {},
+          onDataChanged: widget.onDataChanged,
+        ),
+      ));
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
       }
     }
   }
@@ -783,6 +911,21 @@ class _FeedScreenState extends State<FeedScreen> {
                                               ),
                                             ],
                                           ),
+                                          if (item.repostOf != null &&
+                                              item.repostOf!.isNotEmpty) ...[
+                                            const SizedBox(height: 8),
+                                            ActionChip(
+                                              avatar: const Icon(
+                                                  Icons.repeat_rounded,
+                                                  size: 16),
+                                              label: Text(widget.language ==
+                                                      AppLanguage.english
+                                                  ? 'Reposted • view original'
+                                                  : 'ድጋሚ የተለጠፈ • ዋናውን ይመልከቱ'),
+                                              onPressed: () =>
+                                                  _openOriginalPost(item),
+                                            ),
+                                          ],
                                           const SizedBox(height: 14),
                                           Text(item.body,
                                               maxLines: 4,
@@ -907,17 +1050,14 @@ class _FeedScreenState extends State<FeedScreen> {
                                               const Divider(height: 1),
                                               Row(children: [
                                               _FeedAction(
-                                                icon: eff.myReaction.isNotEmpty
-                                                    ? Icons.emoji_emotions_rounded
-                                                    : (eff.likedByMe
-                                                        ? Icons.favorite_rounded
-                                                        : Icons
-                                                            .favorite_border_rounded),
-                                                label: eff.myReaction.isNotEmpty
-                                                    ? eff.myReaction
-                                                    : (eff.likeCount > 0
-                                                        ? '${eff.likeCount}'
-                                                        : 'Like'),
+                                                icon: eff.likedByMe
+                                                    ? Icons.favorite_rounded
+                                                    : Icons
+                                                        .favorite_border_rounded,
+                                                emoji: eff.myReaction,
+                                                tooltip:
+                                                    'Like (hold to react)',
+                                                count: eff.likeCount,
                                                 color: (eff.likedByMe ||
                                                         eff.myReaction
                                                             .isNotEmpty)
@@ -933,18 +1073,24 @@ class _FeedScreenState extends State<FeedScreen> {
                                               _FeedAction(
                                                 icon:
                                                     Icons.mode_comment_outlined,
-                                                label: eff.commentCount > 0
-                                                    ? '${eff.commentCount}'
-                                                    : 'Comment',
+                                                tooltip: 'Comments',
+                                                count: eff.commentCount,
                                                 color: onSurfaceVariant,
                                                 onTap: () => _openPostActions(
                                                     context, item),
                                               ),
                                               _FeedAction(
+                                                icon: Icons.repeat_rounded,
+                                                tooltip: 'Repost',
+                                                count: eff.repostCount,
+                                                color: onSurfaceVariant,
+                                                onTap: () =>
+                                                    _repostFeed(item),
+                                              ),
+                                              _FeedAction(
                                                 icon: Icons.ios_share_rounded,
-                                                label: eff.shareCount > 0
-                                                    ? '${eff.shareCount}'
-                                                    : 'Share',
+                                                tooltip: 'Share',
+                                                count: eff.shareCount,
                                                 color: onSurfaceVariant,
                                                 onTap: () => _shareFeed(item),
                                               ),

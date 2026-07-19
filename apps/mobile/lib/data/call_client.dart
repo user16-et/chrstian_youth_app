@@ -123,7 +123,7 @@ class CallClient {
     _media = media;
     _peerId = calleeId;
     _setState(CallState.ringing);
-    await _ensureLocalStream(media);
+    if (!await _ensureLocalStream(media)) return;
     _socket?.emitWithAck('call:invite', {
       'conversationId': conversationId,
       'calleeId': calleeId,
@@ -145,7 +145,10 @@ class CallClient {
     _peerId = call.fromId;
     _media = call.media;
     _setState(CallState.connecting);
-    await _ensureLocalStream(call.media);
+    if (!await _ensureLocalStream(call.media)) {
+      _socket?.emit('call:decline', {'callId': call.callId});
+      return;
+    }
     // Peer connection is created when the caller's offer arrives.
     _socket?.emit('call:accept', {'callId': call.callId});
   }
@@ -174,7 +177,7 @@ class CallClient {
     _media = CallMedia.audio;
     _groupId = groupId;
     _setState(CallState.connecting);
-    await _ensureLocalStream(CallMedia.audio);
+    if (!await _ensureLocalStream(CallMedia.audio)) return;
     _socket?.emitWithAck('room:join', {'groupId': groupId}, ack: (res) async {
       final map = _map(res);
       if (map['ok'] != true) {
@@ -421,14 +424,33 @@ class CallClient {
     if (_peers.isEmpty && _groupId.isEmpty) _teardown('ended');
   }
 
-  Future<void> _ensureLocalStream(CallMedia media) async {
-    if (_localStream != null) return;
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': media == CallMedia.video
-          ? {'facingMode': 'user', 'width': 640, 'height': 480, 'frameRate': 24}
-          : false,
-    });
+  /// Opens mic (and camera for video). Returns false — after failing the call
+  /// with a user-facing reason — when the device refuses, e.g. permissions
+  /// denied or the camera is held by another app.
+  Future<bool> _ensureLocalStream(CallMedia media) async {
+    final wantVideo = media == CallMedia.video;
+    final current = _localStream;
+    if (current != null && (!wantVideo || current.getVideoTracks().isNotEmpty)) return true;
+    try {
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': wantVideo
+            ? {'facingMode': 'user', 'width': 640, 'height': 480, 'frameRate': 24}
+            : false,
+      });
+      // Replace an audio-only stream left from a previous state.
+      if (current != null) {
+        for (final track in current.getTracks()) {
+          track.stop();
+        }
+        current.dispose();
+      }
+      _localStream = stream;
+      return true;
+    } catch (_) {
+      _fail(wantVideo ? 'camera_mic_unavailable' : 'mic_unavailable');
+      return false;
+    }
   }
 
   void _sendSignal({

@@ -53,6 +53,7 @@ export class ConnectedLifeService {
       scopeId,
       otherUserId: input.otherUserId ? String(input.otherUserId) : undefined,
     });
+    if (result === 'pending') throw new ForbiddenException('chat_membership_pending');
     if (!result) throw new ForbiddenException('chat_scope_access_denied');
     return result;
   }

@@ -1783,6 +1783,7 @@ class FeedItem {
     this.mediaUrls = const [],
     this.mediaType = '',
     this.repostOf,
+    this.repostCount = 0,
     this.reactionCounts = const {},
     this.myReaction = '',
     this.pollQuestion = '',
@@ -1808,6 +1809,7 @@ class FeedItem {
   final List<String> mediaUrls;
   final String mediaType;
   final String? repostOf;
+  final int repostCount;
   final Map<String, int> reactionCounts;
   final String myReaction;
   final String pollQuestion;
@@ -1832,6 +1834,7 @@ class FeedItem {
     List<String>? mediaUrls,
     String? mediaType,
     String? repostOf,
+    int? repostCount,
     Map<String, int>? reactionCounts,
     String? myReaction,
     String? pollQuestion,
@@ -1857,6 +1860,7 @@ class FeedItem {
       mediaUrls: mediaUrls ?? this.mediaUrls,
       mediaType: mediaType ?? this.mediaType,
       repostOf: repostOf ?? this.repostOf,
+      repostCount: repostCount ?? this.repostCount,
       reactionCounts: reactionCounts ?? this.reactionCounts,
       myReaction: myReaction ?? this.myReaction,
       pollQuestion: pollQuestion ?? this.pollQuestion,
@@ -1891,6 +1895,7 @@ class FeedItem {
           .toList(),
       mediaType: json['mediaType'] as String? ?? '',
       repostOf: json['repostOf'] as String?,
+      repostCount: json['repostCount'] as int? ?? 0,
       reactionCounts:
           (json['reactionCounts'] as Map<String, dynamic>? ?? const {}).map(
         (key, value) => MapEntry(key, (value as num?)?.toInt() ?? 0),

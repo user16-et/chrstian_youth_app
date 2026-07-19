@@ -225,6 +225,7 @@ export interface PostViewRecord {
   mediaUrls: string[];
   mediaType: string;
   repostOf: string | null;
+  repostCount: number;
   reactionCounts: Record<string, number>;
   myReaction: string;
   pollQuestion: string;
@@ -1220,7 +1221,7 @@ export class ContentRepository implements OnModuleInit {
               p.language,
               COALESCE((SELECT question FROM post_polls WHERE post_id=p.id), '') AS poll_question,
               COALESCE((SELECT options FROM post_polls WHERE post_id=p.id), '{}'::text[]) AS poll_options,
-              p.post_type, p.media_urls, p.media_type, p.repost_of,
+              p.post_type, p.media_urls, p.media_type, p.repost_of, (SELECT count(*)::int FROM posts rp WHERE rp.repost_of=p.id AND rp.removed_at IS NULL) AS repost_count,
               COALESCE((SELECT json_object_agg(reaction,total) FROM (SELECT reaction,count(*)::int total FROM post_reactions WHERE post_id=p.id GROUP BY reaction) reactions), '{}'::json) AS reaction_counts,
               COALESCE((SELECT reaction FROM post_reactions WHERE post_id=p.id AND $1::uuid IS NOT NULL AND user_id=$1), '') AS my_reaction,
               p.created_at,
@@ -1277,7 +1278,7 @@ export class ContentRepository implements OnModuleInit {
       `SELECT p.id,fe.id AS feed_event_id,p.author_id,u.full_name AS author_name,p.body,p.language,
               COALESCE((SELECT question FROM post_polls WHERE post_id=p.id), '') AS poll_question,
               COALESCE((SELECT options FROM post_polls WHERE post_id=p.id), '{}'::text[]) AS poll_options,
-              p.post_type,p.media_urls,p.media_type,p.repost_of,
+              p.post_type,p.media_urls,p.media_type,p.repost_of,(SELECT count(*)::int FROM posts rp WHERE rp.repost_of=p.id AND rp.removed_at IS NULL) AS repost_count,
               COALESCE((SELECT json_object_agg(reaction,total) FROM (SELECT reaction,count(*)::int total FROM post_reactions WHERE post_id=p.id GROUP BY reaction) r), '{}'::json) AS reaction_counts,
               COALESCE((SELECT reaction FROM post_reactions WHERE post_id=p.id AND $1::uuid IS NOT NULL AND user_id=$1), '') AS my_reaction,
               COALESCE(fe.created_at,p.created_at) AS feed_created_at,
@@ -1309,7 +1310,7 @@ export class ContentRepository implements OnModuleInit {
       `SELECT p.id,p.author_id,u.full_name AS author_name,p.body,p.language,
               COALESCE((SELECT question FROM post_polls WHERE post_id=p.id), '') AS poll_question,
               COALESCE((SELECT options FROM post_polls WHERE post_id=p.id), '{}'::text[]) AS poll_options,
-              p.post_type,p.media_urls,p.media_type,p.repost_of,
+              p.post_type,p.media_urls,p.media_type,p.repost_of,(SELECT count(*)::int FROM posts rp WHERE rp.repost_of=p.id AND rp.removed_at IS NULL) AS repost_count,
               COALESCE((SELECT json_object_agg(reaction,total) FROM (SELECT reaction,count(*)::int total FROM post_reactions WHERE post_id=p.id GROUP BY reaction) r), '{}'::json) AS reaction_counts,
               COALESCE((SELECT reaction FROM post_reactions WHERE post_id=p.id AND $5::uuid IS NOT NULL AND user_id=$5), '') AS my_reaction,p.created_at AS feed_created_at,
               p.created_at,p.like_count,p.comment_count,p.share_count,
@@ -1329,40 +1330,24 @@ export class ContentRepository implements OnModuleInit {
     return result.rows.map((row) => ({ post: this.mapPostView(row), cursor: { createdAt: this.iso(row.feed_created_at), id: String(row.id) } }));
   }
 
+  // Full post view (media, poll, reactions, my flags) — must stay in sync with
+  // the feed selects so a post opened by id renders the same as in the feed.
   async getPostById(postId: string, viewerId?: string) {
     const result = await this.pool.query(
-      `SELECT p.id,
-              p.author_id,
-              u.full_name AS author_name,
-              p.body,
-              p.language,
-              p.created_at,
-              COALESCE(l.like_count, 0) AS like_count,
-              COALESCE(c.comment_count, 0) AS comment_count,
-              COALESCE(s.share_count, 0) AS share_count,
-              CASE
-                WHEN $2::uuid IS NOT NULL AND EXISTS (
-                  SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $2
-                ) THEN true
-                ELSE false
-              END AS liked_by_me
+      `SELECT p.id,p.author_id,u.full_name AS author_name,p.body,p.language,p.created_at,
+              COALESCE((SELECT question FROM post_polls WHERE post_id=p.id), '') AS poll_question,
+              COALESCE((SELECT options FROM post_polls WHERE post_id=p.id), '{}'::text[]) AS poll_options,
+              p.post_type,p.media_urls,p.media_type,p.repost_of,(SELECT count(*)::int FROM posts rp WHERE rp.repost_of=p.id AND rp.removed_at IS NULL) AS repost_count,
+              COALESCE((SELECT json_object_agg(reaction,total) FROM (SELECT reaction,count(*)::int total FROM post_reactions WHERE post_id=p.id GROUP BY reaction) r), '{}'::json) AS reaction_counts,
+              COALESCE((SELECT reaction FROM post_reactions WHERE post_id=p.id AND $2::uuid IS NOT NULL AND user_id=$2), '') AS my_reaction,
+              COALESCE((SELECT count(*)::int FROM post_likes WHERE post_id=p.id), 0) AS like_count,
+              COALESCE((SELECT count(*)::int FROM post_comments WHERE post_id=p.id), 0) AS comment_count,
+              COALESCE((SELECT count(*)::int FROM post_shares WHERE post_id=p.id), 0) AS share_count,
+              CASE WHEN $2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id=p.id AND pl.user_id=$2) THEN true ELSE false END AS liked_by_me,
+              CASE WHEN $2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$2) THEN true ELSE false END AS saved_by_me,
+              CASE WHEN $2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$2 AND uf.following_id=p.author_id) THEN true ELSE false END AS author_followed_by_me
        FROM posts p
        JOIN users u ON u.id = p.author_id
-       LEFT JOIN (
-         SELECT post_id, count(*)::int AS like_count
-         FROM post_likes
-         GROUP BY post_id
-       ) l ON l.post_id = p.id
-       LEFT JOIN (
-         SELECT post_id, count(*)::int AS comment_count
-         FROM post_comments
-         GROUP BY post_id
-       ) c ON c.post_id = p.id
-       LEFT JOIN (
-         SELECT post_id, count(*)::int AS share_count
-         FROM post_shares
-         GROUP BY post_id
-       ) s ON s.post_id = p.id
        WHERE p.id = $1 AND p.removed_at IS NULL
        LIMIT 1`,
       [postId, viewerId ?? null],
@@ -4070,6 +4055,7 @@ export class ContentRepository implements OnModuleInit {
       mediaUrls: Array.isArray(row.media_urls) ? row.media_urls.map(String) : [],
       mediaType: String(row.media_type ?? ''),
       repostOf: row.repost_of ? String(row.repost_of) : null,
+      repostCount: Number(row.repost_count ?? 0),
       reactionCounts: (row.reaction_counts as Record<string, number> | null) ?? {},
       myReaction: String(row.my_reaction ?? ''),
       pollQuestion: String(row.poll_question ?? ''),

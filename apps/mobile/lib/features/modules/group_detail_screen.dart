@@ -282,6 +282,25 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
     }
   }
 
+  Future<void> _joinGroup() async {
+    try {
+      if (_readingPlan != null) {
+        await widget.apiClient.joinReadingGroup(_token, widget.groupId);
+      } else {
+        await widget.apiClient.joinGroup(token: _token, groupId: widget.groupId);
+      }
+      await _load();
+      if (!mounted) return;
+      // The toast must tell the truth: private groups queue a request.
+      _toast(_isMember
+          ? _t(lang, 'Joined.', 'ተቀላቅለዋል።')
+          : _t(lang, 'Join request sent — waiting for approval.',
+              'የመቀላቀል ጥያቄ ተልኳል — ማጽደቅ በመጠበቅ ላይ።'));
+    } catch (error) {
+      if (mounted) _toast(_clean(error));
+    }
+  }
+
   Future<void> _post({String mediaUrl = ''}) async {
     final body = _input.text.trim();
     if ((body.isEmpty && mediaUrl.isEmpty) || _posting) return;
@@ -911,6 +930,26 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   Widget _footer(ColorScheme colors) {
     if (!_signedIn) return const SizedBox.shrink();
     if (!_isMember) {
+      // A private-group join creates a *request*: show that state instead of
+      // offering the join button again as if nothing happened.
+      if ('${_detail['myStatus'] ?? ''}' == 'requested') {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.hourglass_top_rounded, size: 18, color: colors.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                    _t(lang, 'Join request sent — waiting for admin approval.',
+                        'የመቀላቀል ጥያቄ ተልኳል — የአስተዳዳሪ ማጽደቅ በመጠበቅ ላይ።'),
+                    style: TextStyle(color: colors.onSurfaceVariant)),
+              ),
+            ]),
+          ),
+        );
+      }
       return SafeArea(
         top: false,
         child: Padding(
@@ -922,11 +961,7 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
               // its plan), so use the bible join which always grants active
               // membership — even for a private group — instead of the generic
               // join that would leave you pending approval.
-              onPressed: () => _run(
-                  () => _readingPlan != null
-                      ? widget.apiClient.joinReadingGroup(_token, widget.groupId)
-                      : widget.apiClient.joinGroup(token: _token, groupId: widget.groupId),
-                  ok: _t(lang, 'Joined.', 'ተቀላቅለዋል።')),
+              onPressed: _joinGroup,
               icon: const Icon(Icons.add_rounded),
               label: Text(_isChannel ? _t(lang, 'Follow channel', 'ቻናል ተከተል') : _t(lang, 'Join group', 'ቡድን ተቀላቀል')),
             ),

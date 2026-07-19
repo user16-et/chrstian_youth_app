@@ -113,7 +113,7 @@ export class ConnectedLifeRepository {
 
   async getOrCreateScopedConversation(userId: string, input: { scopeType: ScopeType; scopeId: string; otherUserId?: string }) {
     const scope = await this.scopeAccess(userId, input);
-    if (!scope.allowed) return null;
+    if (!scope.allowed) return (scope as { pending?: boolean }).pending ? ('pending' as const) : null;
     const kind = input.scopeType === 'marketplace_listing' ? 'marketplace' : input.scopeType;
     const result = await this.pool.query(
       `INSERT INTO conversations(kind,title,created_by,scope_type,scope_id,scope_member_key)
@@ -290,7 +290,11 @@ export class ConnectedLifeRepository {
          )`,
         [input.scopeId, userId],
       );
-      if (!result.rows[0]) return { allowed: false, members: [] };
+      if (!result.rows[0]) {
+        const pending = await this.pool.query(
+          `SELECT 1 FROM church_memberships WHERE church_id=$1 AND user_id=$2`, [input.scopeId, userId]);
+        return { allowed: false, pending: (pending.rowCount ?? 0) > 0, members: [] };
+      }
       return { allowed: true, title: `${result.rows[0].name} chat`, members: [{ userId, role: 'member' }] };
     }
     if (input.scopeType === 'ministry') {
@@ -306,16 +310,24 @@ export class ConnectedLifeRepository {
          )`,
         [input.scopeId, userId],
       );
-      if (!result.rows[0]) return { allowed: false, members: [] };
+      if (!result.rows[0]) {
+        const pending = await this.pool.query(
+          `SELECT 1 FROM ministry_memberships WHERE ministry_id=$1 AND user_id=$2`, [input.scopeId, userId]);
+        return { allowed: false, pending: (pending.rowCount ?? 0) > 0, members: [] };
+      }
       return { allowed: true, title: `${result.rows[0].name} chat`, members: [{ userId, role: 'member' }] };
     }
     if (input.scopeType === 'group') {
       const result = await this.pool.query(
         `SELECT g.name FROM groups g
-         WHERE g.id=$1 AND EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.group_id=g.id AND gm.user_id=$2)`,
+         WHERE g.id=$1 AND EXISTS(SELECT 1 FROM group_memberships gm WHERE gm.group_id=g.id AND gm.user_id=$2 AND gm.status='active')`,
         [input.scopeId, userId],
       );
-      if (!result.rows[0]) return { allowed: false, members: [] };
+      if (!result.rows[0]) {
+        const pending = await this.pool.query(
+          `SELECT 1 FROM group_memberships WHERE group_id=$1 AND user_id=$2`, [input.scopeId, userId]);
+        return { allowed: false, pending: (pending.rowCount ?? 0) > 0, members: [] };
+      }
       return { allowed: true, title: `${result.rows[0].name} chat`, members: [{ userId, role: 'member' }] };
     }
     if (input.scopeType === 'event') {

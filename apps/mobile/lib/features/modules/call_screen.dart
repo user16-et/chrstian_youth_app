@@ -26,11 +26,11 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final Map<String, RTCVideoRenderer> _remoteRenderers = {};
+  bool _rendererReady = false;
 
   @override
   void initState() {
     super.initState();
-    _localRenderer.initialize();
     final client = widget.client;
     client.onStateChanged = _onStateChanged;
     client.onRemoteStream = _attachRemote;
@@ -38,12 +38,18 @@ class _CallScreenState extends State<CallScreen> {
     client.onParticipantsChanged = () {
       if (mounted) setState(() {});
     };
-    _bindLocal();
+    // The renderer must finish initializing before a stream can be attached —
+    // binding earlier silently leaves the preview black on devices.
+    _localRenderer.initialize().then((_) {
+      _rendererReady = true;
+      _bindLocal();
+    });
   }
 
-  Future<void> _bindLocal() async {
+  void _bindLocal() {
+    if (!_rendererReady) return;
     final stream = widget.client.localStream;
-    if (stream != null && widget.client.media == CallMedia.video) {
+    if (stream != null && widget.client.media == CallMedia.video && _localRenderer.srcObject != stream) {
       _localRenderer.srcObject = stream;
       if (mounted) setState(() {});
     }

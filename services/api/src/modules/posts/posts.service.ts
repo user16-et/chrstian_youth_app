@@ -47,6 +47,7 @@ export class PostsService {
       mediaUrls: post.mediaUrls,
       mediaType: post.mediaType,
       repostOf: post.repostOf,
+      repostCount: post.repostCount,
       reactionCounts: post.reactionCounts,
       myReaction: post.myReaction,
       pollQuestion: post.pollQuestion,

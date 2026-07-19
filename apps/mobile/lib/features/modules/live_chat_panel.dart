@@ -164,6 +164,10 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
 
   String _friendlyError(Object error) {
     final message = error.toString().replaceFirst('HttpException: ', '');
+    if (message.contains('chat_membership_pending')) {
+      return _t('Your join request is waiting for approval — chat opens once you are approved.',
+          'የመቀላቀል ጥያቄዎ ማጽደቅ በመጠበቅ ላይ ነው — ሲጸድቅ ውይይቱ ይከፈታል።');
+    }
     if (message.contains('chat_scope_access_denied')) {
       return _t('Join this group first to open its chat.',
           'ውይይቱን ለመክፈት መጀመሪያ ይህን ቡድን ይቀላቀሉ።');

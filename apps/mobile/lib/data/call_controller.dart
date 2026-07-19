@@ -39,8 +39,25 @@ class CallController {
     if (_boundToken != token) return; // session changed while awaiting
     final client = CallClient(baseUrl: apiClient.baseUrl, iceServers: ice);
     client.onIncomingCall = _handleIncoming;
+    client.onError = _showCallError;
     client.connect(token, session.user.id);
     _client = client;
+  }
+
+  void _showCallError(String reason) {
+    final context = rootNavigatorKey.currentContext;
+    if (context == null) return;
+    final message = switch (reason) {
+      'camera_mic_unavailable' =>
+        'Could not open the camera/microphone. Allow Camera and Microphone for this app in Settings, and close other apps using the camera.',
+      'mic_unavailable' =>
+        'Could not open the microphone. Allow Microphone access for this app in Settings.',
+      'declined' => 'Call declined.',
+      'cancelled' => 'Call cancelled.',
+      _ => 'Call failed: $reason',
+    };
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> startDirectCall({
@@ -52,6 +69,7 @@ class CallController {
     final client = _client;
     if (client == null || _inCall || calleeId.isEmpty || conversationId.isEmpty) return;
     await client.invite(conversationId: conversationId, calleeId: calleeId, media: media);
+    if (client.state == CallState.idle) return; // failed before ringing (e.g. camera denied)
     _openCallScreen(title: title, isGroup: false);
   }
 
@@ -59,6 +77,7 @@ class CallController {
     final client = _client;
     if (client == null || _inCall || groupId.isEmpty) return;
     await client.joinGroupAudio(groupId);
+    if (client.state == CallState.idle) return;
     _openCallScreen(title: title, isGroup: true, canManageRoom: canManageRoom);
   }
 
@@ -72,6 +91,7 @@ class CallController {
     final accepted = await showIncomingCallSheet(context, call);
     if (accepted) {
       await client.accept(call);
+      if (client.state == CallState.idle) return;
       _openCallScreen(title: call.fromName, isGroup: false);
     } else {
       client.decline(call);
