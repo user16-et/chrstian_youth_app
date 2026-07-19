@@ -43,7 +43,7 @@ const extensionsByType: Record<string, string[]> = {
 export class MediaService {
   private readonly config = loadConfig();
   private storageClient?: S3Client;
-  private presignStorageClient?: S3Client;
+  private readonly presignClients = new Map<string, S3Client>();
 
   constructor(
     private readonly users: UserRepository,
@@ -51,14 +51,14 @@ export class MediaService {
     private readonly queues: QueueProducer,
   ) {}
 
-  async createUploadUrl(token: string, input: CreateUploadUrlDto) {
+  async createUploadUrl(token: string, input: CreateUploadUrlDto, requestHost?: string) {
     const user = await this.requireUser(token);
     this.requireStorageConfigured();
     this.validateUpload(input);
 
     const assetId = randomUUID();
     const objectKey = this.objectKey(input.usage, user.id, assetId, input.fileName);
-    const publicUrl = this.publicUrl(objectKey);
+    const publicUrl = this.publicUrl(objectKey, requestHost);
     const contentType = input.contentType.trim().toLowerCase();
     const asset = await this.repository.createPending({
       id: assetId,
@@ -75,7 +75,7 @@ export class MediaService {
     });
 
     const uploadUrl = await getSignedUrl(
-      this.presignClient(),
+      this.presignClient(requestHost),
       new PutObjectCommand({
         Bucket: this.config.mediaBucket as string,
         Key: objectKey,
@@ -160,21 +160,40 @@ export class MediaService {
   }
 
   // Presigned URLs embed the host in the signature, so they must be signed
-  // against an endpoint the *client device* can reach (e.g. the machine's LAN
-  // IP or a public domain), not the Docker-internal hostname. Falls back to
-  // the internal endpoint when no public one is configured.
-  private presignClient() {
-    this.presignStorageClient ??= new S3Client({
-      region: this.config.mediaRegion,
-      endpoint:
-        this.config.mediaPublicEndpoint ?? this.config.mediaEndpoint ?? undefined,
-      forcePathStyle: this.config.mediaForcePathStyle,
-      credentials: {
-        accessKeyId: this.config.mediaAccessKeyId as string,
-        secretAccessKey: this.config.mediaSecretAccessKey as string,
-      },
-    });
-    return this.presignStorageClient;
+  // against an endpoint the *client device* can reach, never the
+  // Docker-internal hostname. Explicit MEDIA_PUBLIC_ENDPOINT wins; otherwise
+  // the endpoint is derived from the host the client used to reach the API
+  // (works unchanged for localhost, emulators and phones on the LAN), using
+  // MEDIA_PUBLIC_PORT (the storage *host* port) or the internal port.
+  private presignClient(requestHost?: string) {
+    const endpoint =
+      this.config.mediaPublicEndpoint ??
+      (requestHost ? `http://${requestHost}:${this.publicStoragePort()}` : this.config.mediaEndpoint) ??
+      undefined;
+    const key = endpoint ?? 'internal';
+    let client = this.presignClients.get(key);
+    if (!client) {
+      client = new S3Client({
+        region: this.config.mediaRegion,
+        endpoint,
+        forcePathStyle: this.config.mediaForcePathStyle,
+        credentials: {
+          accessKeyId: this.config.mediaAccessKeyId as string,
+          secretAccessKey: this.config.mediaSecretAccessKey as string,
+        },
+      });
+      this.presignClients.set(key, client);
+    }
+    return client;
+  }
+
+  private publicStoragePort() {
+    if (this.config.mediaPublicPort) return this.config.mediaPublicPort;
+    try {
+      return new URL(this.config.mediaEndpoint ?? '').port || '9000';
+    } catch {
+      return '9000';
+    }
   }
 
   private requireStorageConfigured() {
@@ -207,8 +226,9 @@ export class MediaService {
     return `quarantine/${usage}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${ownerId}/${assetId}-${safeName}`;
   }
 
-  private publicUrl(objectKey: string) {
+  private publicUrl(objectKey: string, requestHost?: string) {
     if (this.config.mediaPublicBaseUrl) return `${this.config.mediaPublicBaseUrl.replace(/\/+$/g, '')}/${objectKey}`;
+    if (requestHost) return `http://${requestHost}:${this.publicStoragePort()}/${this.config.mediaBucket}/${objectKey}`;
     return `https://${this.config.mediaBucket}.s3.${this.config.mediaRegion}.amazonaws.com/${objectKey}`;
   }
 

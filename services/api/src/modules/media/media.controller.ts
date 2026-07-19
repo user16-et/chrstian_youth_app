@@ -6,6 +6,14 @@ import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
 import { MediaService } from './media.service';
 
+// Hostname (no port) from a Host header; handles bracketed IPv6.
+function hostnameOf(host?: string) {
+  const value = (host ?? '').trim();
+  if (!value) return undefined;
+  if (value.startsWith('[')) return value.slice(0, value.indexOf(']') + 1) || undefined;
+  return value.split(':')[0] || undefined;
+}
+
 @ApiTags('media')
 @ApiBearerAuth()
 @Controller('/media')
@@ -15,8 +23,12 @@ export class MediaController {
   @ApiBody({ type: CreateUploadUrlDto })
   @ApiOperation({ summary: 'Create a direct-to-object-storage signed upload URL' })
   @Post('/upload-url')
-  createUploadUrl(@Headers('authorization') authorization: string | undefined, @Body() body: CreateUploadUrlDto) {
-    return this.media.createUploadUrl(requireBearerToken(authorization), body);
+  createUploadUrl(
+    @Headers('authorization') authorization: string | undefined,
+    @Headers('host') host: string | undefined,
+    @Body() body: CreateUploadUrlDto,
+  ) {
+    return this.media.createUploadUrl(requireBearerToken(authorization), body, hostnameOf(host));
   }
 
   @ApiOperation({ summary: 'List media assets owned by the authenticated user' })
