@@ -3260,16 +3260,20 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
       ),
       ...actions,
     };
+    // The admin action keys don't all match the profile's section keys.
+    const profileKey = <String, String>{'service-schedules': 'schedules'};
     return FutureBuilder<Map<String, dynamic>>(
       future: _profile,
       builder: (context, snapshot) {
         final profile = snapshot.data ?? widget.initialProfile;
         final tiles = <Widget>[];
         for (final entry in sections.entries) {
-          final items = (profile[entry.key] as List<dynamic>? ?? const [])
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList();
+          final items =
+              (profile[profileKey[entry.key] ?? entry.key] as List<dynamic>? ??
+                      const [])
+                  .whereType<Map>()
+                  .map((item) => Map<String, dynamic>.from(item))
+                  .toList();
           if (items.isEmpty) continue;
           tiles.add(Padding(
             padding: const EdgeInsets.only(top: 12, bottom: 6),
@@ -3790,17 +3794,70 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
         ),
         const SizedBox(height: 18),
         Text('Live analytics', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
         FutureBuilder<Map<String, dynamic>>(
           future: _analytics,
           builder: (context, snapshot) {
-            final data = snapshot.data ?? {};
-            return Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: data.entries
-                  .map((entry) =>
-                      Chip(label: Text('${entry.key}: ${entry.value}')))
-                  .toList(),
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const LinearProgressIndicator();
+            }
+            final data = snapshot.data ?? const {};
+            const labels = <String, (String, IconData)>{
+              'totalMembers': ('Members', Icons.groups_rounded),
+              'membershipRequests':
+                  ('Pending requests', Icons.how_to_reg_rounded),
+              'ministries': ('Ministries', Icons.diversity_3_rounded),
+              'events': ('Events', Icons.event_rounded),
+              'attendance': ('Attendance', Icons.co_present_rounded),
+            };
+            final colors = Theme.of(context).colorScheme;
+            final entries = labels.entries
+                .where((e) => data.containsKey(e.key))
+                .toList();
+            if (entries.isEmpty) {
+              return const Text('No analytics yet.');
+            }
+            return GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 2.6,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              children: [
+                for (final e in entries)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerHighest.withValues(alpha: .5),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(children: [
+                      Icon(e.value.$2, color: colors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('${data[e.key] ?? 0}',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w800)),
+                            Text(e.value.$1,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: colors.onSurfaceVariant)),
+                          ],
+                        ),
+                      ),
+                    ]),
+                  ),
+              ],
             );
           },
         ),

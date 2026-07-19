@@ -249,9 +249,30 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
             border: Border.all(color: colors.outline.withValues(alpha: .16)),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(friendlyDateTime('${post['createdAt'] ?? ''}'),
-                style:
-                    TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+            Row(children: [
+              Text(friendlyDateTime('${post['createdAt'] ?? ''}'),
+                  style:
+                      TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+              const Spacer(),
+              // These are always my own posts — offer edit/delete.
+              SizedBox(
+                height: 28,
+                width: 28,
+                child: PopupMenuButton<String>(
+                  padding: EdgeInsets.zero,
+                  iconSize: 18,
+                  tooltip: _t('Post options', 'የልጥፍ አማራጮች'),
+                  onSelected: (v) => v == 'edit'
+                      ? _editPost(post)
+                      : _deletePost('${post['id'] ?? ''}'),
+                  itemBuilder: (context) => [
+                    PopupMenuItem(value: 'edit', child: Text(_t('Edit', 'አርትዕ'))),
+                    PopupMenuItem(
+                        value: 'delete', child: Text(_t('Delete', 'ሰርዝ'))),
+                  ],
+                ),
+              ),
+            ]),
             const SizedBox(height: 6),
             Text('${post['body'] ?? ''}',
                 maxLines: 6, overflow: TextOverflow.ellipsis),
@@ -429,6 +450,70 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         ]);
       },
     );
+  }
+
+  Future<void> _editPost(Map<String, dynamic> post) async {
+    final id = '${post['id'] ?? ''}';
+    if (id.isEmpty) return;
+    final controller = TextEditingController(text: '${post['body'] ?? ''}');
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(_t('Edit post', 'ልጥፍ አርትዕ')),
+        content: TextField(
+            controller: controller, maxLines: 6, minLines: 2, autofocus: true),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(_t('Cancel', 'ተወው'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(_t('Save', 'አስቀምጥ'))),
+        ],
+      ),
+    );
+    final body = controller.text.trim();
+    controller.dispose();
+    if (saved != true || body.isEmpty) return;
+    try {
+      await widget.apiClient.editPost(widget.session.token, id, body);
+      if (mounted) await _refresh();
+    } catch (error) {
+      _toast(error);
+    }
+  }
+
+  Future<void> _deletePost(String id) async {
+    if (id.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(_t('Delete this post?', 'ይህ ልጥፍ ይሰረዝ?')),
+        content: Text(_t('This removes the post for everyone.',
+            'ይህ ልጥፉን ለሁሉም ያስወግዳል።')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(_t('Cancel', 'ተወው'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(_t('Delete', 'ሰርዝ'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.apiClient.deletePost(widget.session.token, id);
+      if (mounted) await _refresh();
+    } catch (error) {
+      _toast(error);
+    }
+  }
+
+  void _toast(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(error.toString().replaceFirst('HttpException: ', ''))));
   }
 
   // Opens my active stories in the full viewer (progress bars, delete,
