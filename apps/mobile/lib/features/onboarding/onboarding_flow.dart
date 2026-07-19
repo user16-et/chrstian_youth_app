@@ -160,31 +160,41 @@ class _SlideView extends StatelessWidget {
           colors: slide.colors,
         ),
       ),
-      padding: const EdgeInsets.fromLTRB(30, 0, 30, 120),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .14),
-              shape: BoxShape.circle,
+      padding: const EdgeInsets.fromLTRB(30, 0, 30, 96),
+      // Centers when there's room, scrolls on small screens / large fonts —
+      // never overflows.
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 46),
+                Container(
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .14),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(slide.icon, size: 64, color: Colors.white),
+                ),
+                const SizedBox(height: 34),
+                Text(slide.title,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 30,
+                        height: 1.2,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 14),
+                Text(slide.body,
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 16, height: 1.45)),
+              ],
             ),
-            child: Icon(slide.icon, size: 64, color: Colors.white),
           ),
-          const SizedBox(height: 34),
-          Text(slide.title,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 30,
-                  height: 1.2,
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(height: 14),
-          Text(slide.body,
-              style: const TextStyle(
-                  color: Colors.white70, fontSize: 16, height: 1.45)),
-        ],
+        ),
       ),
     );
   }

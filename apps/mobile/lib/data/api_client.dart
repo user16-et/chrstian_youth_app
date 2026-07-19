@@ -2995,8 +2995,16 @@ class ApiClient {
   ];
 
   bool _isCacheable(String path) {
-    final bare = path.split('?').first;
-    return _cacheablePaths.contains(bare);
+    final parts = path.split('?');
+    // Cursor pages carry unique URLs — caching them would grow storage
+    // without bound and never be re-read. Only the first page is kept.
+    if (parts.length > 1 &&
+        (parts[1].contains('cursor=') ||
+            parts[1].contains('before=') ||
+            parts[1].contains('after='))) {
+      return false;
+    }
+    return _cacheablePaths.contains(parts.first);
   }
 
   String _cacheKey(String path, Map<String, String> headers) {

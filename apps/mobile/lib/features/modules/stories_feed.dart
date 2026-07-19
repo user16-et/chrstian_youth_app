@@ -270,6 +270,7 @@ class _GlobalStoryViewerScreenState extends State<GlobalStoryViewerScreen>
   void initState() {
     super.initState();
     _replyFocus.addListener(() {
+      if (!mounted) return;
       // Typing a reply pauses the story clock.
       if (_replyFocus.hasFocus) {
         _progress.stop();
@@ -352,6 +353,9 @@ class _GlobalStoryViewerScreenState extends State<GlobalStoryViewerScreen>
   }
 
   void _resume() {
+    // The focus listener can fire during teardown — never touch the disposed
+    // controller.
+    if (!mounted) return;
     if (!_progress.isAnimating && _progress.value < 1 && !_loading && _stories.isNotEmpty) {
       _progress.forward();
     }
