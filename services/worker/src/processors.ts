@@ -83,9 +83,12 @@ export function createProcessors(db: Pool, config: WorkerConfig): ProcessorMap {
       // Fan out to the author (score 3), their followers (2), and members of the
       // author's church (1). The affinity score lets the feed rank network posts
       // above general church posts. Union rows collapse via GREATEST on conflict.
+      // Collapse the union to one row per recipient (a user can be the author,
+      // a follower AND a fellow church member) — otherwise ON CONFLICT DO UPDATE
+      // would touch the same target row twice in one statement and error.
       await db.query(
         `INSERT INTO feed_events(user_id,actor_id,event_type,source_type,source_id,score,metadata)
-         SELECT r.user_id,$1,'post_created','post',$2,r.score,jsonb_build_object('scope',$3::text,'scopeId',$4::text)
+         SELECT r.user_id,$1,'post_created','post',$2,max(r.score),jsonb_build_object('scope',$3::text,'scopeId',$4::text)
          FROM (
            SELECT $1::uuid AS user_id, 3 AS score
            UNION ALL
@@ -97,6 +100,7 @@ export function createProcessors(db: Pool, config: WorkerConfig): ProcessorMap {
             WHERE cm1.user_id=$1 AND cm1.status IN ('active','approved')
               AND cm2.status IN ('active','approved')
          ) r
+         GROUP BY r.user_id
          ON CONFLICT(user_id,source_type,source_id,event_type)
          DO UPDATE SET score=GREATEST(feed_events.score,EXCLUDED.score),metadata=EXCLUDED.metadata,created_at=now()`,
         [data.authorId, data.postId, data.scope ?? 'public', data.scopeId ?? ''],
