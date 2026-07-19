@@ -1,8 +1,59 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
+
+/// Shared talent categories — a fixed set keeps the directory filterable and
+/// consistent instead of free-typed strings.
+const List<String> kTalentCategories = [
+  'Singing',
+  'Instruments',
+  'Worship leading',
+  'Preaching & teaching',
+  'Poetry & spoken word',
+  'Writing',
+  'Photography',
+  'Videography',
+  'Graphic design',
+  'Drama & acting',
+  'Dance',
+  'Media production',
+  'Sound & tech',
+  'Other',
+];
+
+IconData talentCategoryIcon(String category) {
+  switch (category) {
+    case 'Singing':
+    case 'Worship leading':
+      return Icons.mic_rounded;
+    case 'Instruments':
+      return Icons.piano_rounded;
+    case 'Preaching & teaching':
+      return Icons.record_voice_over_rounded;
+    case 'Poetry & spoken word':
+    case 'Writing':
+      return Icons.menu_book_rounded;
+    case 'Photography':
+      return Icons.photo_camera_rounded;
+    case 'Videography':
+    case 'Media production':
+      return Icons.videocam_rounded;
+    case 'Graphic design':
+      return Icons.brush_rounded;
+    case 'Drama & acting':
+      return Icons.theater_comedy_rounded;
+    case 'Dance':
+      return Icons.music_note_rounded;
+    case 'Sound & tech':
+      return Icons.graphic_eq_rounded;
+    default:
+      return Icons.star_rounded;
+  }
+}
 
 class OpportunitiesScreen extends StatefulWidget {
   const OpportunitiesScreen({super.key, required this.language, required this.apiClient, required this.session});
@@ -316,13 +367,18 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
   late Future<List<TalentCompetitionItem>> _competitionsFuture;
   late Future<TalentProfileItem?> _myProfileFuture;
   final TextEditingController _displayNameController = TextEditingController();
-  final TextEditingController _categoryController = TextEditingController(text: 'Singing');
+  String _category = 'Singing';
   final TextEditingController _churchController = TextEditingController();
   final TextEditingController _cityController = TextEditingController();
   final TextEditingController _bioController = TextEditingController();
   final TextEditingController _contactController = TextEditingController();
+  TalentProfileItem? _myProfile;
+  String _categoryFilter = 'all';
   String _status = '';
   bool _busy = false;
+
+  bool get _en => widget.language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
 
   @override
   void initState() {
@@ -333,7 +389,6 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
   @override
   void dispose() {
     _displayNameController.dispose();
-    _categoryController.dispose();
     _churchController.dispose();
     _cityController.dispose();
     _bioController.dispose();
@@ -343,7 +398,8 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
 
   Future<void> _refresh() async {
     setState(() {
-      _profilesFuture = widget.apiClient.fetchTalentProfiles();
+      _profilesFuture =
+          widget.apiClient.fetchTalentProfiles(token: widget.session?.token);
       _competitionsFuture = widget.apiClient.fetchTalentCompetitions();
       _myProfileFuture = widget.session?.token == null
           ? Future.value(null)
@@ -351,36 +407,48 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
     });
     final profile = await _myProfileFuture;
     if (!mounted) return;
-    if (profile != null) {
-      _displayNameController.text = profile.displayName;
-      _categoryController.text = profile.category;
-      _churchController.text = profile.churchName;
-      _cityController.text = profile.city;
-      _bioController.text = profile.bio;
-      _contactController.text = profile.contactInfo;
-    }
+    setState(() {
+      _myProfile = profile;
+      if (profile != null) {
+        _displayNameController.text = profile.displayName;
+        _category = kTalentCategories.contains(profile.category)
+            ? profile.category
+            : 'Other';
+        _churchController.text = profile.churchName;
+        _cityController.text = profile.city;
+        _bioController.text = profile.bio;
+        _contactController.text = profile.contactInfo;
+      }
+    });
+  }
+
+  bool _requireLogin() {
+    final token = widget.session?.token;
+    if (token != null && token.isNotEmpty) return true;
+    setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+    return false;
   }
 
   Future<void> _saveProfile() async {
-    final token = widget.session?.token;
-    if (token == null || token.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+    if (!_requireLogin()) return;
+    if (_displayNameController.text.trim().isEmpty) {
+      setState(() => _status = _t('Add a stage/display name first.', 'መጀመሪያ የመድረክ ስም ያክሉ።'));
       return;
     }
     setState(() => _busy = true);
     try {
       await widget.apiClient.upsertTalentProfile(
-        token: token,
-        displayName: _displayNameController.text,
-        category: _categoryController.text,
-        churchName: _churchController.text,
-        city: _cityController.text,
-        bio: _bioController.text,
-        contactInfo: _contactController.text,
+        token: widget.session!.token,
+        displayName: _displayNameController.text.trim(),
+        category: _category,
+        churchName: _churchController.text.trim(),
+        city: _cityController.text.trim(),
+        bio: _bioController.text.trim(),
+        contactInfo: _contactController.text.trim(),
       );
       await _refresh();
       if (!mounted) return;
-      setState(() => _status = AppStrings.of(widget.language, 'talent_saved'));
+      setState(() => _status = _t('Talent profile saved.', 'የተሰጥኦ መገለጫ ተቀምጧል።'));
     } catch (error) {
       if (!mounted) return;
       setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
@@ -390,17 +458,53 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
   }
 
   Future<void> _enterCompetition(String competitionId) async {
-    final token = widget.session?.token;
-    if (token == null || token.isEmpty) {
-      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
-      return;
-    }
+    if (!_requireLogin()) return;
     setState(() => _busy = true);
     try {
-      await widget.apiClient.enterTalentCompetition(token: token, competitionId: competitionId);
+      await widget.apiClient
+          .enterTalentCompetition(token: widget.session!.token, competitionId: competitionId);
       await _refresh();
       if (!mounted) return;
-      setState(() => _status = AppStrings.of(widget.language, 'competition_entered'));
+      setState(() => _status = _t('You are entered. Blessings!', 'ገብተዋል። መልካም!'));
+    } catch (error) {
+      if (!mounted) return;
+      final raw = error.toString().replaceFirst('HttpException: ', '');
+      setState(() => _status = raw.contains('talent_profile_required')
+          ? _t('Create your talent profile before entering.',
+              'ከመግባትዎ በፊት የተሰጥኦ መገለጫ ይፍጠሩ።')
+          : raw);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // ---- Showcase (portfolio) ----
+
+  Future<void> _addShowcase() async {
+    if (!_requireLogin()) return;
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _ShowcaseComposer(
+          apiClient: widget.apiClient,
+          token: widget.session!.token,
+          language: widget.language),
+    );
+    if (result == null) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.addTalentShowcase(
+        token: widget.session!.token,
+        title: result['title'] ?? '',
+        description: result['description'] ?? '',
+        mediaUrl: result['mediaUrl'] ?? '',
+        mediaType: result['mediaType'] ?? 'image',
+        linkUrl: result['linkUrl'] ?? '',
+      );
+      await _refresh();
+      if (!mounted) return;
+      setState(() => _status = _t('Added to your showcase.', 'ወደ ማሳያዎ ታክሏል።'));
     } catch (error) {
       if (!mounted) return;
       setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
@@ -409,88 +513,298 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
     }
   }
 
+  Future<void> _removeShowcase(String id) async {
+    if (!_requireLogin()) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.removeTalentShowcase(widget.session!.token, id);
+      await _refresh();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _toggleEndorse(TalentProfileItem profile) async {
+    if (!_requireLogin()) return;
+    try {
+      await widget.apiClient.endorseTalent(widget.session!.token, profile.userId,
+          endorse: !profile.endorsedByMe);
+      await _refresh();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
+  }
+
+  void _openTalent(TalentProfileItem profile) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _TalentDetailSheet(
+        profile: profile,
+        language: widget.language,
+        isMe: profile.userId == widget.session?.user.id,
+        onEndorse: () async {
+          Navigator.pop(context);
+          await _toggleEndorse(profile);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final language = widget.language;
-    final t = AppStrings.of;
     return FutureBuilder<List<dynamic>>(
-      future: Future.wait([_profilesFuture, _competitionsFuture, _myProfileFuture]),
+      future:
+          Future.wait([_profilesFuture, _competitionsFuture, _myProfileFuture]),
       builder: (context, snapshot) {
-        final profiles = snapshot.data != null ? snapshot.data![0] as List<TalentProfileItem> : const <TalentProfileItem>[];
-        final competitions = snapshot.data != null ? snapshot.data![1] as List<TalentCompetitionItem> : const <TalentCompetitionItem>[];
-        final myProfile = snapshot.data != null ? snapshot.data![2] as TalentProfileItem? : null;
-        return ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            _HubHeader(
-              title: t(language, 'talent_hub'),
-              subtitle: t(language, 'talent_hub_subtitle'),
-              accent: const Color(0xFF6A1B9A),
-            ),
-            const SizedBox(height: 16),
-            _SectionCard(
-              title: t(language, 'my_talent_profile'),
-              children: [
-                TextField(controller: _displayNameController, decoration: InputDecoration(labelText: t(language, 'display_name'))),
-                const SizedBox(height: 10),
-                TextField(controller: _categoryController, decoration: InputDecoration(labelText: t(language, 'talent_category'))),
-                const SizedBox(height: 10),
-                TextField(controller: _churchController, decoration: InputDecoration(labelText: t(language, 'church_name'))),
-                const SizedBox(height: 10),
-                TextField(controller: _cityController, decoration: InputDecoration(labelText: t(language, 'city'))),
-                const SizedBox(height: 10),
-                TextField(controller: _contactController, decoration: InputDecoration(labelText: t(language, 'talent_contact'))),
-                const SizedBox(height: 10),
-                TextField(controller: _bioController, maxLines: 3, decoration: InputDecoration(labelText: t(language, 'bio'))),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: _busy ? null : _saveProfile,
-                  icon: const Icon(Icons.verified_rounded),
-                  label: Text(t(language, 'save_talent_profile')),
-                ),
-                if (myProfile != null) ...[
-                  const SizedBox(height: 12),
-                  Text('${t(language, 'current_profile')}: ${myProfile.displayName}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                ],
-              ],
-            ),
-            const SizedBox(height: 16),
-            _SectionCard(
-              title: t(language, 'talent_competitions'),
-              children: [
-                if (competitions.isEmpty)
-                  Text(t(language, 'no_competitions'))
-                else
-                  for (final competition in competitions) ...[
-                    _CompetitionCard(
-                      competition: competition,
-                      language: language,
-                      onEnter: _busy ? null : () => _enterCompetition(competition.id),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-              ],
-            ),
-            const SizedBox(height: 16),
-            _SectionCard(
-              title: t(language, 'talent_showcase'),
-              children: [
-                if (profiles.isEmpty)
-                  Text(t(language, 'no_talent_profiles'))
-                else
-                  for (final profile in profiles)
-                    _MiniProfileCard(profile: profile, language: language),
-              ],
-            ),
-            if (_status.isNotEmpty) ...[
+        final profiles = snapshot.data != null
+            ? snapshot.data![0] as List<TalentProfileItem>
+            : const <TalentProfileItem>[];
+        final competitions = snapshot.data != null
+            ? snapshot.data![1] as List<TalentCompetitionItem>
+            : const <TalentCompetitionItem>[];
+        final filtered = _categoryFilter == 'all'
+            ? profiles
+            : profiles.where((p) => p.category == _categoryFilter).toList();
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              _HubHeader(
+                title: _t('Talent Hub', 'የተሰጥኦ ማዕከል'),
+                subtitle: _t(
+                    'Show the gift God gave you, discover other believers, and enter competitions.',
+                    'እግዚአብሔር የሰጠዎትን ስጦታ ያሳዩ፣ ሌሎች አማኞችን ያግኙ እና በውድድር ይሳተፉ።'),
+                accent: const Color(0xFF6A1B9A),
+              ),
               const SizedBox(height: 16),
-              _StatusBanner(message: _status),
+              _buildMyProfileCard(),
+              const SizedBox(height: 16),
+              _buildMyShowcaseCard(),
+              const SizedBox(height: 16),
+              if (competitions.isNotEmpty) ...[
+                _SectionCard(
+                  title: _t('Competitions', 'ውድድሮች'),
+                  children: [
+                    for (final c in competitions) ...[
+                      _CompetitionCard(
+                        competition: c,
+                        language: widget.language,
+                        onEnter: _busy ? null : () => _enterCompetition(c.id),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+              _buildDirectory(profiles, filtered),
+              if (_status.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _StatusBanner(message: _status),
+              ],
             ],
-          ],
+          ),
         );
       },
     );
   }
+
+  Widget _buildMyProfileCard() {
+    return _SectionCard(
+      title: _t('My talent profile', 'የእኔ የተሰጥኦ መገለጫ'),
+      children: [
+        TextField(
+            controller: _displayNameController,
+            decoration: InputDecoration(
+                labelText: _t('Stage / display name', 'የመድረክ ስም'),
+                prefixIcon: const Icon(Icons.badge_rounded))),
+        const SizedBox(height: 12),
+        _fieldLabel(_t('Category', 'ምድብ')),
+        DropdownButtonFormField<String>(
+          initialValue: _category,
+          isExpanded: true,
+          items: [
+            for (final c in kTalentCategories)
+              DropdownMenuItem(
+                  value: c,
+                  child: Row(children: [
+                    Icon(talentCategoryIcon(c), size: 18),
+                    const SizedBox(width: 8),
+                    Flexible(child: Text(c, overflow: TextOverflow.ellipsis)),
+                  ])),
+          ],
+          onChanged: _busy ? null : (v) => setState(() => _category = v ?? _category),
+        ),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(
+              child: TextField(
+                  controller: _churchController,
+                  decoration:
+                      InputDecoration(labelText: _t('Church', 'ቤተ ክርስቲያን')))),
+          const SizedBox(width: 10),
+          Expanded(
+              child: TextField(
+                  controller: _cityController,
+                  decoration: InputDecoration(labelText: _t('City', 'ከተማ')))),
+        ]),
+        const SizedBox(height: 12),
+        TextField(
+            controller: _contactController,
+            decoration: InputDecoration(
+                labelText: _t('Contact (phone/email)', 'ስልክ/ኢሜይል'),
+                prefixIcon: const Icon(Icons.contact_page_rounded))),
+        const SizedBox(height: 12),
+        TextField(
+            controller: _bioController,
+            maxLines: 3,
+            decoration: InputDecoration(
+                labelText: _t('About your gift', 'ስለ ስጦታዎ'))),
+        const SizedBox(height: 14),
+        FilledButton.icon(
+          onPressed: _busy ? null : _saveProfile,
+          icon: const Icon(Icons.save_rounded),
+          label: Text(_myProfile == null
+              ? _t('Create profile', 'መገለጫ ፍጠር')
+              : _t('Save changes', 'ለውጦችን አስቀምጥ')),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMyShowcaseCard() {
+    final items = _myProfile?.showcase ?? const <TalentShowcaseItem>[];
+    return _SectionCard(
+      title: _t('My showcase', 'የእኔ ማሳያ'),
+      children: [
+        Text(
+            _t('Add songs, videos, photos or links that show your gift.',
+                'ስጦታዎን የሚያሳዩ ዘፈኖች፣ ቪዲዮዎች፣ ፎቶዎች ወይም አገናኞች ያክሉ።'),
+            style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 12),
+        if (items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(_t('Nothing here yet.', 'እስካሁን ምንም የለም።'),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          )
+        else
+          GridView.count(
+            crossAxisCount: 3,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            children: [
+              for (final item in items)
+                _ShowcaseThumb(
+                  item: item,
+                  onTap: () => _openMedia(item),
+                  onRemove: _busy ? null : () => _removeShowcase(item.id),
+                ),
+            ],
+          ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _busy ? null : _addShowcase,
+          icon: const Icon(Icons.add_photo_alternate_rounded),
+          label: Text(_t('Add to showcase', 'ወደ ማሳያ ጨምር')),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDirectory(
+      List<TalentProfileItem> all, List<TalentProfileItem> filtered) {
+    final categories = <String>{for (final p in all) p.category}.toList()
+      ..sort();
+    return _SectionCard(
+      title: _t('Talent directory', 'የተሰጥኦ ማውጫ'),
+      children: [
+        if (categories.isNotEmpty)
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(_t('All', 'ሁሉም')),
+                    selected: _categoryFilter == 'all',
+                    onSelected: (_) => setState(() => _categoryFilter = 'all'),
+                  ),
+                ),
+                for (final c in categories)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      avatar: Icon(talentCategoryIcon(c), size: 16),
+                      label: Text(c),
+                      selected: _categoryFilter == c,
+                      onSelected: (_) => setState(() => _categoryFilter = c),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 12),
+        if (filtered.isEmpty)
+          Text(_t('No talents here yet — be the first!', 'እስካሁን ተሰጥኦ የለም — መጀመሪያ ይሁኑ!'))
+        else
+          for (final profile in filtered) ...[
+            _TalentCard(
+              profile: profile,
+              language: widget.language,
+              onTap: () => _openTalent(profile),
+              onEndorse:
+                  _busy ? null : () => _toggleEndorse(profile),
+            ),
+            const SizedBox(height: 10),
+          ],
+      ],
+    );
+  }
+
+  Future<void> _openMedia(TalentShowcaseItem item) async {
+    final url = item.linkUrl.isNotEmpty ? item.linkUrl : item.mediaUrl;
+    if (url.isEmpty) return;
+    if (item.mediaType == 'image' && item.linkUrl.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          child: InteractiveViewer(
+            child: Image.network(url,
+                errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Icon(Icons.broken_image_rounded, size: 48))),
+          ),
+        ),
+      );
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Widget _fieldLabel(String label) => Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      );
 }
 
 class _HubHeader extends StatelessWidget {
@@ -738,20 +1052,453 @@ class _CompetitionCard extends StatelessWidget {
   }
 }
 
-class _MiniProfileCard extends StatelessWidget {
-  const _MiniProfileCard({required this.profile, required this.language});
+// A rich directory card: avatar, name, category, a showcase strip preview, and
+// an endorse button with a live count.
+class _TalentCard extends StatelessWidget {
+  const _TalentCard({
+    required this.profile,
+    required this.language,
+    required this.onTap,
+    required this.onEndorse,
+  });
 
   final TalentProfileItem profile;
   final AppLanguage language;
+  final VoidCallback onTap;
+  final VoidCallback? onEndorse;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final images = profile.showcase
+        .where((s) => s.mediaType == 'image' && s.mediaUrl.isNotEmpty)
+        .toList();
     return Card(
-      child: ListTile(
-        leading: CircleAvatar(child: Text(profile.displayName.isNotEmpty ? profile.displayName[0].toUpperCase() : '?')),
-        title: Text(profile.displayName, maxLines: 2, overflow: TextOverflow.ellipsis),
-        subtitle: Text('${profile.category} • ${profile.churchName} • ${profile.city}', maxLines: 3, overflow: TextOverflow.ellipsis),
-        trailing: Text(profile.contactInfo, maxLines: 2, overflow: TextOverflow.ellipsis),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              CircleAvatar(
+                backgroundColor: colors.primaryContainer,
+                foregroundColor: colors.onPrimaryContainer,
+                child: Icon(talentCategoryIcon(profile.category), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                          profile.displayName.isNotEmpty
+                              ? profile.displayName
+                              : profile.fullName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium),
+                      Text(
+                          [profile.category, profile.churchName, profile.city]
+                              .where((s) => s.isNotEmpty)
+                              .join(' • '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12, color: colors.onSurfaceVariant)),
+                    ]),
+              ),
+              _EndorseButton(
+                  count: profile.endorsementCount,
+                  endorsed: profile.endorsedByMe,
+                  onPressed: onEndorse),
+            ]),
+            if (images.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 72,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: images.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  itemBuilder: (context, i) => ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(images[i].mediaUrl,
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                            width: 72,
+                            height: 72,
+                            color: colors.surfaceContainerHighest,
+                            child: const Icon(Icons.image_rounded))),
+                  ),
+                ),
+              ),
+            ] else if (profile.showcase.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('${profile.showcase.length} ${language == AppLanguage.english ? 'showcase items' : 'ማሳያዎች'}',
+                  style: TextStyle(fontSize: 12, color: colors.primary)),
+            ],
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _EndorseButton extends StatelessWidget {
+  const _EndorseButton(
+      {required this.count, required this.endorsed, required this.onPressed});
+  final int count;
+  final bool endorsed;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onPressed,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(
+              endorsed
+                  ? Icons.thumb_up_alt_rounded
+                  : Icons.thumb_up_off_alt_rounded,
+              size: 20,
+              color: endorsed ? colors.primary : colors.onSurfaceVariant),
+          const SizedBox(height: 2),
+          Text('$count',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: endorsed ? colors.primary : colors.onSurfaceVariant)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _ShowcaseThumb extends StatelessWidget {
+  const _ShowcaseThumb(
+      {required this.item, required this.onTap, required this.onRemove});
+  final TalentShowcaseItem item;
+  final VoidCallback onTap;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final isImage = item.mediaType == 'image' && item.mediaUrl.isNotEmpty;
+    return Stack(children: [
+      Positioned.fill(
+        child: InkWell(
+          onTap: onTap,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: isImage
+                ? Image.network(item.mediaUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _placeholder(colors))
+                : _placeholder(colors),
+          ),
+        ),
+      ),
+      if (onRemove != null)
+        Positioned(
+          top: 2,
+          right: 2,
+          child: InkWell(
+            onTap: onRemove,
+            child: const CircleAvatar(
+                radius: 11,
+                backgroundColor: Colors.black54,
+                child: Icon(Icons.close_rounded, size: 14, color: Colors.white)),
+          ),
+        ),
+    ]);
+  }
+
+  Widget _placeholder(ColorScheme colors) => Container(
+        color: colors.surfaceContainerHighest,
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(
+              item.mediaType == 'video'
+                  ? Icons.play_circle_rounded
+                  : item.mediaType == 'audio'
+                      ? Icons.audiotrack_rounded
+                      : Icons.link_rounded,
+              color: colors.primary),
+          const SizedBox(height: 2),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(item.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 9)),
+          ),
+        ]),
+      );
+}
+
+/// Composer for a showcase item: upload an image, or paste a video/audio/link
+/// URL. Returns {title, description, mediaUrl, mediaType, linkUrl}.
+class _ShowcaseComposer extends StatefulWidget {
+  const _ShowcaseComposer(
+      {required this.apiClient, required this.token, required this.language});
+  final ApiClient apiClient;
+  final String token;
+  final AppLanguage language;
+
+  @override
+  State<_ShowcaseComposer> createState() => _ShowcaseComposerState();
+}
+
+class _ShowcaseComposerState extends State<_ShowcaseComposer> {
+  final _title = TextEditingController();
+  final _description = TextEditingController();
+  final _link = TextEditingController();
+  String _type = 'image';
+  String _imageUrl = '';
+
+  bool get _en => widget.language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _description.dispose();
+    _link.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          20, 4, 20, MediaQuery.of(context).viewInsets.bottom + 24),
+      child: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(_t('Add to showcase', 'ወደ ማሳያ ጨምር'),
+              style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          SegmentedButton<String>(
+            segments: [
+              ButtonSegment(value: 'image', icon: const Icon(Icons.image_rounded), label: Text(_t('Photo', 'ፎቶ'))),
+              ButtonSegment(value: 'video', icon: const Icon(Icons.videocam_rounded), label: Text(_t('Video', 'ቪዲዮ'))),
+              ButtonSegment(value: 'audio', icon: const Icon(Icons.audiotrack_rounded), label: Text(_t('Audio', 'ድምጽ'))),
+              ButtonSegment(value: 'link', icon: const Icon(Icons.link_rounded), label: Text(_t('Link', 'አገናኝ'))),
+            ],
+            selected: {_type},
+            onSelectionChanged: (s) => setState(() => _type = s.first),
+          ),
+          const SizedBox(height: 14),
+          if (_type == 'image') ...[
+            if (_imageUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.network(_imageUrl,
+                    height: 160, width: double.infinity, fit: BoxFit.cover),
+              ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final url = await pickAndUploadImage(context,
+                    apiClient: widget.apiClient,
+                    token: widget.token,
+                    usage: 'post_media');
+                if (url != null && mounted) setState(() => _imageUrl = url);
+              },
+              icon: const Icon(Icons.add_photo_alternate_rounded),
+              label: Text(_imageUrl.isEmpty
+                  ? _t('Upload photo', 'ፎቶ ስቀል')
+                  : _t('Change photo', 'ፎቶ ቀይር')),
+            ),
+          ] else
+            TextField(
+              controller: _link,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                labelText: _type == 'video'
+                    ? _t('Video URL (YouTube…)', 'የቪዲዮ አገናኝ')
+                    : _type == 'audio'
+                        ? _t('Audio URL', 'የድምጽ አገናኝ')
+                        : _t('Link URL', 'አገናኝ'),
+                prefixIcon: const Icon(Icons.link_rounded),
+              ),
+            ),
+          const SizedBox(height: 12),
+          TextField(
+              controller: _title,
+              decoration: InputDecoration(labelText: _t('Title', 'ርዕስ'))),
+          const SizedBox(height: 10),
+          TextField(
+              controller: _description,
+              maxLines: 2,
+              decoration: InputDecoration(
+                  labelText: _t('Description (optional)', 'መግለጫ (አማራጭ)'))),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () {
+              final title = _title.text.trim();
+              final hasMedia =
+                  _type == 'image' ? _imageUrl.isNotEmpty : _link.text.trim().isNotEmpty;
+              if (title.isEmpty || !hasMedia) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(_t('Add a title and media/link.',
+                        'ርዕስ እና ሚዲያ/አገናኝ ያክሉ።'))));
+                return;
+              }
+              Navigator.pop(context, {
+                'title': title,
+                'description': _description.text.trim(),
+                'mediaType': _type,
+                'mediaUrl': _type == 'image' ? _imageUrl : '',
+                'linkUrl': _type == 'image' ? '' : _link.text.trim(),
+              });
+            },
+            child: Text(_t('Add', 'ጨምር')),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Full talent view: bio, media gallery, contact and an endorse action.
+class _TalentDetailSheet extends StatelessWidget {
+  const _TalentDetailSheet({
+    required this.profile,
+    required this.language,
+    required this.isMe,
+    required this.onEndorse,
+  });
+
+  final TalentProfileItem profile;
+  final AppLanguage language;
+  final bool isMe;
+  final VoidCallback onEndorse;
+
+  bool get _en => language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: .8,
+      maxChildSize: .95,
+      builder: (context, scroll) => ListView(
+        controller: scroll,
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        children: [
+          Row(children: [
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: colors.primaryContainer,
+              foregroundColor: colors.onPrimaryContainer,
+              child: Icon(talentCategoryIcon(profile.category), size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                    profile.displayName.isNotEmpty
+                        ? profile.displayName
+                        : profile.fullName,
+                    style: Theme.of(context).textTheme.titleLarge),
+                Text(profile.category,
+                    style: TextStyle(color: colors.onSurfaceVariant)),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            if (profile.churchName.isNotEmpty)
+              Chip(avatar: const Icon(Icons.church_rounded, size: 16), label: Text(profile.churchName)),
+            if (profile.city.isNotEmpty)
+              Chip(avatar: const Icon(Icons.place_rounded, size: 16), label: Text(profile.city)),
+            Chip(
+                avatar: const Icon(Icons.thumb_up_alt_rounded, size: 16),
+                label: Text('${profile.endorsementCount} ${_t('endorsements', 'ድጋፎች')}')),
+          ]),
+          if (profile.bio.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(profile.bio),
+          ],
+          if (profile.showcase.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Text(_t('Showcase', 'ማሳያ'),
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 10),
+            for (final item in profile.showcase) _showcaseTile(context, item),
+          ],
+          if (profile.contactInfo.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.contact_page_rounded),
+                title: Text(_t('Contact', 'አግኝ')),
+                subtitle: Text(profile.contactInfo),
+              ),
+            ),
+          ],
+          if (!isMe) ...[
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: onEndorse,
+              icon: Icon(profile.endorsedByMe
+                  ? Icons.thumb_up_alt_rounded
+                  : Icons.thumb_up_off_alt_rounded),
+              label: Text(profile.endorsedByMe
+                  ? _t('Endorsed', 'ተደግፏል')
+                  : _t('Endorse this talent', 'ይህን ተሰጥኦ ደግፍ')),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _showcaseTile(BuildContext context, TalentShowcaseItem item) {
+    final isImage = item.mediaType == 'image' && item.mediaUrl.isNotEmpty;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () async {
+          final url = item.linkUrl.isNotEmpty ? item.linkUrl : item.mediaUrl;
+          final uri = Uri.tryParse(url);
+          if (uri != null && item.linkUrl.isNotEmpty) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          }
+        },
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (isImage)
+            Image.network(item.mediaUrl,
+                height: 180,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox(
+                    height: 180, child: Icon(Icons.broken_image_rounded))),
+          ListTile(
+            leading: Icon(item.mediaType == 'video'
+                ? Icons.play_circle_rounded
+                : item.mediaType == 'audio'
+                    ? Icons.audiotrack_rounded
+                    : item.mediaType == 'link'
+                        ? Icons.link_rounded
+                        : Icons.image_rounded),
+            title: Text(item.title),
+            subtitle: item.description.isNotEmpty ? Text(item.description) : null,
+            trailing: item.linkUrl.isNotEmpty
+                ? const Icon(Icons.open_in_new_rounded)
+                : null,
+          ),
+        ]),
       ),
     );
   }

@@ -41,9 +41,10 @@ extension AppPillarX on AppPillar {
         AppPillar.ministries =>
           en ? 'Teams, calling, talent' : 'ቡድኖች፣ ጥሪ፣ ተሰጥኦ',
         AppPillar.bible => en ? 'Read, study, grow' : 'አንብብ፣ አጥና፣ እደግ',
-        AppPillar.community => en ? 'Feed, prayer, groups' : 'ዜና፣ ጸሎት፣ ቡድኖች',
+        AppPillar.community =>
+          en ? 'Feed, people, prayer' : 'ዜና፣ ሰዎች፣ ጸሎት',
         AppPillar.relationships =>
-          en ? 'Friends, mentors, courtship' : 'ጓደኞች፣ አማካሪዎች፣ መጠናናት',
+          en ? 'Mentors and courtship' : 'አማካሪዎች እና መጠናናት',
         AppPillar.events => en ? 'Gather and participate' : 'ተሰብሰብ እና ተሳተፍ',
         AppPillar.marketplace =>
           en ? 'Buy, sell, discover' : 'ግዛ፣ ሽጥ፣ አግኝ',
@@ -873,6 +874,13 @@ class PillarDetailScreen extends StatelessWidget {
                   session: session,
                   onDataChanged: onDataChanged)),
           _x(
+              en ? 'People and friends' : 'ሰዎች እና ጓደኞች',
+              en
+                  ? 'Discover, follow and add friends'
+                  : 'ፈልግ፣ ተከተል እና ጓደኞችን ጨምር',
+              Icons.people_alt_rounded,
+              people),
+          _x(
               en ? 'Groups and fellowship' : 'ቡድኖች እና ኅብረት',
               en
                   ? 'Join communities and meet believers'
@@ -914,13 +922,6 @@ class PillarDetailScreen extends StatelessWidget {
                   language: language, apiClient: apiClient, session: session)),
         ],
       AppPillar.relationships => [
-          _x(
-              en ? 'People and friends' : 'ሰዎች እና ጓደኞች',
-              en
-                  ? 'Discover, follow and connect safely'
-                  : 'ፈልግ፣ ተከተል እና በደህና ተገናኝ',
-              Icons.people_alt_rounded,
-              people),
           _x(
               en ? 'Mentorship' : 'አማካሪነት',
               en

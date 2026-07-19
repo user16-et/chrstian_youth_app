@@ -1368,6 +1368,35 @@ class MediaItem {
   }
 }
 
+class TalentShowcaseItem {
+  const TalentShowcaseItem({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.mediaUrl,
+    required this.mediaType,
+    required this.linkUrl,
+  });
+
+  final String id;
+  final String title;
+  final String description;
+  final String mediaUrl;
+  final String mediaType;
+  final String linkUrl;
+
+  factory TalentShowcaseItem.fromJson(Map<String, dynamic> json) {
+    return TalentShowcaseItem(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      mediaUrl: json['mediaUrl'] as String? ?? '',
+      mediaType: json['mediaType'] as String? ?? 'image',
+      linkUrl: json['linkUrl'] as String? ?? '',
+    );
+  }
+}
+
 class TalentProfileItem {
   const TalentProfileItem({
     required this.userId,
@@ -1380,6 +1409,9 @@ class TalentProfileItem {
     required this.contactInfo,
     required this.createdAt,
     required this.updatedAt,
+    this.endorsementCount = 0,
+    this.endorsedByMe = false,
+    this.showcase = const [],
   });
 
   final String userId;
@@ -1392,6 +1424,9 @@ class TalentProfileItem {
   final String contactInfo;
   final String createdAt;
   final String updatedAt;
+  final int endorsementCount;
+  final bool endorsedByMe;
+  final List<TalentShowcaseItem> showcase;
 
   factory TalentProfileItem.fromJson(Map<String, dynamic> json) {
     return TalentProfileItem(
@@ -1405,6 +1440,12 @@ class TalentProfileItem {
       contactInfo: json['contactInfo'] as String? ?? '',
       createdAt: json['createdAt'] as String? ?? '',
       updatedAt: json['updatedAt'] as String? ?? '',
+      endorsementCount: json['endorsementCount'] as int? ?? 0,
+      endorsedByMe: json['endorsedByMe'] == true,
+      showcase: (json['showcase'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(TalentShowcaseItem.fromJson)
+          .toList(),
     );
   }
 }

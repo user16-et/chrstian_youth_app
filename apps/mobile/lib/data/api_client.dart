@@ -1442,12 +1442,44 @@ class ApiClient {
         .toList();
   }
 
-  Future<List<TalentProfileItem>> fetchTalentProfiles() async {
-    final response = await _getJson('/talent/profiles');
+  Future<List<TalentProfileItem>> fetchTalentProfiles({String? token}) async {
+    final response = await _getJson('/talent/profiles', headers: _bearer(token));
     return (response as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(TalentProfileItem.fromJson)
         .toList();
+  }
+
+  Future<TalentShowcaseItem> addTalentShowcase({
+    required String token,
+    required String title,
+    String description = '',
+    String mediaUrl = '',
+    String mediaType = 'image',
+    String linkUrl = '',
+  }) async {
+    final response = await _postJson('/talent/me/showcase', {
+      'title': title,
+      'description': description,
+      'mediaUrl': mediaUrl,
+      'mediaType': mediaType,
+      'linkUrl': linkUrl,
+    }, headers: {'Authorization': 'Bearer $token'});
+    return TalentShowcaseItem.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<void> removeTalentShowcase(String token, String id) {
+    return _deleteJson('/talent/me/showcase/$id',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<void> endorseTalent(String token, String userId,
+      {required bool endorse}) {
+    return endorse
+        ? _postJson('/talent/profiles/$userId/endorse', const {},
+            headers: {'Authorization': 'Bearer $token'})
+        : _deleteJson('/talent/profiles/$userId/endorse',
+            headers: {'Authorization': 'Bearer $token'});
   }
 
   Future<TalentProfileItem?> fetchTalentMe(String token) async {

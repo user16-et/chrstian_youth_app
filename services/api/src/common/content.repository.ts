@@ -668,6 +668,17 @@ export interface TalentProfileRecord {
   updatedAt: string;
 }
 
+export interface TalentShowcaseRecord {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  mediaUrl: string;
+  mediaType: string;
+  linkUrl: string;
+  createdAt: string;
+}
+
 export interface TalentProfileViewRecord {
   userId: string;
   fullName: string;
@@ -679,6 +690,9 @@ export interface TalentProfileViewRecord {
   contactInfo: string;
   createdAt: string;
   updatedAt: string;
+  endorsementCount: number;
+  endorsedByMe: boolean;
+  showcase: TalentShowcaseRecord[];
 }
 
 export interface TalentCompetitionRecord {
@@ -2241,26 +2255,84 @@ export class ContentRepository implements OnModuleInit {
     return result.rows.map((row) => this.mapMediaItemView(row));
   }
 
-  async listTalentProfiles() {
+  private readonly talentSelect = `SELECT t.user_id, u.full_name, t.display_name, t.category, t.church_name, t.city, t.bio, t.contact_info, t.created_at, t.updated_at,
+              (SELECT count(*)::int FROM talent_endorsements te WHERE te.talent_user_id=t.user_id) AS endorsement_count,
+              CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM talent_endorsements te WHERE te.talent_user_id=t.user_id AND te.endorser_id=$1) THEN true ELSE false END AS endorsed_by_me
+       FROM talent_profiles t JOIN users u ON u.id = t.user_id`;
+
+  async listTalentProfiles(viewerId?: string) {
     const result = await this.pool.query(
-      `SELECT t.user_id, u.full_name, t.display_name, t.category, t.church_name, t.city, t.bio, t.contact_info, t.created_at, t.updated_at
-       FROM talent_profiles t
-       JOIN users u ON u.id = t.user_id
-       ORDER BY t.created_at DESC`,
+      `${this.talentSelect} ORDER BY endorsement_count DESC, t.created_at DESC`,
+      [viewerId ?? null],
     );
-    return result.rows.map((row) => this.mapTalentProfileView(row));
+    const profiles = result.rows.map((row) => this.mapTalentProfileView(row));
+    await this.attachShowcase(profiles);
+    return profiles;
   }
 
-  async getTalentProfile(userId: string) {
+  async getTalentProfile(userId: string, viewerId?: string) {
     const result = await this.pool.query(
-      `SELECT t.user_id, u.full_name, t.display_name, t.category, t.church_name, t.city, t.bio, t.contact_info, t.created_at, t.updated_at
-       FROM talent_profiles t
-       JOIN users u ON u.id = t.user_id
-       WHERE t.user_id = $1
-       LIMIT 1`,
-      [userId],
+      `${this.talentSelect} WHERE t.user_id = $2 LIMIT 1`,
+      [viewerId ?? null, userId],
     );
-    return result.rowCount === 0 ? null : this.mapTalentProfileView(result.rows[0]);
+    if (result.rowCount === 0) return null;
+    const profile = this.mapTalentProfileView(result.rows[0]);
+    await this.attachShowcase([profile]);
+    return profile;
+  }
+
+  // Batch-load showcase items for a set of profiles (avoids N+1).
+  private async attachShowcase(profiles: TalentProfileViewRecord[]) {
+    if (profiles.length === 0) return;
+    const ids = profiles.map((p) => p.userId);
+    const rows = await this.pool.query(
+      `SELECT id, user_id, title, description, media_url, media_type, link_url, created_at
+       FROM talent_showcase WHERE user_id = ANY($1::uuid[]) ORDER BY created_at DESC`,
+      [ids],
+    );
+    const byUser = new Map<string, TalentShowcaseRecord[]>();
+    for (const row of rows.rows) {
+      const item = this.mapTalentShowcase(row);
+      (byUser.get(item.userId) ?? byUser.set(item.userId, []).get(item.userId)!).push(item);
+    }
+    for (const profile of profiles) {
+      profile.showcase = byUser.get(profile.userId) ?? [];
+    }
+  }
+
+  async addTalentShowcase(input: { userId: string; title: string; description: string; mediaUrl: string; mediaType: string; linkUrl: string }) {
+    const result = await this.pool.query(
+      `INSERT INTO talent_showcase (user_id, title, description, media_url, media_type, link_url)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, user_id, title, description, media_url, media_type, link_url, created_at`,
+      [input.userId, input.title, input.description, input.mediaUrl, input.mediaType, input.linkUrl],
+    );
+    return this.mapTalentShowcase(result.rows[0]);
+  }
+
+  async removeTalentShowcase(userId: string, id: string) {
+    const result = await this.pool.query(
+      'DELETE FROM talent_showcase WHERE id=$1 AND user_id=$2 RETURNING id',
+      [id, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async endorseTalent(endorserId: string, talentUserId: string) {
+    if (endorserId === talentUserId) return { endorsed: false };
+    await this.pool.query(
+      `INSERT INTO talent_endorsements (talent_user_id, endorser_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [talentUserId, endorserId],
+    );
+    return { endorsed: true };
+  }
+
+  async unendorseTalent(endorserId: string, talentUserId: string) {
+    await this.pool.query(
+      `DELETE FROM talent_endorsements WHERE talent_user_id=$1 AND endorser_id=$2`,
+      [talentUserId, endorserId],
+    );
+    return { endorsed: false };
   }
 
   async upsertTalentProfile(input: { userId: string; displayName: string; category: string; churchName: string; city: string; bio: string; contactInfo: string }) {
@@ -3892,6 +3964,22 @@ export class ContentRepository implements OnModuleInit {
       contactInfo: String(row.contact_info),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
+      endorsementCount: Number(row.endorsement_count ?? 0),
+      endorsedByMe: row.endorsed_by_me === true,
+      showcase: [],
+    };
+  }
+
+  private mapTalentShowcase(row: Record<string, unknown>): TalentShowcaseRecord {
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      title: String(row.title),
+      description: String(row.description ?? ''),
+      mediaUrl: String(row.media_url ?? ''),
+      mediaType: String(row.media_type ?? 'image'),
+      linkUrl: String(row.link_url ?? ''),
+      createdAt: this.iso(row.created_at),
     };
   }
 

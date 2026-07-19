@@ -493,8 +493,45 @@ export class EngagementController {
 
   @ApiOperation({ summary: 'List talent profiles' })
   @Get('/talent/profiles')
-  talentProfiles() {
-    return this.engagementService.listTalentProfiles();
+  talentProfiles(@Headers('authorization') authorization?: string) {
+    return this.engagementService.listTalentProfiles(authorization ? requireBearerToken(authorization) : undefined);
+  }
+
+  @ApiOperation({ summary: 'Get one talent profile' })
+  @Get('/talent/profiles/:userId')
+  talentProfile(@Headers('authorization') authorization: string | undefined, @Param('userId') userId: string) {
+    return this.engagementService.getTalentProfileFor(authorization ? requireBearerToken(authorization) : undefined, userId);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Add a showcase item to your talent profile' })
+  @Post('/talent/me/showcase')
+  addShowcase(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: { title?: string; description?: string; mediaUrl?: string; mediaType?: string; linkUrl?: string },
+  ) {
+    return this.engagementService.addTalentShowcase(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove a showcase item' })
+  @Delete('/talent/me/showcase/:id')
+  removeShowcase(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.engagementService.removeTalentShowcase(requireBearerToken(authorization), id);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Endorse a talent' })
+  @Post('/talent/profiles/:userId/endorse')
+  endorseTalent(@Headers('authorization') authorization: string | undefined, @Param('userId') userId: string) {
+    return this.engagementService.endorseTalent(requireBearerToken(authorization), userId);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove your endorsement of a talent' })
+  @Delete('/talent/profiles/:userId/endorse')
+  unendorseTalent(@Headers('authorization') authorization: string | undefined, @Param('userId') userId: string) {
+    return this.engagementService.unendorseTalent(requireBearerToken(authorization), userId);
   }
 
   @ApiBearerAuth()

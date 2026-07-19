@@ -493,13 +493,60 @@ export class EngagementService {
     return this.contentRepository.listMediaItems();
   }
 
-  listTalentProfiles() {
-    return this.contentRepository.listTalentProfiles();
+  async listTalentProfiles(token?: string) {
+    const viewer = token ? await this.requireActor(token).catch(() => null) : null;
+    return this.contentRepository.listTalentProfiles(viewer?.id);
   }
 
   async getTalentProfile(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.getTalentProfile(actor.id);
+    return this.contentRepository.getTalentProfile(actor.id, actor.id);
+  }
+
+  async getTalentProfileFor(token: string | undefined, userId: string) {
+    const viewer = token ? await this.requireActor(token).catch(() => null) : null;
+    return this.contentRepository.getTalentProfile(userId, viewer?.id);
+  }
+
+  async addTalentShowcase(token: string, input: { title?: string; description?: string; mediaUrl?: string; mediaType?: string; linkUrl?: string }) {
+    const actor = await this.requireActor(token);
+    const title = String(input.title ?? '').trim();
+    if (!title) throw new BadRequestException('title_required');
+    if (!String(input.mediaUrl ?? '').trim() && !String(input.linkUrl ?? '').trim()) {
+      throw new BadRequestException('media_or_link_required');
+    }
+    // A showcase needs a talent profile to hang off — create a stub if absent.
+    if (!(await this.contentRepository.getTalentProfile(actor.id))) {
+      await this.contentRepository.upsertTalentProfile({
+        userId: actor.id, displayName: actor.fullName, category: 'Other',
+        churchName: '', city: '', bio: '', contactInfo: '',
+      });
+    }
+    return this.contentRepository.addTalentShowcase({
+      userId: actor.id,
+      title,
+      description: String(input.description ?? '').trim(),
+      mediaUrl: String(input.mediaUrl ?? '').trim(),
+      mediaType: String(input.mediaType ?? 'image').trim(),
+      linkUrl: String(input.linkUrl ?? '').trim(),
+    });
+  }
+
+  async removeTalentShowcase(token: string, id: string) {
+    const actor = await this.requireActor(token);
+    const removed = await this.contentRepository.removeTalentShowcase(actor.id, id);
+    if (!removed) throw new NotFoundException('showcase_item_not_found');
+    return { id, status: 'deleted' };
+  }
+
+  async endorseTalent(token: string, talentUserId: string) {
+    const actor = await this.requireActor(token);
+    return this.contentRepository.endorseTalent(actor.id, talentUserId);
+  }
+
+  async unendorseTalent(token: string, talentUserId: string) {
+    const actor = await this.requireActor(token);
+    return this.contentRepository.unendorseTalent(actor.id, talentUserId);
   }
 
   async upsertTalentProfile(token: string, input: { displayName: string; category: string; churchName: string; city: string; bio: string; contactInfo: string }) {
