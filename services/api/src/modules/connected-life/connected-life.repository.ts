@@ -136,6 +136,22 @@ export class ConnectedLifeRepository {
     return result.rows[0];
   }
 
+  // Info for one conversation the user belongs to — lets a notification tap
+  // open the thread directly. Title falls back to the other members' names.
+  async conversationInfo(userId: string, id: string) {
+    const result = await this.pool.query(
+      `SELECT c.id,c.kind,c.title,c.scope_type AS "scopeType",c.scope_id AS "scopeId",c.created_at AS "createdAt",
+         COALESCE((SELECT string_agg(u.full_name,', ' ORDER BY u.full_name)
+           FROM conversation_members cm JOIN users u ON u.id=cm.user_id
+           WHERE cm.conversation_id=c.id AND cm.user_id<>$1),'') AS "otherMembers"
+       FROM conversations c
+       JOIN conversation_members mine ON mine.conversation_id=c.id AND mine.user_id=$1
+       WHERE c.id=$2`,
+      [userId, id],
+    );
+    return result.rows[0] ?? null;
+  }
+
   async messages(userId: string, id: string, options: { limit?: number; before?: string; after?: string } = {}) {
     const limit = Math.min(Math.max(Number(options.limit ?? 50), 1), 100);
     const before = options.before?.trim();

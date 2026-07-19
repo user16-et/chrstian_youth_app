@@ -23,6 +23,8 @@ export class ConnectedLifeController {
   startConversation(@Headers('authorization') auth:string|undefined,@Body() body:any) { return this.service.startConversation(requireBearerToken(auth),body.otherUserId??'',body.kind??'direct'); }
   @ApiBearerAuth() @Post('/conversations/scope')
   scopedConversation(@Headers('authorization') auth:string|undefined,@Body() body:any) { return this.service.scopedConversation(requireBearerToken(auth),body); }
+  @ApiBearerAuth() @Get('/conversations/:id')
+  conversation(@Headers('authorization') auth:string|undefined,@Param('id') id:string) { return this.service.conversation(requireBearerToken(auth),id); }
   @ApiBearerAuth() @Get('/conversations/:id/messages')
   messages(@Headers('authorization') auth:string|undefined,@Param('id') id:string,@Query() query:any) { return this.service.messages(requireBearerToken(auth),id,query); }
   @ApiBearerAuth() @Post('/conversations/:id/messages')

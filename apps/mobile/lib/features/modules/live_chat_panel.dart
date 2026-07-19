@@ -21,6 +21,7 @@ class LiveChatPanel extends StatefulWidget {
     required this.scopeId,
     required this.title,
     this.otherUserId,
+    this.existingConversationId,
     this.compact = false,
   });
 
@@ -31,6 +32,10 @@ class LiveChatPanel extends StatefulWidget {
   final String scopeId;
   final String title;
   final String? otherUserId;
+
+  /// When set, the panel binds to this conversation directly instead of
+  /// starting/resolving one from the scope — used by notification taps.
+  final String? existingConversationId;
   final bool compact;
 
   @override
@@ -71,7 +76,8 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
     if (oldWidget.scopeType != widget.scopeType ||
         oldWidget.scopeId != widget.scopeId ||
         oldWidget.session?.token != widget.session?.token ||
-        oldWidget.otherUserId != widget.otherUserId) {
+        oldWidget.otherUserId != widget.otherUserId ||
+        oldWidget.existingConversationId != widget.existingConversationId) {
       _loadFuture = _open();
     }
   }
@@ -105,15 +111,18 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
       _conversationId = '';
     });
     try {
-      final conversation = widget.scopeType == 'direct'
-          ? await widget.apiClient.startConversation(
-              session.token, widget.otherUserId ?? widget.scopeId)
-          : await widget.apiClient.openScopedConversation(
-              session.token,
-              scopeType: widget.scopeType,
-              scopeId: widget.scopeId,
-              otherUserId: widget.otherUserId,
-            );
+      final existingId = widget.existingConversationId ?? '';
+      final conversation = existingId.isNotEmpty
+          ? await widget.apiClient.fetchConversation(session.token, existingId)
+          : widget.scopeType == 'direct'
+              ? await widget.apiClient.startConversation(
+                  session.token, widget.otherUserId ?? widget.scopeId)
+              : await widget.apiClient.openScopedConversation(
+                  session.token,
+                  scopeType: widget.scopeType,
+                  scopeId: widget.scopeId,
+                  otherUserId: widget.otherUserId,
+                );
       final conversationId = conversation['id']?.toString() ?? '';
       final results = await Future.wait<dynamic>([
         widget.apiClient.fetchConversationMessages(

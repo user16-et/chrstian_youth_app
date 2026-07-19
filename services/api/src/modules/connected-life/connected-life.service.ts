@@ -57,6 +57,13 @@ export class ConnectedLifeService {
     return result;
   }
 
+  async conversation(token: string, id: string) {
+    const actor = await this.actor(token);
+    const info = await this.life.conversationInfo(actor.id, id);
+    if (!info) throw new NotFoundException('conversation_not_found');
+    return info;
+  }
+
   async messages(token:string,id:string,query:any = {}) {
     const actor = await this.actor(token);
     return this.life.messages(actor.id,id,{ limit: Number(query.limit ?? 50), before: query.before, after: query.after });

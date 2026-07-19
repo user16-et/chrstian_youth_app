@@ -434,8 +434,8 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
         actions: [
           if (!_loading && _isMember)
             IconButton(
-              tooltip: _t(lang, 'Start meeting', 'ስብሰባ ጀምር'),
-              icon: const Icon(Icons.videocam_rounded),
+              tooltip: _t(lang, 'Start audio meeting', 'የድምፅ ስብሰባ ጀምር'),
+              icon: const Icon(Icons.headset_mic_rounded),
               onPressed: _startMeeting,
             ),
           if (!_loading)

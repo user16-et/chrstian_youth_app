@@ -3086,6 +3086,14 @@ class ApiClient {
     return response as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> fetchConversation(
+      String token, String conversationId) async {
+    final response = await _getJson(
+        '/connected-life/conversations/$conversationId',
+        headers: {'Authorization': 'Bearer $token'});
+    return response as Map<String, dynamic>;
+  }
+
   Future<List<Map<String, dynamic>>> fetchConversationMessages(
     String token,
     String conversationId, {

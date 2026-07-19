@@ -6,6 +6,8 @@ import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
 import 'church_detail_page.dart';
 import 'group_detail_screen.dart';
+import 'live_chat_panel.dart';
+import 'matches_inbox.dart';
 import 'module_pages.dart';
 import 'user_profile_sheet.dart';
 
@@ -206,15 +208,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _isType(NotificationItem item, List<String> types) =>
       (item.targetId ?? '').isNotEmpty && types.contains(item.targetType ?? '');
 
-  // Route a notification to its subject: the group, church, post, or — failing a
-  // navigable target — the actor's profile.
+  // Route a notification to its subject: the conversation, group, church,
+  // post, or — failing a navigable target — the actor's profile.
   bool _canOpen(NotificationItem item) =>
-      _isType(item, ['group', 'group_meeting', 'church', 'church_membership', 'post']) ||
+      _isType(item, [
+        'conversation', 'relationship', 'group', 'group_meeting',
+        'church', 'church_membership', 'post',
+      ]) ||
       (item.actorId ?? '').isNotEmpty;
 
   void _openTarget(NotificationItem item) {
     final id = item.targetId ?? '';
-    if (_isType(item, ['group', 'group_meeting'])) {
+    if (_isType(item, ['conversation'])) {
+      _openConversation(item);
+    } else if (_isType(item, ['relationship'])) {
+      _openRelationshipChat(item);
+    } else if (_isType(item, ['group', 'group_meeting'])) {
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => GroupChannelScreen(
           apiClient: widget.apiClient,
@@ -238,6 +247,86 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } else if ((item.actorId ?? '').isNotEmpty) {
       showUserProfileSheet(context, apiClient: widget.apiClient, userId: item.actorId!, token: widget.token);
     }
+  }
+
+  // A message notification opens the conversation itself, not the sender's
+  // profile. The panel resolves title/members from the conversation id.
+  Future<void> _openConversation(NotificationItem item) async {
+    final id = item.targetId ?? '';
+    String title = '';
+    try {
+      final info = await widget.apiClient.fetchConversation(widget.token, id);
+      title = (info['title']?.toString().trim().isNotEmpty ?? false)
+          ? info['title'].toString()
+          : info['otherMembers']?.toString() ?? '';
+    } catch (error) {
+      _toastError(error);
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(
+            title: Text(title.isEmpty
+                ? AppStrings.of(widget.language, 'notifications')
+                : title)),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: LiveChatPanel(
+              apiClient: widget.apiClient,
+              session: widget.session,
+              language: widget.language,
+              scopeType: 'direct',
+              scopeId: '',
+              title: title,
+              existingConversationId: id,
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
+
+  Future<void> _openRelationshipChat(NotificationItem item) async {
+    final id = item.targetId ?? '';
+    try {
+      final matches =
+          await widget.apiClient.listRelationshipConnections(widget.token);
+      final match = matches.firstWhere((m) => '${m['id']}' == id,
+          orElse: () => const <String, dynamic>{});
+      if (!mounted) return;
+      if (match.isEmpty) {
+        // Connection gone (unmatched/ended) — fall back to the sender profile.
+        if ((item.actorId ?? '').isNotEmpty) {
+          showUserProfileSheet(context,
+              apiClient: widget.apiClient,
+              userId: item.actorId!,
+              token: widget.token);
+        }
+        return;
+      }
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => MatchChatScreen(
+          apiClient: widget.apiClient,
+          token: widget.token,
+          language: widget.language,
+          connectionId: id,
+          partnerId: '${match['partnerId'] ?? ''}',
+          partnerName: '${match['partnerName'] ?? ''}',
+          partnerPhoto: '${match['partnerPhoto'] ?? ''}',
+        ),
+      ));
+    } catch (error) {
+      _toastError(error);
+    }
+  }
+
+  void _toastError(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content:
+            Text(error.toString().replaceFirst('HttpException: ', ''))));
   }
 
   Future<void> _openPost(String id) async {
