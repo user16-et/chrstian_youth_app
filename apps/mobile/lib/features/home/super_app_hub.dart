@@ -211,14 +211,14 @@ class _SuperAppHomeState extends State<SuperAppHome> {
                         icon: Icons.volunteer_activism_rounded,
                         color: const Color(0xFF9E455C),
                         title: en ? 'Prayer' : 'ጸሎት',
-                        onTap: onOpenCommunity)),
+                        onTap: () => _openPrayer(context))),
                 const SizedBox(width: 10),
                 Expanded(
                     child: _Quick(
                         icon: Icons.diversity_1_rounded,
                         color: const Color(0xFFD08B32),
                         title: en ? 'Fellowship' : 'ኅብረት',
-                        onTap: onOpenCommunity)),
+                        onTap: () => _openGroups(context))),
               ]),
               // A fresh slice of the feed — home changes every open without
               // becoming a doomscroll. Hidden entirely when the feed is empty.
@@ -246,7 +246,10 @@ class _SuperAppHomeState extends State<SuperAppHome> {
                 ),
               ],
               const SizedBox(height: 24),
-              _EventCard(data: data, en: en, onTap: onOpenExplore),
+              _EventCard(
+                  data: data,
+                  en: en,
+                  onTap: () => _openPillar(context, AppPillar.events)),
               const SizedBox(height: 28),
               _Heading(
                   kicker: en ? 'ONE APP. WHOLE LIFE.' : 'አንድ መተግበሪያ። ሙሉ ሕይወት።',
@@ -273,7 +276,15 @@ class _SuperAppHomeState extends State<SuperAppHome> {
                   kicker: en ? 'LIVE COMMUNITY' : 'ሕያው ማህበረሰብ',
                   title: en ? 'Growing together' : 'አብረን እያደግን'),
               const SizedBox(height: 14),
-              _Stats(data: data, en: en),
+              _Stats(
+                  data: data,
+                  en: en,
+                  onOpen: (i) => switch (i) {
+                        0 => onOpenCommunity(),
+                        1 => _openPillar(context, AppPillar.church),
+                        2 => _openGroups(context),
+                        _ => _openPrayer(context),
+                      }),
             ],
           );
         },
@@ -290,6 +301,31 @@ class _SuperAppHomeState extends State<SuperAppHome> {
         session: session,
         snapshotFuture: snapshotFuture,
         onDataChanged: onRefresh,
+      ),
+    ));
+  }
+
+  void _openPrayer(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PrayerChainsScreen(
+          language: language, apiClient: apiClient, session: session),
+    ));
+  }
+
+  void _openGroups(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(
+            title: Text(language == AppLanguage.english
+                ? 'Groups & fellowship'
+                : 'ቡድኖች እና ኅብረት')),
+        body: GroupsScreen(
+          language: language,
+          snapshotFuture: snapshotFuture,
+          apiClient: apiClient,
+          session: session,
+          onDataChanged: onRefresh,
+        ),
       ),
     ));
   }
@@ -1311,9 +1347,13 @@ class _Heading extends StatelessWidget {
 }
 
 class _Stats extends StatelessWidget {
-  const _Stats({required this.data, required this.en});
+  const _Stats({required this.data, required this.en, required this.onOpen});
   final DashboardSnapshot data;
   final bool en;
+
+  /// Called with the tile index (people, churches, groups, prayers) — each
+  /// stat leads into its own section.
+  final ValueChanged<int> onOpen;
   @override
   Widget build(BuildContext context) {
     final values = [
@@ -1339,21 +1379,26 @@ class _Stats extends StatelessWidget {
       decoration: BoxDecoration(
           color: AppTheme.forest, borderRadius: BorderRadius.circular(28)),
       child: Row(children: [
-        for (final value in values)
+        for (var i = 0; i < values.length; i++)
           Expanded(
-              child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 13),
-            child: Column(children: [
-              Icon(value.$3, color: const Color(0xFFFFD98A), size: 20),
-              const SizedBox(height: 7),
-              Text(value.$2.toString(),
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(color: Colors.white)),
-              Text(value.$1,
-                  style: const TextStyle(color: Colors.white60, fontSize: 10)),
-            ]),
+              child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => onOpen(i),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              child: Column(children: [
+                Icon(values[i].$3, color: const Color(0xFFFFD98A), size: 20),
+                const SizedBox(height: 7),
+                Text(values[i].$2.toString(),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(color: Colors.white)),
+                Text(values[i].$1,
+                    style:
+                        const TextStyle(color: Colors.white60, fontSize: 10)),
+              ]),
+            ),
           )),
       ]),
     );

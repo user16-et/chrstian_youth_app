@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../../data/date_format.dart';
 import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
 
@@ -99,14 +100,17 @@ class _StoriesRailState extends State<StoriesRail> {
     }
   }
 
-  void _open(String userId, String fullName) {
+  // Opens the viewer over the whole ring so finishing one person's stories
+  // flows into the next, the way stories usually behave.
+  void _open(List<Map<String, dynamic>> users, int startIndex) {
     Navigator.of(context)
         .push(MaterialPageRoute(
             builder: (_) => GlobalStoryViewerScreen(
                 apiClient: widget.apiClient,
                 token: widget.token,
-                userId: userId,
-                fullName: fullName,
+                users: users,
+                startIndex: startIndex,
+                myUserId: '${_mine?['userId'] ?? ''}',
                 language: widget.language)))
         .then((_) => _load());
   }
@@ -129,7 +133,7 @@ class _StoriesRailState extends State<StoriesRail> {
               imageUrl: (mine?['profileImage'] ?? widget.myProfileImage)?.toString(),
               hasUnseen: false,
               showAdd: true,
-              onTap: mine == null ? _compose : () => _open('${mine['userId']}', _tr(widget.language, 'Your story', 'የእርስዎ ታሪክ')),
+              onTap: mine == null ? _compose : () => _open([mine], 0),
               onAdd: _compose,
             );
           }
@@ -138,7 +142,7 @@ class _StoriesRailState extends State<StoriesRail> {
             label: (story['fullName'] ?? '').toString(),
             imageUrl: story['profileImage']?.toString(),
             hasUnseen: story['hasUnseen'] == true,
-            onTap: () => _open('${story['userId']}', '${story['fullName'] ?? ''}'),
+            onTap: () => _open(_others, index - 1),
           );
         },
       ),
@@ -217,121 +221,407 @@ class _StoryAvatar extends StatelessWidget {
   }
 }
 
-/// Full-screen story viewer (tap to advance). Renders text and image stories,
-/// records views, and shows a viewer count for your own stories.
+/// Full-screen story viewer with the usual mechanics: timed auto-advance with
+/// progress bars, tap right/left to skip or go back, hold to pause, automatic
+/// hand-off to the next person's stories, delete + viewer count for your own,
+/// and a quick reply that lands in the direct chat for others'.
 class GlobalStoryViewerScreen extends StatefulWidget {
   const GlobalStoryViewerScreen({
     super.key,
     required this.apiClient,
     required this.token,
-    required this.userId,
-    required this.fullName,
+    required this.users,
     required this.language,
+    this.startIndex = 0,
+    this.myUserId = '',
   });
 
   final ApiClient apiClient;
   final String token;
-  final String userId;
-  final String fullName;
+
+  /// Ring entries to page through: [{userId, fullName, profileImage}].
+  final List<Map<String, dynamic>> users;
+  final int startIndex;
   final AppLanguage language;
+  final String myUserId;
 
   @override
   State<GlobalStoryViewerScreen> createState() => _GlobalStoryViewerScreenState();
 }
 
-class _GlobalStoryViewerScreenState extends State<GlobalStoryViewerScreen> {
-  final PageController _controller = PageController();
+class _GlobalStoryViewerScreenState extends State<GlobalStoryViewerScreen>
+    with SingleTickerProviderStateMixin {
+  late int _userIndex = widget.startIndex.clamp(0, widget.users.length - 1);
   List<Map<String, dynamic>> _stories = const [];
-  bool _loading = true;
   int _index = 0;
+  bool _loading = true;
+  late final AnimationController _progress = AnimationController(vsync: this)
+    ..addStatusListener((status) {
+      if (status == AnimationStatus.completed) _next();
+    });
+  final TextEditingController _reply = TextEditingController();
+  final FocusNode _replyFocus = FocusNode();
+  bool _sendingReply = false;
+
+  Map<String, dynamic> get _user => widget.users[_userIndex];
+  bool get _isMine => '${_user['userId']}' == widget.myUserId;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _replyFocus.addListener(() {
+      // Typing a reply pauses the story clock.
+      if (_replyFocus.hasFocus) {
+        _progress.stop();
+      } else {
+        _resume();
+      }
+    });
+    _loadUser(_userIndex, forward: true);
   }
 
-  Future<void> _load() async {
-    try {
-      final stories = await widget.apiClient.fetchUserStories(widget.token, widget.userId);
-      if (!mounted) return;
-      setState(() { _stories = stories; _loading = false; });
-      if (stories.isNotEmpty) _markViewed(0);
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+  @override
+  void dispose() {
+    _progress.dispose();
+    _reply.dispose();
+    _replyFocus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUser(int userIndex, {required bool forward}) async {
+    if (userIndex < 0 || userIndex >= widget.users.length) {
+      if (mounted) Navigator.of(context).maybePop();
+      return;
     }
+    setState(() { _userIndex = userIndex; _loading = true; _stories = const []; _index = 0; });
+    List<Map<String, dynamic>> stories = const [];
+    try {
+      stories = await widget.apiClient.fetchUserStories(
+          widget.token, '${_user['userId']}');
+    } catch (_) {}
+    if (!mounted) return;
+    if (stories.isEmpty) {
+      // Expired between ring load and tap — skip in the travel direction.
+      _loadUser(userIndex + (forward ? 1 : -1), forward: forward);
+      return;
+    }
+    setState(() { _stories = stories; _loading = false; _index = 0; });
+    _startStory();
   }
 
-  void _markViewed(int i) {
-    final id = _stories[i]['id']?.toString();
-    if (id != null && id.isNotEmpty) {
+  void _startStory() {
+    if (_stories.isEmpty) return;
+    final story = _stories[_index];
+    _markViewed(story);
+    final isText = '${story['mediaType'] ?? 'text'}' == 'text' ||
+        '${story['mediaUrl'] ?? ''}'.isEmpty;
+    _progress
+      ..duration = Duration(seconds: isText ? 5 : 7)
+      ..forward(from: 0);
+    setState(() {});
+  }
+
+  void _markViewed(Map<String, dynamic> story) {
+    final id = '${story['id'] ?? ''}';
+    if (id.isNotEmpty && !_isMine) {
       widget.apiClient.markStoryViewed(widget.token, id).catchError((_) => null);
     }
   }
 
-  void _advance() {
-    if (_index >= _stories.length - 1) { Navigator.of(context).maybePop(); return; }
-    _controller.nextPage(duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+  void _next() {
+    if (_index < _stories.length - 1) {
+      _index += 1;
+      _startStory();
+    } else {
+      _loadUser(_userIndex + 1, forward: true);
+    }
   }
 
-  void _back() {
-    if (_index == 0) return;
-    _controller.previousPage(duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+  void _prev() {
+    // Restart the story when it has been playing for a moment (usual feel).
+    if (_progress.value > 0.15 && _index >= 0 && _stories.isNotEmpty) {
+      _startStory();
+      return;
+    }
+    if (_index > 0) {
+      _index -= 1;
+      _startStory();
+    } else {
+      _loadUser(_userIndex - 1, forward: false);
+    }
   }
 
-  @override
-  void dispose() { _controller.dispose(); super.dispose(); }
+  void _resume() {
+    if (!_progress.isAnimating && _progress.value < 1 && !_loading && _stories.isNotEmpty) {
+      _progress.forward();
+    }
+  }
+
+  Future<void> _deleteCurrent() async {
+    final story = _stories[_index];
+    _progress.stop();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(_tr(widget.language, 'Delete this story?', 'ይህ ታሪክ ይሰረዝ?')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(_tr(widget.language, 'Cancel', 'ተወው'))),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(_tr(widget.language, 'Delete', 'ሰርዝ'))),
+        ],
+      ),
+    );
+    if (ok != true) { _resume(); return; }
+    try {
+      await widget.apiClient.deleteMyStory(widget.token, '${story['id']}');
+      if (!mounted) return;
+      if (_stories.length <= 1) {
+        Navigator.of(context).maybePop();
+        return;
+      }
+      setState(() {
+        _stories = [..._stories]..removeAt(_index);
+        if (_index >= _stories.length) _index = _stories.length - 1;
+      });
+      _startStory();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+        _resume();
+      }
+    }
+  }
+
+  Future<void> _showViewers() async {
+    _progress.stop();
+    final viewers = await widget.apiClient.fetchStoryViewers(widget.token).catchError((_) => <Map<String, dynamic>>[]);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          children: [
+            Text(_tr(widget.language, 'Viewers', 'ተመልካቾች'),
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            if (viewers.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(_tr(widget.language, 'No views yet.', 'እስካሁን ማንም አላየም።')),
+              )
+            else
+              for (final v in viewers)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundImage: ('${v['profileImage'] ?? ''}').isNotEmpty
+                        ? NetworkImage('${v['profileImage']}') : null,
+                    child: ('${v['profileImage'] ?? ''}').isNotEmpty
+                        ? null : const Icon(Icons.person_rounded),
+                  ),
+                  title: Text('${v['fullName'] ?? ''}'),
+                  subtitle: Text(relativeTime('${v['viewedAt'] ?? ''}')),
+                ),
+          ],
+        ),
+      ),
+    );
+    _resume();
+  }
+
+  Future<void> _sendReply() async {
+    final text = _reply.text.trim();
+    if (text.isEmpty || _sendingReply) return;
+    setState(() => _sendingReply = true);
+    try {
+      final conversation = await widget.apiClient
+          .startConversation(widget.token, '${_user['userId']}');
+      final story = _stories[_index];
+      final context0 = '${story['caption'] ?? ''}'.trim();
+      await widget.apiClient.sendDirectMessage(
+          widget.token,
+          '${conversation['id']}',
+          context0.isEmpty ? '📖 $text' : '📖 Re "$context0": $text');
+      _reply.clear();
+      _replyFocus.unfocus();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_tr(widget.language, 'Reply sent as a message.', 'ምላሽ እንደ መልዕክት ተልኳል።'))));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingReply = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final story = _stories.isEmpty ? const <String, dynamic>{} : _stories[_index];
+    final viewCount = (story['viewCount'] as num?)?.toInt() ?? 0;
+    final photo = '${_user['profileImage'] ?? ''}';
     return Scaffold(
       backgroundColor: Colors.black,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _stories.isEmpty
-                ? Center(child: Text(_tr(widget.language, 'No active stories.', 'ንቁ ታሪኮች የሉም።'), style: const TextStyle(color: Colors.white70)))
-                : Stack(children: [
-                    PageView.builder(
-                      controller: _controller,
-                      itemCount: _stories.length,
-                      onPageChanged: (i) { setState(() => _index = i); _markViewed(i); },
-                      itemBuilder: (context, i) => _StoryPage(story: _stories[i]),
-                    ),
-                    Row(children: [
-                      Expanded(child: GestureDetector(onTap: _back, behavior: HitTestBehavior.opaque)),
-                      Expanded(flex: 2, child: GestureDetector(onTap: _advance, behavior: HitTestBehavior.opaque)),
-                    ]),
-                    Positioned(
-                      top: 8, left: 12, right: 12,
+            : Column(children: [
+                Expanded(
+                  child: Stack(children: [
+                    Positioned.fill(child: _StoryPage(story: story)),
+                    // Tap zones + hold to pause.
+                    Positioned.fill(
                       child: Row(children: [
-                        for (int i = 0; i < _stories.length; i++)
-                          Expanded(
-                              child: Container(
-                                  height: 3,
-                                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                                  decoration: BoxDecoration(
-                                      color: i <= _index ? Colors.white : Colors.white38,
-                                      borderRadius: BorderRadius.circular(2)))),
+                        Expanded(
+                            child: GestureDetector(
+                                onTap: _prev,
+                                onLongPressStart: (_) => _progress.stop(),
+                                onLongPressEnd: (_) => _resume(),
+                                behavior: HitTestBehavior.opaque)),
+                        Expanded(
+                            flex: 2,
+                            child: GestureDetector(
+                                onTap: _next,
+                                onLongPressStart: (_) => _progress.stop(),
+                                onLongPressEnd: (_) => _resume(),
+                                behavior: HitTestBehavior.opaque)),
                       ]),
                     ),
+                    // Animated progress segments.
+                    Positioned(
+                      top: 8, left: 12, right: 12,
+                      child: AnimatedBuilder(
+                        animation: _progress,
+                        builder: (context, _) => Row(children: [
+                          for (int i = 0; i < _stories.length; i++)
+                            Expanded(
+                              child: Container(
+                                height: 3,
+                                margin: const EdgeInsets.symmetric(horizontal: 2),
+                                decoration: BoxDecoration(
+                                    color: Colors.white38,
+                                    borderRadius: BorderRadius.circular(2)),
+                                child: FractionallySizedBox(
+                                  alignment: Alignment.centerLeft,
+                                  widthFactor: i < _index
+                                      ? 1
+                                      : i == _index
+                                          ? _progress.value
+                                          : 0,
+                                  child: Container(
+                                      decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(2))),
+                                ),
+                              ),
+                            ),
+                        ]),
+                      ),
+                    ),
+                    // Header: who + when + actions.
                     Positioned(
                       top: 20, left: 14, right: 8,
                       child: Row(children: [
-                        Expanded(child: Text(widget.fullName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        IconButton(onPressed: () => Navigator.of(context).maybePop(), icon: const Icon(Icons.close_rounded, color: Colors.white)),
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundColor: Colors.white24,
+                          backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
+                          child: photo.isEmpty
+                              ? const Icon(Icons.person_rounded, size: 18, color: Colors.white70)
+                              : null,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    _isMine
+                                        ? _tr(widget.language, 'Your story', 'የእርስዎ ታሪክ')
+                                        : '${_user['fullName'] ?? ''}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        color: Colors.white, fontWeight: FontWeight.w700)),
+                                Text(relativeTime('${story['createdAt'] ?? ''}'),
+                                    style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                              ]),
+                        ),
+                        if (_isMine)
+                          IconButton(
+                              tooltip: _tr(widget.language, 'Delete story', 'ታሪክ ሰርዝ'),
+                              onPressed: _deleteCurrent,
+                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.white)),
+                        IconButton(
+                            onPressed: () => Navigator.of(context).maybePop(),
+                            icon: const Icon(Icons.close_rounded, color: Colors.white)),
                       ]),
                     ),
-                    if ((_stories[_index]['viewCount'] ?? 0) is int && (_stories[_index]['viewCount'] ?? 0) > 0)
+                    // Owner: tappable viewer count.
+                    if (_isMine)
                       Positioned(
                         bottom: 16, left: 16,
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.visibility_rounded, color: Colors.white70, size: 18),
-                          const SizedBox(width: 6),
-                          Text('${_stories[_index]['viewCount']}', style: const TextStyle(color: Colors.white70)),
-                        ]),
+                        child: InkWell(
+                          onTap: _showViewers,
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                            decoration: BoxDecoration(
+                                color: Colors.black45,
+                                borderRadius: BorderRadius.circular(20)),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: [
+                              const Icon(Icons.visibility_rounded, color: Colors.white, size: 17),
+                              const SizedBox(width: 6),
+                              Text(
+                                  '$viewCount ${_tr(widget.language, viewCount == 1 ? 'view' : 'views', 'እይታ')}',
+                                  style: const TextStyle(color: Colors.white)),
+                            ]),
+                          ),
+                        ),
                       ),
                   ]),
+                ),
+                // Reply bar for other people's stories.
+                if (!_isMine)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    child: Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _reply,
+                          focusNode: _replyFocus,
+                          style: const TextStyle(color: Colors.white),
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: InputDecoration(
+                            hintText: _tr(widget.language, 'Reply to story…', 'ለታሪኩ ምላሽ ይስጡ…'),
+                            hintStyle: const TextStyle(color: Colors.white54),
+                            filled: true,
+                            fillColor: Colors.white12,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none),
+                          ),
+                          onSubmitted: (_) => _sendReply(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: _sendingReply ? null : _sendReply,
+                        icon: Icon(Icons.send_rounded,
+                            color: _sendingReply ? Colors.white38 : Colors.white),
+                      ),
+                    ]),
+                  ),
+              ]),
       ),
     );
   }

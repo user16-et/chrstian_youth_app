@@ -145,26 +145,40 @@ class _BibleScreenState extends State<BibleScreen> {
     super.dispose();
   }
 
+  // Every hub call degrades to an empty default when the network is down: the
+  // page (and, crucially, the offline reader behind it) must stay reachable.
+  Future<T> _orElse<T>(Future<T> future, T fallback) =>
+      future.catchError((_) => fallback);
+
   Future<_BibleHubData> _loadHub() async {
     final token = widget.session?.token;
-    final dailyVersesFuture = widget.apiClient.fetchDailyVerses();
-    final plansFuture = widget.apiClient.fetchReadingPlans(token);
+    final dailyVersesFuture = _orElse(
+        widget.apiClient.fetchDailyVerses(), const <BibleDailyVerseItem>[]);
+    final plansFuture = _orElse(widget.apiClient.fetchReadingPlans(token),
+        const <BibleReadingPlanItem>[]);
     final notesFuture = token == null || token.isEmpty
         ? Future.value(const <BibleNoteItem>[])
-        : widget.apiClient.fetchBibleNotes(token);
+        : _orElse(
+            widget.apiClient.fetchBibleNotes(token), const <BibleNoteItem>[]);
     final bookmarksFuture = token == null || token.isEmpty
         ? Future.value(const <BibleBookmarkItem>[])
-        : widget.apiClient.fetchBibleBookmarks(token);
+        : _orElse(widget.apiClient.fetchBibleBookmarks(token),
+            const <BibleBookmarkItem>[]);
     final highlightsFuture = token == null || token.isEmpty
         ? Future.value(const <BibleHighlightItem>[])
-        : widget.apiClient.fetchBibleHighlights(token);
-    final ecosystemFuture = widget.apiClient.fetchBibleHome(token);
+        : _orElse(widget.apiClient.fetchBibleHighlights(token),
+            const <BibleHighlightItem>[]);
+    final ecosystemFuture = _orElse(
+        widget.apiClient.fetchBibleHome(token), const <String, dynamic>{});
     final studyGroupsFuture = token == null || token.isEmpty
         ? Future.value((
             mine: const <BibleStudyGroupItem>[],
             discover: const <BibleStudyGroupItem>[]
           ))
-        : widget.apiClient.fetchBibleStudyGroups(token);
+        : _orElse(widget.apiClient.fetchBibleStudyGroups(token), (
+            mine: const <BibleStudyGroupItem>[],
+            discover: const <BibleStudyGroupItem>[]
+          ));
     final results = await Future.wait<dynamic>([
       dailyVersesFuture,
       plansFuture,

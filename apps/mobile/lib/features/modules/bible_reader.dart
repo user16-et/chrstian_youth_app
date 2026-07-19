@@ -69,29 +69,43 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
   Future<void> _bootstrap() async {
     _offline = await _store.downloadedVersions();
-    try {
-      final results = await Future.wait([
-        widget.apiClient.fetchBibleVersions(),
-        widget.apiClient.fetchBibleBooks(),
-      ]);
-      _versions = results[0];
-      _books = results[1];
-      await _store.cacheBooks(_books);
-    } catch (_) {
-      // Offline: fall back to the cached book list and downloaded translations.
+    // Offline-first: with a download on the device, open from the local copy
+    // right away rather than waiting out a network timeout — then refresh the
+    // catalog from the network in the background.
+    if (_offline.isNotEmpty) {
       _books = await _store.cachedBooks();
       _versions = (await _store.downloadInfo())
           .map((d) => {'code': d['version'], 'name': d['name'], 'language': d['language']})
           .toList();
-      if (_books.isEmpty || _versions.isEmpty) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _error = _t(lang, 'No connection, and nothing downloaded yet. Connect once to download a translation for offline use.',
-                'ግንኙነት የለም፣ የወረደም የለም። ለቀጣይ ንባብ አንዴ ተገናኝተው ትርጉም ያውርዱ።');
-          });
+      if (_books.isNotEmpty && _versions.isNotEmpty) {
+        _refreshCatalog(); // no await — never blocks reading
+      }
+    }
+    if (_books.isEmpty || _versions.isEmpty) {
+      try {
+        final results = await Future.wait([
+          widget.apiClient.fetchBibleVersions(),
+          widget.apiClient.fetchBibleBooks(),
+        ]).timeout(const Duration(seconds: 8));
+        _versions = results[0];
+        _books = results[1];
+        await _store.cacheBooks(_books);
+      } catch (_) {
+        // Offline: fall back to the cached book list and downloaded translations.
+        _books = await _store.cachedBooks();
+        _versions = (await _store.downloadInfo())
+            .map((d) => {'code': d['version'], 'name': d['name'], 'language': d['language']})
+            .toList();
+        if (_books.isEmpty || _versions.isEmpty) {
+          if (mounted) {
+            setState(() {
+              _loading = false;
+              _error = _t(lang, 'No connection, and nothing downloaded yet. Connect once to download a translation for offline use.',
+                  'ግንኙነት የለም፣ የወረደም የለም። ለቀጣይ ንባብ አንዴ ተገናኝተው ትርጉም ያውርዱ።');
+            });
+          }
+          return;
         }
-        return;
       }
     }
     if (!_versions.any((v) => v['code'] == _primary) && _versions.isNotEmpty) {
@@ -105,6 +119,24 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   }
 
   String _clean(Object e) => e.toString().replaceFirst('HttpException: ', '');
+
+  // Background refresh of the version/book catalog when we started offline.
+  Future<void> _refreshCatalog() async {
+    try {
+      final results = await Future.wait([
+        widget.apiClient.fetchBibleVersions(),
+        widget.apiClient.fetchBibleBooks(),
+      ]).timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      setState(() {
+        _versions = results[0];
+        _books = results[1];
+      });
+      await _store.cacheBooks(_books);
+    } catch (_) {
+      // Still offline — the local catalog stays in use.
+    }
+  }
 
   int get _chapters => (_book?['chapters'] as num?)?.toInt() ?? 1;
 

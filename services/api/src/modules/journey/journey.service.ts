@@ -99,10 +99,20 @@ export class JourneyService {
   }
   async updateListing(token: string, id: string, input: Record<string, unknown>) {
     const actor = await this.actor(token);
-    const fields: { sold?: boolean; priceCents?: number; description?: string; active?: boolean } = {};
+    const fields: {
+      sold?: boolean; priceCents?: number; description?: string; active?: boolean;
+      title?: string; category?: string; condition?: string; location?: string;
+      phoneNumber?: string; images?: string[];
+    } = {};
     if (typeof input.sold === 'boolean') fields.sold = input.sold;
     if (input.priceCents != null) fields.priceCents = Math.max(0, Math.round(Number(input.priceCents) || 0));
     if (input.description != null) fields.description = String(input.description);
+    if (input.title != null) fields.title = String(input.title).trim();
+    if (input.category != null) fields.category = String(input.category).trim();
+    if (input.condition != null) fields.condition = String(input.condition).trim();
+    if (input.location != null) fields.location = String(input.location);
+    if (input.phoneNumber != null) fields.phoneNumber = String(input.phoneNumber);
+    if (Array.isArray(input.images)) fields.images = input.images.map(String).filter((u) => u.trim().length > 0);
     const updated = await this.journey.updateListing(actor.id, id, fields);
     if (!updated) throw new NotFoundException('listing_not_found');
     return updated;

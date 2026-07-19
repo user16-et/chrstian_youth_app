@@ -360,7 +360,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   Widget _myListingTile(Map<String, dynamic> l, ColorScheme colors) {
     final photo = '${l['imageUrl'] ?? ''}';
     final sold = l['sold'] == true;
-    return Container(
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => _editListing(l),
+      child: Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(color: colors.surfaceContainerHighest.withValues(alpha: .4), borderRadius: BorderRadius.circular(16)),
@@ -382,12 +385,45 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         PopupMenuButton<String>(
           onSelected: (v) => _manageListing(v, l),
           itemBuilder: (context) => [
+            PopupMenuItem(value: 'edit', child: Text(_t('Edit', 'አርትዕ'))),
             if (!sold) PopupMenuItem(value: 'sold', child: Text(_t('Mark as sold', 'ተሸጧል ማድረግ'))),
             PopupMenuItem(value: 'delete', child: Text(_t('Delete', 'ሰርዝ'))),
           ],
         ),
       ]),
+      ),
     );
+  }
+
+  // Owner edit: load the full listing (images, description, phone) and reuse
+  // the sell sheet prefilled.
+  Future<void> _editListing(Map<String, dynamic> l) async {
+    final token = _token;
+    if (token == null || token.isEmpty) return;
+    Map<String, dynamic> detail = l;
+    try {
+      detail = await widget.apiClient.fetchListingDetail('${l['id']}', token: token);
+    } catch (_) {
+      // The summary row still allows editing the basic fields.
+    }
+    if (!mounted) return;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _SellSheet(
+        apiClient: widget.apiClient,
+        token: token,
+        language: widget.language,
+        defaultPhone: widget.session?.user.phoneNumber ?? '',
+        categories: _categories.where((c) => c.$1 != 'all').map((c) => c.$1).toList(),
+        existing: detail,
+      ),
+    );
+    if (saved == true) {
+      await _refreshMine();
+      _refreshBrowse();
+    }
   }
 
   Widget _photoBox(ColorScheme colors) => Container(width: 56, height: 56, color: colors.surfaceContainerHighest, child: Icon(Icons.image_rounded, color: colors.outline));
@@ -396,6 +432,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     final t = _token;
     if (t == null || t.isEmpty) return;
     final id = '${l['id']}';
+    if (action == 'edit') {
+      await _editListing(l);
+      return;
+    }
     try {
       if (action == 'sold') {
         await widget.apiClient.updateListing(t, id, {'sold': true});
@@ -689,6 +729,7 @@ class _SellSheet extends StatefulWidget {
     required this.language,
     required this.defaultPhone,
     required this.categories,
+    this.existing,
   });
 
   final ApiClient apiClient;
@@ -697,21 +738,39 @@ class _SellSheet extends StatefulWidget {
   final String defaultPhone;
   final List<String> categories;
 
+  /// Full listing detail when editing; null when creating.
+  final Map<String, dynamic>? existing;
+
   @override
   State<_SellSheet> createState() => _SellSheetState();
 }
 
 class _SellSheetState extends State<_SellSheet> {
-  final _title = TextEditingController();
-  final _price = TextEditingController();
-  final _desc = TextEditingController();
-  final _location = TextEditingController();
-  late final TextEditingController _phone = TextEditingController(text: widget.defaultPhone);
-  final List<String> _images = [];
-  late String _category = widget.categories.first;
-  String _condition = 'used_good';
+  late final _title =
+      TextEditingController(text: '${widget.existing?['title'] ?? ''}');
+  late final _price = TextEditingController(
+      text: widget.existing == null
+          ? ''
+          : (((widget.existing!['priceCents'] as num?) ?? 0) / 100)
+              .toStringAsFixed(0));
+  late final _desc =
+      TextEditingController(text: '${widget.existing?['description'] ?? ''}');
+  late final _location =
+      TextEditingController(text: '${widget.existing?['location'] ?? ''}');
+  late final TextEditingController _phone = TextEditingController(
+      text: '${widget.existing?['phoneNumber'] ?? widget.defaultPhone}');
+  late final List<String> _images = [
+    ...((widget.existing?['images'] as List?) ?? const [])
+        .map((e) => '$e')
+        .where((s) => s.isNotEmpty),
+  ];
+  late String _category = widget.categories.contains('${widget.existing?['category']}')
+      ? '${widget.existing?['category']}'
+      : widget.categories.first;
+  late String _condition = '${widget.existing?['condition'] ?? 'used_good'}';
   bool _saving = false;
 
+  bool get _editing => widget.existing != null;
   bool get _en => widget.language == AppLanguage.english;
   String _t(String en, String am) => _en ? en : am;
 
@@ -739,17 +798,34 @@ class _SellSheetState extends State<_SellSheet> {
     setState(() => _saving = true);
     try {
       final birr = double.tryParse(_price.text.trim().replaceAll(',', '')) ?? 0;
-      await widget.apiClient.createListing(
-        widget.token,
-        title: _title.text.trim(),
-        category: _category,
-        priceCents: (birr * 100).round(),
-        description: _desc.text.trim(),
-        condition: _condition,
-        location: _location.text.trim(),
-        phoneNumber: _phone.text.trim(),
-        images: _images,
-      );
+      if (_editing) {
+        await widget.apiClient.updateListing(
+          widget.token,
+          '${widget.existing!['id']}',
+          {
+            'title': _title.text.trim(),
+            'category': _category,
+            'priceCents': (birr * 100).round(),
+            'description': _desc.text.trim(),
+            'condition': _condition,
+            'location': _location.text.trim(),
+            'phoneNumber': _phone.text.trim(),
+            'images': _images,
+          },
+        );
+      } else {
+        await widget.apiClient.createListing(
+          widget.token,
+          title: _title.text.trim(),
+          category: _category,
+          priceCents: (birr * 100).round(),
+          description: _desc.text.trim(),
+          condition: _condition,
+          location: _location.text.trim(),
+          phoneNumber: _phone.text.trim(),
+          images: _images,
+        );
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       setState(() => _saving = false);
@@ -766,7 +842,8 @@ class _SellSheetState extends State<_SellSheet> {
       padding: EdgeInsets.only(left: 20, right: 20, top: 4, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
       child: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(_t('Sell an item', 'እቃ ሽጥ'), style: Theme.of(context).textTheme.titleLarge),
+          Text(_editing ? _t('Edit listing', 'ማስታወቂያ አርትዕ') : _t('Sell an item', 'እቃ ሽጥ'),
+              style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
           SizedBox(
             height: 84,
@@ -837,7 +914,11 @@ class _SellSheetState extends State<_SellSheet> {
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _saving ? null : _submit,
-            child: Text(_saving ? _t('Posting…', 'በመለጠፍ ላይ…') : _t('Post listing', 'ማስታወቂያ ለጥፍ')),
+            child: Text(_saving
+                ? _t('Saving…', 'በማስቀመጥ ላይ…')
+                : _editing
+                    ? _t('Save changes', 'ለውጦችን አስቀምጥ')
+                    : _t('Post listing', 'ማስታወቂያ ለጥፍ')),
           ),
         ]),
       ),

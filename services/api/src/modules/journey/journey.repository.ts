@@ -250,19 +250,44 @@ export class JourneyRepository {
     return listing;
   }
 
-  updateListing(userId: string, id: string, fields: { sold?: boolean; priceCents?: number; description?: string; active?: boolean }) {
-    return this.pool
+  async updateListing(
+    userId: string,
+    id: string,
+    fields: {
+      sold?: boolean; priceCents?: number; description?: string; active?: boolean;
+      title?: string; category?: string; condition?: string; location?: string;
+      phoneNumber?: string; images?: string[];
+    },
+  ) {
+    const listing = await this.pool
       .query(
         `UPDATE marketplace_listings SET
            sold = COALESCE($3, sold),
            price_cents = COALESCE($4, price_cents),
            description = COALESCE($5, description),
-           active = COALESCE($6, active)
+           active = COALESCE($6, active),
+           title = COALESCE(NULLIF($7,''), title),
+           category = COALESCE(NULLIF($8,''), category),
+           condition = COALESCE(NULLIF($9,''), condition),
+           location = COALESCE($10, location),
+           phone_number = COALESCE($11, phone_number),
+           image_url = COALESCE($12, image_url)
          WHERE id=$1 AND seller_id=$2
-         RETURNING id, sold, price_cents AS "priceCents", active`,
-        [id, userId, fields.sold ?? null, fields.priceCents ?? null, fields.description ?? null, fields.active ?? null],
+         RETURNING id, sold, price_cents AS "priceCents", active, title, category, condition, location, image_url AS "imageUrl"`,
+        [
+          id, userId, fields.sold ?? null, fields.priceCents ?? null, fields.description ?? null, fields.active ?? null,
+          fields.title ?? '', fields.category ?? '', fields.condition ?? '', fields.location ?? null,
+          fields.phoneNumber ?? null, fields.images?.length ? fields.images[0] : null,
+        ],
       )
       .then((r) => r.rows[0] ?? null);
+    if (listing && fields.images?.length) {
+      await this.pool.query('DELETE FROM marketplace_listing_images WHERE listing_id=$1', [id]);
+      for (let i = 0; i < fields.images.length && i < 10; i += 1) {
+        await this.pool.query('INSERT INTO marketplace_listing_images (listing_id, url, position) VALUES ($1,$2,$3)', [id, fields.images[i], i]);
+      }
+    }
+    return listing;
   }
 
   deleteListing(userId: string, id: string) {
