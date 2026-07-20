@@ -353,9 +353,21 @@ class AppTheme {
             borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       ),
       dividerTheme: DividerThemeData(color: scheme.outlineVariant, thickness: 1),
-      listTileTheme: const ListTileThemeData(
-        titleTextStyle: TextStyle(fontFamily: _body, fontWeight: FontWeight.w700, fontFamilyFallback: fontFallbacks),
-        subtitleTextStyle: TextStyle(fontFamily: _body, fontFamilyFallback: fontFallbacks),
+      listTileTheme: ListTileThemeData(
+        // A theme titleTextStyle with a null color leaves the ListTile title
+        // colorless, so it falls back to a light default that vanishes in light
+        // mode. Pin the colors to the scheme so every ListTile stays legible.
+        textColor: scheme.onSurface,
+        iconColor: scheme.onSurfaceVariant,
+        titleTextStyle: TextStyle(
+            fontFamily: _body,
+            fontWeight: FontWeight.w700,
+            fontFamilyFallback: fontFallbacks,
+            color: scheme.onSurface),
+        subtitleTextStyle: TextStyle(
+            fontFamily: _body,
+            fontFamilyFallback: fontFallbacks,
+            color: textMuted),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: scheme.secondary,
