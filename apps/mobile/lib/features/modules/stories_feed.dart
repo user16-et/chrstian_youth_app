@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import '../../data/date_format.dart';
 import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
+import 'user_profile_sheet.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
 String _tr(AppLanguage l, String en, String am) => _en(l) ? en : am;
@@ -428,6 +429,17 @@ class _GlobalStoryViewerScreenState extends State<GlobalStoryViewerScreen>
                   ),
                   title: Text('${v['fullName'] ?? ''}'),
                   subtitle: Text(relativeTime('${v['viewedAt'] ?? ''}')),
+                  // Tap a viewer to open their profile.
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () {
+                    final id = '${v['viewerId'] ?? ''}';
+                    if (id.isEmpty) return;
+                    Navigator.of(context).pop();
+                    showUserProfileSheet(context,
+                        apiClient: widget.apiClient,
+                        userId: id,
+                        token: widget.token);
+                  },
                 ),
           ],
         ),
