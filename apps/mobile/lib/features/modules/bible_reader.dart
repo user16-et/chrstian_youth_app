@@ -16,8 +16,8 @@ class BibleReaderScreen extends StatefulWidget {
     required this.apiClient,
     required this.token,
     required this.language,
-    this.initialVersion = 'kjv',
-    this.initialBook = 'John',
+    this.initialVersion = 'amh',
+    this.initialBook = 'Matthew',
     this.initialChapter = 1,
   });
 
@@ -37,7 +37,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   List<Map<String, dynamic>> _books = const [];
   Map<String, dynamic>? _book; // current book row
   int _chapter = 1;
-  String _primary = 'kjv';
+  String _primary = 'amh';
   String? _secondary; // parallel translation, null = single
   List<Map<String, dynamic>> _verses = const [];
   Map<int, String> _secondaryByVerse = const {};

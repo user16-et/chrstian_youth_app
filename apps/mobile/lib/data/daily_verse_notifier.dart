@@ -52,24 +52,21 @@ class DailyVerseNotifier {
   /// text stays current.
   Future<void> refresh(ApiClient apiClient, AppLanguage language) async {
     if (!await _init()) return;
-    String title = language == AppLanguage.english
-        ? "Today's Word 📖"
-        : 'የዛሬው ቃል 📖';
-    String body = language == AppLanguage.english
-        ? 'Open the app for your daily verse.'
-        : 'የዕለቱን ጥቅስ ለማንበብ መተግበሪያውን ይክፈቱ።';
+    // The daily verse notification is always in Amharic.
+    String title = 'የዛሬው ቃል 📖';
+    String body = 'የዕለቱን ጥቅስ ለማንበብ መተግበሪያውን ይክፈቱ።';
     try {
       final verses = await apiClient.fetchDailyVerses();
       final today = verses.firstWhere((v) => v.dayOffset == 0,
           orElse: () => verses.first);
-      final am = language == AppLanguage.amharic;
-      final reference = am && today.referenceAm.isNotEmpty
-          ? today.referenceAm
-          : today.reference;
+      // Prefer the Amharic reference/text; fall back to the base fields only
+      // if the Amharic ones are missing.
+      final reference =
+          today.referenceAm.isNotEmpty ? today.referenceAm : today.reference;
       final text =
-          am && today.verseTextAm.isNotEmpty ? today.verseTextAm : today.verseText;
+          today.verseTextAm.isNotEmpty ? today.verseTextAm : today.verseText;
       if (text.isNotEmpty) {
-        title = am ? 'የዛሬው ቃል 📖 $reference' : "Today's Word 📖 $reference";
+        title = 'የዛሬው ቃል 📖 $reference';
         body = text;
       }
     } catch (_) {
@@ -84,10 +81,8 @@ class DailyVerseNotifier {
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             'daily_verse',
-            language == AppLanguage.english ? 'Daily verse' : 'የዕለት ጥቅስ',
-            channelDescription: language == AppLanguage.english
-                ? 'One verse every morning'
-                : 'በየማለዳው አንድ ጥቅስ',
+            'የዕለት ጥቅስ',
+            channelDescription: 'በየማለዳው አንድ ጥቅስ',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
             styleInformation: BigTextStyleInformation(body),

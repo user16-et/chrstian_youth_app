@@ -2020,11 +2020,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
       final username = profileUser['username']?.toString() ?? user.username;
       final city = profileUser['city']?.toString() ?? '';
       final occupation = profileUser['occupation']?.toString() ?? '';
+      // `church` is a list of memberships (never a Map) — read the first one.
       final churchList =
           profile['church'] is List ? profile['church'] as List : const [];
       final church = churchList.isNotEmpty && churchList.first is Map
-          ? ((churchList.first as Map)['churchName']?.toString() ?? '')
-          : (profile['church'] as Map?)?['name']?.toString() ?? '';
+          ? ('${(churchList.first as Map)['churchName'] ?? (churchList.first as Map)['name'] ?? ''}')
+          : '';
       final ministries = profile['ministries'] is List
           ? profile['ministries'] as List
           : const [];
