@@ -33,6 +33,12 @@ const VERSION = {
 
 function clean(s) {
   return s
+    // Strip HTML comments first — including a dangling "<!--" whose "-->" was
+    // cut off by the chapter split (otherwise it survives the tag removal below
+    // because <[^>]+> needs a closing ">", leaving a "<!--" at the verse end).
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<!--[\s\S]*$/g, ' ')
+    .replace(/-->/g, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
