@@ -29,12 +29,14 @@ export class CommunityRepository {
       this.db.query(`SELECT u.id,u.full_name AS "fullName",COALESCE(up.city,'') AS city,COALESCE(up.occupation,'') AS occupation,
         COALESCE(NULLIF(u.profile_image,''),up.photo_url,'') AS "profileImage",
         COALESCE(up.testimony,'') AS testimony,COALESCE(up.interests,'{}') AS interests,
-        COALESCE(ch.name,'') AS church,COALESCE(fr.status,'') AS "friendStatus",
+        COALESCE((SELECT ch.name FROM church_memberships cm JOIN churches ch ON ch.id=cm.church_id
+          WHERE cm.user_id=u.id AND cm.status IN ('active','approved')
+          ORDER BY CASE WHEN cm.role='visitor' THEN 1 ELSE 0 END LIMIT 1),'') AS church,
+        COALESCE((SELECT fr.status FROM friend_requests fr
+          WHERE (fr.sender_id=$1 AND fr.receiver_id=u.id) OR (fr.receiver_id=$1 AND fr.sender_id=u.id)
+          ORDER BY CASE fr.status WHEN 'accepted' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END LIMIT 1),'') AS "friendStatus",
         EXISTS(SELECT 1 FROM user_follows WHERE follower_id=$1 AND following_id=u.id) AS "followedByMe"
         FROM users u LEFT JOIN user_profiles up ON up.user_id=u.id
-        LEFT JOIN church_memberships cm ON cm.user_id=u.id AND cm.status IN ('active','approved')
-        LEFT JOIN churches ch ON ch.id=cm.church_id
-        LEFT JOIN friend_requests fr ON (fr.sender_id=$1 AND fr.receiver_id=u.id) OR (fr.receiver_id=$1 AND fr.sender_id=u.id)
         WHERE u.id<>$1 AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE b.blocker_id=$1 AND b.blocked_id=u.id)
         ORDER BY CASE WHEN up.city='Addis Ababa' THEN 0 ELSE 1 END,u.full_name LIMIT 30`, [userId]),
       this.db.query(`SELECT g.id,g.name,g.category,g.description,g.type,g.visibility,
