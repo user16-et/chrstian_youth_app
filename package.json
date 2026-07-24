@@ -18,6 +18,7 @@
     "build:web:mobile": "cd apps/mobile && /home/toor/pro/chrstian_app/.sdk/flutter/bin/flutter build web",
     "build:apk:mobile": "cd apps/mobile && /home/toor/pro/chrstian_app/.sdk/flutter/bin/flutter build apk --debug",
     "dev": "bash scripts/dev.sh",
+    "test:api": "npm --workspace services/api run test",
     "test:integration": "bash scripts/integration-mobile-api.sh",
     "stop": "bash scripts/stop.sh",
     "logs": "bash scripts/logs.sh",
