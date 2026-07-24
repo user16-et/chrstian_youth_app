@@ -62,7 +62,10 @@ export function loadConfig(): AppConfig {
     throw new Error('JWT_SECRET with at least 32 characters is required in production');
   }
   const jwtSecret = configuredJwtSecret ?? 'development-admin-jwt-secret-change-me';
-  cachedConfig = {
+  // Build into a local, then cache only after all validation passes — otherwise
+  // a failed production guard would leave an invalid config cached and the next
+  // loadConfig() call would return it without re-validating.
+  const config: AppConfig = {
     nodeEnv,
     port: int('PORT', 3000, 1, 65535),
     databaseUrl,
@@ -112,24 +115,25 @@ export function loadConfig(): AppConfig {
     paymentCallbackUrl: optional('PAYMENT_CALLBACK_URL'),
     paymentReturnUrl: optional('PAYMENT_RETURN_URL'),
   };
-  if (nodeEnv === 'production' && cachedConfig.mediaStorageProvider === 'disabled') {
+  if (nodeEnv === 'production' && config.mediaStorageProvider === 'disabled') {
     throw new Error('MEDIA_STORAGE_PROVIDER must be configured in production');
   }
-  if (nodeEnv === 'production' && !cachedConfig.redisUrl) {
+  if (nodeEnv === 'production' && !config.redisUrl) {
     throw new Error('REDIS_URL is required in production for distributed rate limiting');
   }
-  if (nodeEnv === 'production' && cachedConfig.virusScanProvider !== 'clamav') {
+  if (nodeEnv === 'production' && config.virusScanProvider !== 'clamav') {
     throw new Error('VIRUS_SCAN_PROVIDER=clamav is required in production');
   }
-  if (nodeEnv === 'production' && cachedConfig.corsOrigins.length === 0) {
+  if (nodeEnv === 'production' && config.corsOrigins.length === 0) {
     throw new Error('CORS_ORIGINS must explicitly list trusted production origins');
   }
-  if (nodeEnv === 'production' && cachedConfig.paymentProvider === 'mock') {
+  if (nodeEnv === 'production' && config.paymentProvider === 'mock') {
     throw new Error('PAYMENT_PROVIDER=mock is not allowed in production; use chapa');
   }
-  if (cachedConfig.paymentProvider === 'chapa' && !cachedConfig.chapaSecretKey) {
+  if (config.paymentProvider === 'chapa' && !config.chapaSecretKey) {
     throw new Error('CHAPA_SECRET_KEY is required when PAYMENT_PROVIDER=chapa');
   }
+  cachedConfig = config;
   return cachedConfig;
 }
 
