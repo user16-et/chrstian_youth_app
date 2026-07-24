@@ -86,10 +86,47 @@ export class JourneyRepository {
     return this.dashboard(userId);
   }
 
-  friendRequest(userId: string, receiverId: string) {
-    if (userId === receiverId) return Promise.resolve(null);
-    return this.pool.query(`INSERT INTO friend_requests (sender_id,receiver_id) VALUES ($1,$2)
-      ON CONFLICT (sender_id,receiver_id) DO UPDATE SET status='pending' RETURNING *`, [userId, receiverId]).then((r) => r.rows[0] ?? null);
+  async friendRequest(userId: string, receiverId: string) {
+    if (userId === receiverId) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      // A block in either direction blocks any request — don't create or revive one.
+      const blocked = await client.query(
+        `SELECT 1 FROM user_blocks WHERE (blocker_id=$1 AND blocked_id=$2) OR (blocker_id=$2 AND blocked_id=$1) LIMIT 1`,
+        [userId, receiverId],
+      );
+      if (blocked.rowCount) { await client.query('ROLLBACK'); return null; }
+      // They already invited you (reverse pending request) → accept it instead
+      // of stacking a second, opposite-direction request. The status trigger
+      // notifies the original sender that you accepted.
+      const accepted = await client.query(
+        `UPDATE friend_requests SET status='accepted'
+         WHERE sender_id=$2 AND receiver_id=$1 AND status='pending' RETURNING *`,
+        [userId, receiverId],
+      );
+      if (accepted.rowCount) { await client.query('COMMIT'); return accepted.rows[0]; }
+      // Already friends (accepted either direction) → return the existing row.
+      const existing = await client.query(
+        `SELECT * FROM friend_requests WHERE status='accepted'
+         AND ((sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1)) LIMIT 1`,
+        [userId, receiverId],
+      );
+      if (existing.rowCount) { await client.query('COMMIT'); return existing.rows[0]; }
+      // Otherwise create (or re-send) the forward pending request.
+      const inserted = await client.query(
+        `INSERT INTO friend_requests (sender_id,receiver_id) VALUES ($1,$2)
+         ON CONFLICT (sender_id,receiver_id) DO UPDATE SET status='pending' RETURNING *`,
+        [userId, receiverId],
+      );
+      await client.query('COMMIT');
+      return inserted.rows[0] ?? null;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   updateFriendRequest(userId: string, id: string, status: string) {
