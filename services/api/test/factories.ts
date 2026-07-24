@@ -34,3 +34,45 @@ export async function deleteUsers(...ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   await testPool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [ids]);
 }
+
+/** Create a church and return its id. */
+export async function createChurch(overrides: { name?: string; city?: string } = {}): Promise<string> {
+  const id = randomUUID();
+  await testPool.query('INSERT INTO churches (id, name, city) VALUES ($1, $2, $3)', [
+    id,
+    overrides.name ?? `Church ${id.slice(0, 8)}`,
+    overrides.city ?? 'Addis Ababa',
+  ]);
+  return id;
+}
+
+export async function deleteChurches(...ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await testPool.query('DELETE FROM churches WHERE id = ANY($1::uuid[])', [ids]);
+}
+
+/** Add a church membership (defaults to an active member). */
+export async function addMembership(
+  churchId: string,
+  userId: string,
+  opts: { role?: string; status?: string } = {},
+): Promise<void> {
+  await testPool.query(
+    `INSERT INTO church_memberships (church_id, user_id, role, status)
+     VALUES ($1, $2, $3, $4)`,
+    [churchId, userId, opts.role ?? 'member', opts.status ?? 'active'],
+  );
+}
+
+/** Create a courtship interest row (defaults to pending). */
+export async function addInterest(
+  senderId: string,
+  receiverId: string,
+  opts: { status?: string; note?: string } = {},
+): Promise<void> {
+  await testPool.query(
+    `INSERT INTO courtship_interests (sender_id, receiver_id, note, status)
+     VALUES ($1, $2, $3, $4)`,
+    [senderId, receiverId, opts.note ?? 'hi', opts.status ?? 'pending'],
+  );
+}
