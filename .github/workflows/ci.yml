@@ -41,5 +41,8 @@ jobs:
       # api tests import from the shared workspace — build it first.
       - run: npm run build:shared
       - run: npm run lint:api
+      - run: npm run lint:worker
       - run: npm run build:api
+      - run: npm run build:worker
       - run: npm run test:api
+      - run: npm run test:worker
