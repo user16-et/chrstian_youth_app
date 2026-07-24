@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { postgresPoolConfig } from '../../common/postgres';
+import { compatibility, haversineKm, intOrNull, numOrNull } from './courtship-scoring';
 
 @Injectable()
 export class RelationshipRepository {
@@ -180,7 +181,7 @@ export class RelationshipRepository {
           myLat != null && myLng != null && lat != null && lng != null
             ? Math.round(haversineKm(myLat, myLng, lat, lng))
             : null;
-        return { ...profile, distanceKm, compatibility: this.compatibility(me, profile) };
+        return { ...profile, distanceKm, compatibility: compatibility(me, profile) };
       })
       .filter((p) => maxKm == null || p.distanceKm == null || p.distanceKm <= maxKm);
   }
@@ -421,39 +422,4 @@ export class RelationshipRepository {
       FROM courtship_profiles c JOIN users u ON u.id=c.user_id WHERE ${where} ORDER BY c.verified DESC,c.updated_at DESC LIMIT 80`;
   }
 
-  private compatibility(me: any, other: any) {
-    if (!me) return { faith: 70, ministry: 70, lifeGoals: 70, familyVision: 70, location: 70, overall: 70 };
-    const overlap = (a = '', b = '') => {
-      const target = String(b).toLowerCase();
-      // Ignore fragments shorter than 3 chars ("a", "in") to avoid false matches.
-      return String(a).toLowerCase().split(/[,\s]+/).filter((x) => x.length >= 3).some((x) => target.includes(x));
-    };
-    const faith = overlap(me.faithStatement, other.faithStatement) || overlap(me.favoritePassages, other.favoritePassages) ? 95 : 78;
-    const ministry = overlap(me.ministryInvolvement, other.ministryInvolvement) || overlap(me.interests, other.interests) ? 90 : 74;
-    const lifeGoals = overlap(me.lifeGoals, other.lifeGoals) || me.relationshipIntent === other.relationshipIntent ? 88 : 72;
-    const familyVision = overlap(me.marriageVision, other.marriageVision) || overlap(me.familyGoals, other.familyGoals) ? 88 : 70;
-    const location = me.city && me.city === other.city ? 94 : 68;
-    return { faith, ministry, lifeGoals, familyVision, location, overall: Math.round((faith + ministry + lifeGoals + familyVision + location) / 5) };
-  }
-}
-
-function intOrNull(value: unknown): number | null {
-  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-}
-
-function numOrNull(value: unknown): number | null {
-  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
-  return Number.isFinite(n) ? n : null;
-}
-
-// Great-circle distance in kilometres between two lat/lng points.
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
