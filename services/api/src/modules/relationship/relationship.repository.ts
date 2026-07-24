@@ -275,10 +275,16 @@ export class RelationshipRepository {
       [userId],
     );
     const rows = result.rows;
+    // A mutual match leaves BOTH direction rows 'accepted' (see matchIfMutual),
+    // so collapse to one entry per partner to avoid showing a match twice.
+    const matchesByPartner = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      if (r.status === 'accepted' && !matchesByPartner.has(r.otherId)) matchesByPartner.set(r.otherId, r);
+    }
     return {
       received: rows.filter((r) => r.incoming === true && r.status === 'pending'),
       sent: rows.filter((r) => r.incoming !== true),
-      matches: rows.filter((r) => r.status === 'accepted'),
+      matches: [...matchesByPartner.values()],
     };
   }
 
