@@ -64,6 +64,19 @@ export async function addMembership(
   );
 }
 
+/** Insert a feed_events row targeting `userId` for a post. */
+export async function addFeedEvent(
+  userId: string,
+  postId: string,
+  opts: { actorId?: string; eventType?: string; score?: number; createdAt?: string | Date } = {},
+): Promise<void> {
+  await testPool.query(
+    `INSERT INTO feed_events (user_id, actor_id, event_type, source_type, source_id, score, created_at)
+     VALUES ($1, $2, $3, 'post', $4, $5, COALESCE($6::timestamptz, now()))`,
+    [userId, opts.actorId ?? null, opts.eventType ?? 'post_created', postId, opts.score ?? 1, opts.createdAt ?? null],
+  );
+}
+
 /** Create a courtship interest row (defaults to pending). */
 export async function addInterest(
   senderId: string,
