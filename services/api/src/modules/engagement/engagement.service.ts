@@ -541,6 +541,8 @@ export class EngagementService {
 
   async endorseTalent(token: string, talentUserId: string) {
     const actor = await this.requireActor(token);
+    // You can't endorse your own talent — it would inflate your own count.
+    if (actor.id === talentUserId) throw new ForbiddenException('cannot_endorse_self');
     return this.contentRepository.endorseTalent(actor.id, talentUserId);
   }
 
