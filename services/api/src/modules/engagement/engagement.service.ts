@@ -7,6 +7,7 @@ import { UserRepository } from '../../common/user.repository';
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
 import { NotificationsService } from '../platform/notifications.service';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
+import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
 import { CreateMentorshipRequestDto } from './dto/create-mentorship-request.dto';
@@ -27,6 +28,7 @@ export class EngagementService {
     private readonly authorization: AuthorizationService,
     private readonly notifications: NotificationsService,
     private readonly talentRepository: TalentRepository,
+    private readonly prayerRepository: PrayerRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -41,12 +43,12 @@ export class EngagementService {
   }
 
   listPrayerRequests() {
-    return this.contentRepository.listPrayerRequests();
+    return this.prayerRepository.listPrayerRequests();
   }
 
   async createPrayerRequest(token: string, input: CreatePrayerRequestDto & { anonymous?: boolean }) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.createPrayerRequest({
+    return this.prayerRepository.createPrayerRequest({
       requesterId: actor.id,
       title: input.title,
       body: input.body,
@@ -56,12 +58,12 @@ export class EngagementService {
 
   async listPrayerJournal(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listPrayerJournal(actor.id);
+    return this.prayerRepository.listPrayerJournal(actor.id);
   }
 
   async createPrayerJournal(token: string, input: { title: string; body: string }) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.createPrayerJournalEntry({
+    return this.prayerRepository.createPrayerJournalEntry({
       userId: actor.id,
       title: input.title,
       body: input.body,
@@ -70,7 +72,7 @@ export class EngagementService {
 
   async answerPrayerJournal(token: string, entryId: string, input: { answer: string }) {
     const actor = await this.requireActor(token);
-    const updated = await this.contentRepository.answerPrayerJournalEntry({
+    const updated = await this.prayerRepository.answerPrayerJournalEntry({
       entryId,
       userId: actor.id,
       answer: input.answer,
@@ -82,33 +84,33 @@ export class EngagementService {
   }
 
   listPrayerChains() {
-    return this.contentRepository.listPrayerChains();
+    return this.prayerRepository.listPrayerChains();
   }
 
   async listPrayerChainMembers(chainId: string) {
     await this.ensurePrayerChainExists(chainId);
-    return this.contentRepository.listPrayerChainMembers(chainId);
+    return this.prayerRepository.listPrayerChainMembers(chainId);
   }
 
   async joinPrayerChain(token: string, chainId: string) {
     const actor = await this.requireActor(token);
     await this.ensurePrayerChainExists(chainId);
-    return this.contentRepository.joinPrayerChain(actor.id, chainId);
+    return this.prayerRepository.joinPrayerChain(actor.id, chainId);
   }
 
   async listPrayerChainPosts(chainId: string) {
     await this.ensurePrayerChainExists(chainId);
-    return this.contentRepository.listPrayerChainPosts(chainId);
+    return this.prayerRepository.listPrayerChainPosts(chainId);
   }
 
   async createPrayerChainPost(token: string, chainId: string, input: { body: string }) {
     const actor = await this.requireActor(token);
     await this.ensurePrayerChainExists(chainId);
-    const members = await this.contentRepository.listPrayerChainMembers(chainId);
+    const members = await this.prayerRepository.listPrayerChainMembers(chainId);
     if (!members.some((member) => member.userId === actor.id)) {
       throw new BadRequestException('prayer_chain_membership_required');
     }
-    return this.contentRepository.createPrayerChainPost({
+    return this.prayerRepository.createPrayerChainPost({
       chainId,
       userId: actor.id,
       body: input.body,
@@ -709,7 +711,7 @@ export class EngagementService {
   }
 
   private async ensurePrayerChainExists(chainId: string) {
-    const chain = await this.contentRepository.getPrayerChainById(chainId);
+    const chain = await this.prayerRepository.getPrayerChainById(chainId);
     if (!chain) {
       throw new NotFoundException('prayer_chain_not_found');
     }

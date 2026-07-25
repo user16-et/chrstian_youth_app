@@ -21,6 +21,7 @@ describe('EngagementService.endorseTalent self-guard', () => {
       undefined as never, // authorization
       undefined as never, // notifications
       talentRepository as never, // talentRepository
+      undefined as never, // prayerRepository
     );
     (service as unknown as { requireActor: (t: string) => Promise<{ id: string }> }).requireActor = jest
       .fn()

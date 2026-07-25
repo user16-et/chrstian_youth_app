@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { AppModule } from './app.module';
 import { EngagementService } from './modules/engagement/engagement.service';
 import { TalentRepository } from './modules/engagement/talent.repository';
+import { PrayerRepository } from './modules/engagement/prayer.repository';
 
 /**
  * Boot smoke test: compiles the entire Nest DI graph so a mis-wired provider
@@ -19,6 +20,7 @@ describe('Application DI graph', () => {
     try {
       expect(moduleRef.get(EngagementService, { strict: false })).toBeInstanceOf(EngagementService);
       expect(moduleRef.get(TalentRepository, { strict: false })).toBeInstanceOf(TalentRepository);
+      expect(moduleRef.get(PrayerRepository, { strict: false })).toBeInstanceOf(PrayerRepository);
     } finally {
       await moduleRef.close();
     }

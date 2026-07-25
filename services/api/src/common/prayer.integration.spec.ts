@@ -1,27 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { PrayerRepository } from '../modules/engagement/prayer.repository';
 import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../../test/factories';
 
 /**
- * Integration safety-net for the prayer domain, written BEFORE extracting a
- * PrayerRepository out of ContentRepository so it guards behaviour across the
- * refactor: requests (incl. anonymity), journal (incl. ownership guard) and
- * chains (join/posts/members).
+ * Integration coverage for the prayer domain, extracted from ContentRepository
+ * into PrayerRepository: requests (incl. anonymity), journal (incl. ownership
+ * guard) and chains (join/posts/members).
  */
 describe('Prayer domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: PrayerRepository;
   let owner: TestUser;
   let other: TestUser;
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new PrayerRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 
