@@ -6,20 +6,21 @@ import { EngagementService } from './engagement.service';
  * the guard only depends on the resolved actor and the content repository.
  */
 describe('EngagementService.endorseTalent self-guard', () => {
-  const contentRepository = {
+  const talentRepository = {
     endorseTalent: jest.fn().mockResolvedValue({ endorsed: true }),
     unendorseTalent: jest.fn().mockResolvedValue({ endorsed: false }),
   };
 
   function serviceForActor(actorId: string) {
     const service = new EngagementService(
-      contentRepository as never, // contentRepository
+      undefined as never, // contentRepository
       undefined as never, // userRepository
       undefined as never, // connectedLifeRepository
       undefined as never, // ministryOperationsRepository
       undefined as never, // queues
       undefined as never, // authorization
       undefined as never, // notifications
+      talentRepository as never, // talentRepository
     );
     (service as unknown as { requireActor: (t: string) => Promise<{ id: string }> }).requireActor = jest
       .fn()
@@ -31,12 +32,12 @@ describe('EngagementService.endorseTalent self-guard', () => {
     const service = serviceForActor('user-1');
     await expect(service.endorseTalent('token', 'user-1')).rejects.toThrow(ForbiddenException);
     await expect(service.endorseTalent('token', 'user-1')).rejects.toThrow('cannot_endorse_self');
-    expect(contentRepository.endorseTalent).not.toHaveBeenCalled();
+    expect(talentRepository.endorseTalent).not.toHaveBeenCalled();
   });
 
   it('endorses another user via the repository', async () => {
     const service = serviceForActor('user-1');
     await service.endorseTalent('token', 'user-2');
-    expect(contentRepository.endorseTalent).toHaveBeenCalledWith('user-1', 'user-2');
+    expect(talentRepository.endorseTalent).toHaveBeenCalledWith('user-1', 'user-2');
   });
 });

@@ -1,26 +1,23 @@
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { TalentRepository } from '../modules/engagement/talent.repository';
 import { createUser, deleteUsers, closeTestPool, TestUser } from '../../test/factories';
 
 /**
- * Integration coverage for the talent domain. Written BEFORE extracting a
- * TalentRepository out of ContentRepository so it guards the behaviour across
- * the refactor (the endorse-talent unit spec mocks the repo and would not catch
- * a broken extraction).
+ * Integration coverage for the talent domain, extracted from ContentRepository
+ * into TalentRepository. Guards profiles, showcase, endorsements and the
+ * repo-layer self-endorse guard against a real DB.
  */
 describe('Talent domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: TalentRepository;
   let owner: TestUser;
   let fan: TestUser;
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new TalentRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 

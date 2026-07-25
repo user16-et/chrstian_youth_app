@@ -5,10 +5,11 @@ import { PlatformModule } from '../platform/platform.module';
 import { EngagementController } from './engagement.controller';
 import { EngagementService } from './engagement.service';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
+import { TalentRepository } from './talent.repository';
 
 @Module({
   imports: [ConnectedLifeModule, PlatformModule],
   controllers: [EngagementController],
-  providers: [EngagementService, MinistryOperationsRepository],
+  providers: [EngagementService, MinistryOperationsRepository, TalentRepository],
 })
 export class EngagementModule {}

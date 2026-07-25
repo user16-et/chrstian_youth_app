@@ -7,6 +7,7 @@ import { UserRepository } from '../../common/user.repository';
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
 import { NotificationsService } from '../platform/notifications.service';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
+import { TalentRepository } from './talent.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
 import { CreateMentorshipRequestDto } from './dto/create-mentorship-request.dto';
 import { CreatePaymentRequestDto } from './dto/create-payment-request.dto';
@@ -25,6 +26,7 @@ export class EngagementService {
     private readonly queues: QueueProducer,
     private readonly authorization: AuthorizationService,
     private readonly notifications: NotificationsService,
+    private readonly talentRepository: TalentRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -495,17 +497,17 @@ export class EngagementService {
 
   async listTalentProfiles(token?: string) {
     const viewer = token ? await this.requireActor(token).catch(() => null) : null;
-    return this.contentRepository.listTalentProfiles(viewer?.id);
+    return this.talentRepository.listTalentProfiles(viewer?.id);
   }
 
   async getTalentProfile(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.getTalentProfile(actor.id, actor.id);
+    return this.talentRepository.getTalentProfile(actor.id, actor.id);
   }
 
   async getTalentProfileFor(token: string | undefined, userId: string) {
     const viewer = token ? await this.requireActor(token).catch(() => null) : null;
-    return this.contentRepository.getTalentProfile(userId, viewer?.id);
+    return this.talentRepository.getTalentProfile(userId, viewer?.id);
   }
 
   async addTalentShowcase(token: string, input: { title?: string; description?: string; mediaUrl?: string; mediaType?: string; linkUrl?: string }) {
@@ -516,13 +518,13 @@ export class EngagementService {
       throw new BadRequestException('media_or_link_required');
     }
     // A showcase needs a talent profile to hang off — create a stub if absent.
-    if (!(await this.contentRepository.getTalentProfile(actor.id))) {
-      await this.contentRepository.upsertTalentProfile({
+    if (!(await this.talentRepository.getTalentProfile(actor.id))) {
+      await this.talentRepository.upsertTalentProfile({
         userId: actor.id, displayName: actor.fullName, category: 'Other',
         churchName: '', city: '', bio: '', contactInfo: '',
       });
     }
-    return this.contentRepository.addTalentShowcase({
+    return this.talentRepository.addTalentShowcase({
       userId: actor.id,
       title,
       description: String(input.description ?? '').trim(),
@@ -534,7 +536,7 @@ export class EngagementService {
 
   async removeTalentShowcase(token: string, id: string) {
     const actor = await this.requireActor(token);
-    const removed = await this.contentRepository.removeTalentShowcase(actor.id, id);
+    const removed = await this.talentRepository.removeTalentShowcase(actor.id, id);
     if (!removed) throw new NotFoundException('showcase_item_not_found');
     return { id, status: 'deleted' };
   }
@@ -543,17 +545,17 @@ export class EngagementService {
     const actor = await this.requireActor(token);
     // You can't endorse your own talent — it would inflate your own count.
     if (actor.id === talentUserId) throw new ForbiddenException('cannot_endorse_self');
-    return this.contentRepository.endorseTalent(actor.id, talentUserId);
+    return this.talentRepository.endorseTalent(actor.id, talentUserId);
   }
 
   async unendorseTalent(token: string, talentUserId: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.unendorseTalent(actor.id, talentUserId);
+    return this.talentRepository.unendorseTalent(actor.id, talentUserId);
   }
 
   async upsertTalentProfile(token: string, input: { displayName: string; category: string; churchName: string; city: string; bio: string; contactInfo: string }) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.upsertTalentProfile({
+    return this.talentRepository.upsertTalentProfile({
       userId: actor.id,
       displayName: input.displayName,
       category: input.category,
@@ -565,14 +567,14 @@ export class EngagementService {
   }
 
   listTalentCompetitions() {
-    return this.contentRepository.listTalentCompetitions();
+    return this.talentRepository.listTalentCompetitions();
   }
 
   async enterTalentCompetition(token: string, competitionId: string) {
     const actor = await this.requireActor(token);
     await this.ensureTalentCompetitionExists(competitionId);
     try {
-      return this.contentRepository.enterTalentCompetition({ userId: actor.id, competitionId });
+      return this.talentRepository.enterTalentCompetition({ userId: actor.id, competitionId });
     } catch (error) {
       if (error instanceof Error && error.message === 'talent_profile_required') {
         throw new BadRequestException('talent_profile_required');
@@ -721,7 +723,7 @@ export class EngagementService {
   }
 
   private async ensureTalentCompetitionExists(competitionId: string) {
-    const competitions = await this.contentRepository.listTalentCompetitions();
+    const competitions = await this.talentRepository.listTalentCompetitions();
     if (!competitions.some((competition) => competition.id === competitionId)) {
       throw new NotFoundException('talent_competition_not_found');
     }
