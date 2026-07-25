@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { postgresPoolConfig } from '../../common/postgres';
+import { friendStatusExpr } from '../../common/sql-predicates';
 
 @Injectable()
 export class CommunityRepository {
@@ -32,9 +33,7 @@ export class CommunityRepository {
         COALESCE((SELECT ch.name FROM church_memberships cm JOIN churches ch ON ch.id=cm.church_id
           WHERE cm.user_id=u.id AND cm.status IN ('active','approved')
           ORDER BY CASE WHEN cm.role='visitor' THEN 1 ELSE 0 END LIMIT 1),'') AS church,
-        COALESCE((SELECT fr.status FROM friend_requests fr
-          WHERE (fr.sender_id=$1 AND fr.receiver_id=u.id) OR (fr.receiver_id=$1 AND fr.sender_id=u.id)
-          ORDER BY CASE fr.status WHEN 'accepted' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END LIMIT 1),'') AS "friendStatus",
+        ${friendStatusExpr('$1', 'u.id')} AS "friendStatus",
         EXISTS(SELECT 1 FROM user_follows WHERE follower_id=$1 AND following_id=u.id) AS "followedByMe"
         FROM users u LEFT JOIN user_profiles up ON up.user_id=u.id
         WHERE u.id<>$1 AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE b.blocker_id=$1 AND b.blocked_id=u.id)

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { postgresPoolConfig } from '../../common/postgres';
+import { blockExists } from '../../common/sql-predicates';
 
 @Injectable()
 export class JourneyRepository {
@@ -92,10 +93,7 @@ export class JourneyRepository {
     try {
       await client.query('BEGIN');
       // A block in either direction blocks any request — don't create or revive one.
-      const blocked = await client.query(
-        `SELECT 1 FROM user_blocks WHERE (blocker_id=$1 AND blocked_id=$2) OR (blocker_id=$2 AND blocked_id=$1) LIMIT 1`,
-        [userId, receiverId],
-      );
+      const blocked = await client.query(`SELECT 1 WHERE ${blockExists('$1', '$2')}`, [userId, receiverId]);
       if (blocked.rowCount) { await client.query('ROLLBACK'); return null; }
       // They already invited you (reverse pending request) → accept it instead
       // of stacking a second, opposite-direction request. The status trigger

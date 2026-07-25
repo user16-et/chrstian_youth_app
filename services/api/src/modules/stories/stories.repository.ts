@@ -2,10 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 
 import { postgresPoolConfig } from '../../common/postgres';
-
-// Excludes stories from users the viewer has blocked (either direction).
-const NOT_BLOCKED = (viewerParam: string, ownerCol: string) =>
-  `NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_id=${viewerParam} AND b.blocked_id=${ownerCol}) OR (b.blocker_id=${ownerCol} AND b.blocked_id=${viewerParam}))`;
+import { notBlocked as NOT_BLOCKED } from '../../common/sql-predicates';
 
 @Injectable()
 export class StoriesRepository {
