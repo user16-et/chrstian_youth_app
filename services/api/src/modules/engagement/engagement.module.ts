@@ -4,6 +4,7 @@ import { ConnectedLifeModule } from '../connected-life/connected-life.module';
 import { PlatformModule } from '../platform/platform.module';
 import { EngagementController } from './engagement.controller';
 import { EngagementService } from './engagement.service';
+import { GrowthRepository } from './growth.repository';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
@@ -11,6 +12,6 @@ import { TalentRepository } from './talent.repository';
 @Module({
   imports: [ConnectedLifeModule, PlatformModule],
   controllers: [EngagementController],
-  providers: [EngagementService, MinistryOperationsRepository, TalentRepository, PrayerRepository],
+  providers: [EngagementService, MinistryOperationsRepository, TalentRepository, PrayerRepository, GrowthRepository],
 })
 export class EngagementModule {}

@@ -290,41 +290,6 @@ export interface ChurchMembershipViewRecord {
 }
 
 
-export interface GrowthChallengeRecord {
-  id: string;
-  title: string;
-  description: string;
-  targetDays: number;
-  category: string;
-  createdAt: string;
-}
-
-export interface GrowthChallengeViewRecord {
-  id: string;
-  title: string;
-  description: string;
-  targetDays: number;
-  category: string;
-  createdAt: string;
-}
-
-export interface GrowthCheckinRecord {
-  id: string;
-  userId: string;
-  kind: string;
-  checkedOn: string;
-  createdAt: string;
-}
-
-export interface GrowthSummaryRecord {
-  prayerStreak: number;
-  bibleStreak: number;
-  serviceStreak: number;
-  totalCheckins: number;
-  level: string;
-  badges: string[];
-}
-
 export interface MinistryRecord {
   id: string;
   name: string;
@@ -1465,60 +1430,6 @@ export class ContentRepository implements OnModuleInit {
     return this.mapChurchAnnouncementView(view.rows[0]);
   }
 
-  async listGrowthChallenges() {
-    const result = await this.pool.query('SELECT id, title, description, target_days, category, created_at FROM growth_challenges ORDER BY created_at DESC');
-    return result.rows.map((row) => this.mapGrowthChallengeView(row));
-  }
-
-  async addGrowthCheckin(input: { userId: string; kind: string; checkedOn?: string }) {
-    const record: GrowthCheckinRecord = {
-      id: randomUUID(),
-      userId: input.userId,
-      kind: input.kind,
-      checkedOn: input.checkedOn ?? new Date().toISOString().slice(0, 10),
-      createdAt: new Date().toISOString(),
-    };
-    await this.pool.query(
-      `INSERT INTO growth_checkins (id, user_id, kind, checked_on, created_at)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, kind, checked_on) DO NOTHING`,
-      [record.id, record.userId, record.kind, record.checkedOn, record.createdAt],
-    );
-    return record;
-  }
-
-  async getGrowthSummary(userId: string) {
-    const result = await this.pool.query(
-      `SELECT kind, count(*)::int AS total
-       FROM growth_checkins
-       WHERE user_id = $1
-       GROUP BY kind`,
-      [userId],
-    );
-    const totals = new Map<string, number>();
-    for (const row of result.rows) {
-      totals.set(String(row.kind), Number(row.total));
-    }
-    const prayer = totals.get('prayer') ?? 0;
-    const bible = totals.get('bible') ?? 0;
-    const service = totals.get('service') ?? 0;
-    const totalCheckins = prayer + bible + service;
-    const badges = [
-      prayer >= 3 ? 'Prayer Warrior' : null,
-      bible >= 3 ? 'Bible Reader' : null,
-      service >= 2 ? 'Servant Leader' : null,
-    ].filter(Boolean) as string[];
-    const level = totalCheckins >= 10 ? 'Leader' : totalCheckins >= 6 ? 'Servant' : totalCheckins >= 3 ? 'Growing Disciple' : 'New Believer';
-    return {
-      prayerStreak: prayer,
-      bibleStreak: bible,
-      serviceStreak: service,
-      totalCheckins,
-      level,
-      badges,
-    } satisfies GrowthSummaryRecord;
-  }
-
   async listMinistries(viewerId?: string) {
     const result = await this.pool.query(`SELECT m.id, m.name, m.department, m.description, m.lead_name, m.created_at,
       m.church_id, c.name AS church_name, b.name AS branch_name, m.ministry_type,
@@ -2577,7 +2488,7 @@ export class ContentRepository implements OnModuleInit {
         { id: randomUUID(), title: '7-Day Prayer Challenge', description: 'Pray daily and check in once a day.', targetDays: 7, category: 'Prayer', createdAt: now },
         { id: randomUUID(), title: '30-Day Bible Challenge', description: 'Read Scripture daily and keep your streak alive.', targetDays: 30, category: 'Bible', createdAt: now },
         { id: randomUUID(), title: 'Serve Your Church', description: 'Volunteer or attend ministry three times this month.', targetDays: 3, category: 'Service', createdAt: now },
-      ] satisfies GrowthChallengeRecord[];
+      ];
       for (const record of records) {
         await this.pool.query('INSERT INTO growth_challenges (id, title, description, target_days, category, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
           record.id,
@@ -3122,17 +3033,6 @@ export class ContentRepository implements OnModuleInit {
       title: String(row.title),
       body: String(row.body),
       priority: String(row.priority),
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapGrowthChallengeView(row: Record<string, unknown>): GrowthChallengeViewRecord {
-    return {
-      id: String(row.id),
-      title: String(row.title),
-      description: String(row.description),
-      targetDays: Number(row.target_days ?? 0),
-      category: String(row.category),
       createdAt: String(row.created_at),
     };
   }

@@ -6,6 +6,7 @@ import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
 import { NotificationsService } from '../platform/notifications.service';
+import { GrowthRepository } from './growth.repository';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
@@ -29,6 +30,7 @@ export class EngagementService {
     private readonly notifications: NotificationsService,
     private readonly talentRepository: TalentRepository,
     private readonly prayerRepository: PrayerRepository,
+    private readonly growthRepository: GrowthRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -118,12 +120,12 @@ export class EngagementService {
   }
 
   listGrowthChallenges() {
-    return this.contentRepository.listGrowthChallenges();
+    return this.growthRepository.listGrowthChallenges();
   }
 
   async getGrowthSummary(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.getGrowthSummary(actor.id);
+    return this.growthRepository.getGrowthSummary(actor.id);
   }
 
   async addGrowthCheckin(token: string, input: { kind: string; checkedOn?: string | null }) {
@@ -131,7 +133,7 @@ export class EngagementService {
     if (!['prayer', 'bible', 'service'].includes(input.kind)) {
       throw new BadRequestException('invalid_growth_kind');
     }
-    return this.contentRepository.addGrowthCheckin({
+    return this.growthRepository.addGrowthCheckin({
       userId: actor.id,
       kind: input.kind,
       checkedOn: input.checkedOn ?? undefined,

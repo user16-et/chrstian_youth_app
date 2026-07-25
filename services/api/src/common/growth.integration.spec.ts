@@ -1,24 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { GrowthRepository } from '../modules/engagement/growth.repository';
 import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../../test/factories';
 
 /**
- * Integration safety-net for the growth domain (check-ins, streak summary,
- * badges/levels, challenges) written BEFORE extracting a GrowthRepository.
+ * Integration coverage for the growth domain (check-ins, streak summary,
+ * badges/levels, challenges), extracted into GrowthRepository.
  */
 describe('Growth domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: GrowthRepository;
   let user: TestUser;
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new GrowthRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 
