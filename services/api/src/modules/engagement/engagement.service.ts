@@ -7,6 +7,7 @@ import { UserRepository } from '../../common/user.repository';
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
 import { NotificationsService } from '../platform/notifications.service';
 import { GrowthRepository } from './growth.repository';
+import { MediaItemsRepository } from './media-items.repository';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { OpportunitiesRepository } from './opportunities.repository';
 import { PrayerRepository } from './prayer.repository';
@@ -33,6 +34,7 @@ export class EngagementService {
     private readonly prayerRepository: PrayerRepository,
     private readonly growthRepository: GrowthRepository,
     private readonly opportunitiesRepository: OpportunitiesRepository,
+    private readonly mediaItemsRepository: MediaItemsRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -498,7 +500,7 @@ export class EngagementService {
   }
 
   listMediaItems() {
-    return this.contentRepository.listMediaItems();
+    return this.mediaItemsRepository.listMediaItems();
   }
 
   async listTalentProfiles(token?: string) {

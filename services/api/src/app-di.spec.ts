@@ -5,6 +5,7 @@ import { TalentRepository } from './modules/engagement/talent.repository';
 import { PrayerRepository } from './modules/engagement/prayer.repository';
 import { GrowthRepository } from './modules/engagement/growth.repository';
 import { OpportunitiesRepository } from './modules/engagement/opportunities.repository';
+import { MediaItemsRepository } from './modules/engagement/media-items.repository';
 
 /**
  * Boot smoke test: compiles the entire Nest DI graph so a mis-wired provider
@@ -25,6 +26,7 @@ describe('Application DI graph', () => {
       expect(moduleRef.get(PrayerRepository, { strict: false })).toBeInstanceOf(PrayerRepository);
       expect(moduleRef.get(GrowthRepository, { strict: false })).toBeInstanceOf(GrowthRepository);
       expect(moduleRef.get(OpportunitiesRepository, { strict: false })).toBeInstanceOf(OpportunitiesRepository);
+      expect(moduleRef.get(MediaItemsRepository, { strict: false })).toBeInstanceOf(MediaItemsRepository);
     } finally {
       await moduleRef.close();
     }

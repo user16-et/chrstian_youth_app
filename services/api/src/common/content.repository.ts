@@ -474,18 +474,6 @@ export interface MediaItemRecord {
   createdAt: string;
 }
 
-export interface MediaItemViewRecord {
-  id: string;
-  title: string;
-  type: string;
-  channel: string;
-  description: string;
-  url: string;
-  language: 'en' | 'am';
-  featured: boolean;
-  createdAt: string;
-}
-
 export interface TalentProfileRecord {
   userId: string;
   displayName: string;
@@ -1766,11 +1754,6 @@ export class ContentRepository implements OnModuleInit {
     ]);
 
     return record;
-  }
-
-  async listMediaItems() {
-    const result = await this.pool.query('SELECT id, title, type, channel, description, url, language, featured, created_at FROM media_items ORDER BY featured DESC, created_at DESC');
-    return result.rows.map((row) => this.mapMediaItemView(row));
   }
 
   async listPaymentPlans() {
@@ -3234,20 +3217,6 @@ export class ContentRepository implements OnModuleInit {
       visible: row.visible === true,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
-    };
-  }
-
-  private mapMediaItemView(row: Record<string, unknown>): MediaItemViewRecord {
-    return {
-      id: String(row.id),
-      title: String(row.title),
-      type: String(row.type),
-      channel: String(row.channel),
-      description: String(row.description),
-      url: String(row.url),
-      language: row.language === 'am' ? 'am' : 'en',
-      featured: row.featured === true,
-      createdAt: String(row.created_at),
     };
   }
 

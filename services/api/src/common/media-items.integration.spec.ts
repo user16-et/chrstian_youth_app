@@ -1,25 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { MediaItemsRepository } from '../modules/engagement/media-items.repository';
 import { testPool, closeTestPool } from '../../test/factories';
 
 /**
- * Integration safety-net for the media-items catalog (sermons/podcasts/etc),
- * written BEFORE extracting a MediaItemsRepository. Verifies the featured-first
- * ordering and the language coercion in the view mapper.
+ * Integration coverage for the media-items catalog (sermons/podcasts/etc),
+ * extracted into MediaItemsRepository. Verifies the featured-first ordering and
+ * the language coercion in the view mapper.
  */
 describe('Media items domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: MediaItemsRepository;
   const ids: string[] = [];
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new MediaItemsRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 
