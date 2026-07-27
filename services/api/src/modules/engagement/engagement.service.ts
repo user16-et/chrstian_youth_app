@@ -8,6 +8,7 @@ import { ConnectedLifeRepository } from '../connected-life/connected-life.reposi
 import { NotificationsService } from '../platform/notifications.service';
 import { GrowthRepository } from './growth.repository';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
+import { OpportunitiesRepository } from './opportunities.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
@@ -31,6 +32,7 @@ export class EngagementService {
     private readonly talentRepository: TalentRepository,
     private readonly prayerRepository: PrayerRepository,
     private readonly growthRepository: GrowthRepository,
+    private readonly opportunitiesRepository: OpportunitiesRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -477,18 +479,18 @@ export class EngagementService {
   }
 
   listOpportunities() {
-    return this.contentRepository.listOpportunities();
+    return this.opportunitiesRepository.listOpportunities();
   }
 
   async listMyOpportunityApplications(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listMyOpportunityApplications(actor.id);
+    return this.opportunitiesRepository.listMyOpportunityApplications(actor.id);
   }
 
   async applyForOpportunity(token: string, opportunityId: string, input: { note: string }) {
     const actor = await this.requireActor(token);
     await this.ensureOpportunityExists(opportunityId);
-    return this.contentRepository.applyForOpportunity({
+    return this.opportunitiesRepository.applyForOpportunity({
       opportunityId,
       userId: actor.id,
       note: input.note,
@@ -720,7 +722,7 @@ export class EngagementService {
   }
 
   private async ensureOpportunityExists(opportunityId: string) {
-    const opportunity = await this.contentRepository.getOpportunityById(opportunityId);
+    const opportunity = await this.opportunitiesRepository.getOpportunityById(opportunityId);
     if (!opportunity) {
       throw new NotFoundException('opportunity_not_found');
     }

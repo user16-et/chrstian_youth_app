@@ -462,50 +462,6 @@ export interface StoryViewRecord {
   createdAt: string;
 }
 
-export interface OpportunityRecord {
-  id: string;
-  title: string;
-  organization: string;
-  type: string;
-  location: string;
-  description: string;
-  deadline: string;
-  contactUrl: string;
-  createdAt: string;
-}
-
-export interface OpportunityViewRecord {
-  id: string;
-  title: string;
-  organization: string;
-  type: string;
-  location: string;
-  description: string;
-  deadline: string;
-  contactUrl: string;
-  createdAt: string;
-}
-
-export interface OpportunityApplicationRecord {
-  id: string;
-  opportunityId: string;
-  userId: string;
-  note: string;
-  status: string;
-  createdAt: string;
-}
-
-export interface OpportunityApplicationViewRecord {
-  id: string;
-  opportunityId: string;
-  opportunityTitle: string;
-  organization: string;
-  type: string;
-  note: string;
-  status: string;
-  createdAt: string;
-}
-
 export interface MediaItemRecord {
   id: string;
   title: string;
@@ -1812,46 +1768,6 @@ export class ContentRepository implements OnModuleInit {
     return record;
   }
 
-  async listOpportunities() {
-    const result = await this.pool.query('SELECT id, title, organization, type, location, description, deadline, contact_url, created_at FROM opportunities ORDER BY created_at DESC');
-    return result.rows.map((row) => this.mapOpportunityView(row));
-  }
-
-  async getOpportunityById(opportunityId: string) {
-    const result = await this.pool.query('SELECT id, title, organization, type, location, description, deadline, contact_url, created_at FROM opportunities WHERE id = $1 LIMIT 1', [opportunityId]);
-    return result.rowCount === 0 ? null : this.mapOpportunityView(result.rows[0]);
-  }
-
-  async listMyOpportunityApplications(userId: string) {
-    const result = await this.pool.query(
-      `SELECT a.id, a.opportunity_id, o.title AS opportunity_title, o.organization, o.type, a.note, a.status, a.created_at
-       FROM opportunity_applications a
-       JOIN opportunities o ON o.id = a.opportunity_id
-       WHERE a.user_id = $1
-       ORDER BY a.created_at DESC`,
-      [userId],
-    );
-    return result.rows.map((row) => this.mapOpportunityApplicationView(row));
-  }
-
-  async applyForOpportunity(input: { opportunityId: string; userId: string; note: string }) {
-    const record: OpportunityApplicationRecord = {
-      id: randomUUID(),
-      opportunityId: input.opportunityId,
-      userId: input.userId,
-      note: input.note,
-      status: 'applied',
-      createdAt: new Date().toISOString(),
-    };
-
-    await this.pool.query(
-      'INSERT INTO opportunity_applications (id, opportunity_id, user_id, note, status, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (opportunity_id, user_id) DO UPDATE SET note = EXCLUDED.note, status = EXCLUDED.status, created_at = EXCLUDED.created_at',
-      [record.id, record.opportunityId, record.userId, record.note, record.status, record.createdAt],
-    );
-
-    return record;
-  }
-
   async listMediaItems() {
     const result = await this.pool.query('SELECT id, title, type, channel, description, url, language, featured, created_at FROM media_items ORDER BY featured DESC, created_at DESC');
     return result.rows.map((row) => this.mapMediaItemView(row));
@@ -2531,7 +2447,7 @@ export class ContentRepository implements OnModuleInit {
         { id: randomUUID(), title: 'Summer Media Internship', organization: 'Church Media Team', type: 'internship', location: 'Online', description: 'Create design, video, and social content for youth ministry.', deadline: '2026-09-30', contactUrl: 'https://example.com/internship', createdAt: now },
         { id: randomUUID(), title: 'Community Volunteer Mission', organization: 'Mission Center', type: 'volunteer', location: 'Hawassa', description: 'Serve communities with outreach, prayer, and practical help.', deadline: '2026-08-15', contactUrl: 'https://example.com/volunteer', createdAt: now },
         { id: randomUUID(), title: 'Campus Mission Trip', organization: 'Campus Fellowship', type: 'mission', location: 'Bahir Dar', description: 'A mission trip for young believers with evangelism training.', deadline: '2026-07-20', contactUrl: 'https://example.com/mission', createdAt: now },
-      ] satisfies OpportunityRecord[];
+      ];
       for (const record of records) {
         await this.pool.query('INSERT INTO opportunities (id, title, organization, type, location, description, deadline, contact_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)', [
           record.id,
@@ -3318,33 +3234,6 @@ export class ContentRepository implements OnModuleInit {
       visible: row.visible === true,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
-    };
-  }
-
-  private mapOpportunityView(row: Record<string, unknown>): OpportunityViewRecord {
-    return {
-      id: String(row.id),
-      title: String(row.title),
-      organization: String(row.organization),
-      type: String(row.type),
-      location: String(row.location),
-      description: String(row.description),
-      deadline: String(row.deadline),
-      contactUrl: String(row.contact_url),
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapOpportunityApplicationView(row: Record<string, unknown>): OpportunityApplicationViewRecord {
-    return {
-      id: String(row.id),
-      opportunityId: String(row.opportunity_id),
-      opportunityTitle: String(row.opportunity_title),
-      organization: String(row.organization),
-      type: String(row.type),
-      note: String(row.note),
-      status: String(row.status),
-      createdAt: String(row.created_at),
     };
   }
 

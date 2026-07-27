@@ -1,26 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { OpportunitiesRepository } from '../modules/engagement/opportunities.repository';
 import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../../test/factories';
 
 /**
- * Integration safety-net for the opportunities domain (listings, lookup by id,
- * applying, and a user's applications) written BEFORE extracting an
- * OpportunitiesRepository.
+ * Integration coverage for the opportunities domain (listings, lookup by id,
+ * applying, and a user's applications), extracted into OpportunitiesRepository.
  */
 describe('Opportunities domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: OpportunitiesRepository;
   let user: TestUser;
   let opportunityId: string;
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new OpportunitiesRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 
