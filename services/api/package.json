@@ -27,7 +27,7 @@
     "bullmq": "^5.65.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
-    "ioredis": "^5.11.1",
+    "ioredis": "^6.0.0",
     "meilisearch": "^0.49.0",
     "next": "^16.2.9",
     "pg": "^8.13.0",
