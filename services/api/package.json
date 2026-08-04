@@ -15,7 +15,7 @@
     "admin:create": "node scripts/create-admin.js"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1072.0",
+    "@aws-sdk/client-s3": "^3.1101.0",
     "@aws-sdk/s3-request-presigner": "^3.1072.0",
     "@christian-super-app/shared": "0.1.0",
     "@nestjs/common": "^11.1.27",
