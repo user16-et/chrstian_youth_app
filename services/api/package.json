@@ -26,7 +26,7 @@
     "@nestjs/websockets": "^11.1.27",
     "bullmq": "^5.65.0",
     "class-transformer": "^0.5.1",
-    "class-validator": "^0.14.1",
+    "class-validator": "^0.15.1",
     "ioredis": "^5.11.1",
     "meilisearch": "^0.49.0",
     "next": "^16.2.9",
