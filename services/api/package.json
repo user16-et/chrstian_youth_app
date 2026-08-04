@@ -22,7 +22,7 @@
     "@nestjs/core": "^11.1.27",
     "@nestjs/platform-express": "^11.1.27",
     "@nestjs/platform-socket.io": "^11.1.27",
-    "@nestjs/swagger": "^11.4.4",
+    "@nestjs/swagger": "^11.4.6",
     "@nestjs/websockets": "^11.1.27",
     "bullmq": "^5.65.0",
     "class-transformer": "^0.5.1",
