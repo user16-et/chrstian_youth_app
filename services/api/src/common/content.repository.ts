@@ -443,25 +443,6 @@ export interface MentorshipRequestViewRecord {
   createdAt: string;
 }
 
-export interface StoryRecord {
-  id: string;
-  authorId: string;
-  title: string;
-  body: string;
-  language: 'en' | 'am';
-  createdAt: string;
-}
-
-export interface StoryViewRecord {
-  id: string;
-  authorId: string;
-  authorName: string;
-  title: string;
-  body: string;
-  language: 'en' | 'am';
-  createdAt: string;
-}
-
 export interface MediaItemRecord {
   id: string;
   title: string;
@@ -1690,38 +1671,6 @@ export class ContentRepository implements OnModuleInit {
     return (result.rows[0]?.user_id as string | null) ?? null;
   }
 
-  async listStories() {
-    const result = await this.pool.query(
-      `SELECT s.id, s.author_id, u.full_name AS author_name, s.title, s.body, s.language, s.created_at
-       FROM stories s
-       JOIN users u ON u.id = s.author_id
-       ORDER BY s.created_at DESC`,
-    );
-    return result.rows.map((row) => this.mapStoryView(row));
-  }
-
-  async createStory(input: { authorId: string; title: string; body: string; language: 'en' | 'am' }) {
-    const record: StoryRecord = {
-      id: randomUUID(),
-      authorId: input.authorId,
-      title: input.title,
-      body: input.body,
-      language: input.language,
-      createdAt: new Date().toISOString(),
-    };
-
-    await this.pool.query('INSERT INTO stories (id, author_id, title, body, language, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
-      record.id,
-      record.authorId,
-      record.title,
-      record.body,
-      record.language,
-      record.createdAt,
-    ]);
-
-    return record;
-  }
-
   async listDailyVerses() {
     const result = await this.pool.query('SELECT id, reference, verse_text, reference_am, verse_text_am, language, theme, created_at FROM bible_daily_verses ORDER BY created_at ASC, id ASC');
     const pool = result.rows.map((row) => this.mapBibleDailyVerseView(row));
@@ -2334,7 +2283,7 @@ export class ContentRepository implements OnModuleInit {
       const records = [
         { id: randomUUID(), authorId: userId, title: 'Faith grew in me', body: 'A short testimony about God’s provision.', language: 'en', createdAt: now },
         { id: randomUUID(), authorId: userId, title: 'የእምነት ምስክርነት', body: 'እግዚአብሔር በሕይወቴ የሠራው ታሪክ።', language: 'am', createdAt: now },
-      ] satisfies StoryRecord[];
+      ];
       for (const record of records) {
         await this.pool.query('INSERT INTO stories (id, author_id, title, body, language, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
           record.id,
@@ -2975,18 +2924,6 @@ export class ContentRepository implements OnModuleInit {
       note: String(row.note),
       status: String(row.status),
       createdAt: String(row.created_at),
-    };
-  }
-
-  private mapStoryView(row: Record<string, unknown>): StoryViewRecord {
-    return {
-      id: String(row.id),
-      authorId: String(row.author_id),
-      authorName: String(row.author_name),
-      title: String(row.title),
-      body: String(row.body),
-      language: row.language === 'am' ? 'am' : 'en',
-      createdAt: this.iso(row.created_at),
     };
   }
 

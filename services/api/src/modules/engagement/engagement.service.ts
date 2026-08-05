@@ -11,6 +11,7 @@ import { MediaItemsRepository } from './media-items.repository';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { OpportunitiesRepository } from './opportunities.repository';
 import { PaymentsCatalogRepository } from './payments-catalog.repository';
+import { TestimonyStoriesRepository } from './testimony-stories.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
@@ -37,6 +38,7 @@ export class EngagementService {
     private readonly opportunitiesRepository: OpportunitiesRepository,
     private readonly mediaItemsRepository: MediaItemsRepository,
     private readonly paymentsCatalogRepository: PaymentsCatalogRepository,
+    private readonly testimonyStoriesRepository: TestimonyStoriesRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -479,7 +481,7 @@ export class EngagementService {
   }
 
   listStories() {
-    return this.contentRepository.listStories();
+    return this.testimonyStoriesRepository.listStories();
   }
 
   listOpportunities() {
@@ -595,7 +597,7 @@ export class EngagementService {
 
   async createStory(token: string, input: CreateStoryDto) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.createStory({
+    return this.testimonyStoriesRepository.createStory({
       authorId: actor.id,
       title: input.title,
       body: input.body,

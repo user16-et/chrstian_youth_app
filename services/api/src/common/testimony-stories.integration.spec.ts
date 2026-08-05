@@ -1,26 +1,24 @@
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { TestimonyStoriesRepository } from '../modules/engagement/testimony-stories.repository';
 import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../../test/factories';
 
 /**
- * Integration safety-net for the written testimony stories (the `stories`
- * table: title/body/language authored by a user), written BEFORE extracting a
- * TestimonyStoriesRepository. NOTE: distinct from modules/stories (the
- * ephemeral 24h user_stories "story ring").
+ * Integration coverage for the written testimony stories (the `stories` table:
+ * title/body/language authored by a user), extracted into
+ * TestimonyStoriesRepository. NOTE: distinct from modules/stories (the ephemeral
+ * 24h user_stories "story ring").
  */
 describe('Testimony stories domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: TestimonyStoriesRepository;
   let user: TestUser;
   const ids: string[] = [];
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new TestimonyStoriesRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 
