@@ -56,6 +56,17 @@ export interface ChurchMembershipViewRecord {
   joinedAt: string;
 }
 
+export interface ChurchAnnouncementViewRecord {
+  id: string;
+  churchId: string;
+  churchName: string;
+  city: string;
+  title: string;
+  body: string;
+  priority: string;
+  createdAt: string;
+}
+
 // Bare-column RETURNING list for the churches table: every column once, with
 // camelCase aliases for the five that clients read camelCase, matching the
 // shape of the church profile endpoint (no duplicate snake_case fields).
@@ -268,6 +279,38 @@ export class ChurchOperationsRepository {
       userId: String(row.user_id),
       role: String(row.role),
       joinedAt: String(row.joined_at),
+    };
+  }
+
+  async listChurchAnnouncements(churchId?: string): Promise<ChurchAnnouncementViewRecord[]> {
+    const result = churchId
+      ? await this.db.query(
+          `SELECT a.id, a.church_id, c.name AS church_name, c.city, a.title, a.body, a.priority, a.created_at
+           FROM church_announcements a
+           JOIN churches c ON c.id = a.church_id
+           WHERE a.church_id = $1
+           ORDER BY a.created_at DESC`,
+          [churchId],
+        )
+      : await this.db.query(
+          `SELECT a.id, a.church_id, c.name AS church_name, c.city, a.title, a.body, a.priority, a.created_at
+           FROM church_announcements a
+           JOIN churches c ON c.id = a.church_id
+           ORDER BY a.created_at DESC`,
+        );
+    return result.rows.map((row) => this.mapChurchAnnouncementView(row));
+  }
+
+  private mapChurchAnnouncementView(row: Record<string, unknown>): ChurchAnnouncementViewRecord {
+    return {
+      id: String(row.id),
+      churchId: String(row.church_id),
+      churchName: String(row.church_name),
+      city: String(row.city),
+      title: String(row.title),
+      body: String(row.body),
+      priority: String(row.priority),
+      createdAt: String(row.created_at),
     };
   }
 }

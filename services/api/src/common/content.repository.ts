@@ -11,48 +11,6 @@ export interface FeedCursorInput {
   id?: string;
 }
 
-export interface ChurchAnnouncementRecord {
-  id: string;
-  churchId: string;
-  authorId: string | null;
-  title: string;
-  body: string;
-  priority: string;
-  createdAt: string;
-}
-
-export interface ChurchAnnouncementViewRecord {
-  id: string;
-  churchId: string;
-  churchName: string;
-  city: string;
-  title: string;
-  body: string;
-  priority: string;
-  createdAt: string;
-}
-
-export interface ChurchAnnouncementRecord {
-  id: string;
-  churchId: string;
-  authorId: string | null;
-  title: string;
-  body: string;
-  priority: string;
-  createdAt: string;
-}
-
-export interface ChurchAnnouncementViewRecord {
-  id: string;
-  churchId: string;
-  churchName: string;
-  city: string;
-  title: string;
-  body: string;
-  priority: string;
-  createdAt: string;
-}
-
 export interface GroupRecord {
   id: string;
   name: string;
@@ -871,51 +829,6 @@ export class ContentRepository implements OnModuleInit {
     return record;
   }
 
-  async listChurchAnnouncements(churchId?: string) {
-    const result = churchId
-      ? await this.pool.query(
-          `SELECT a.id, a.church_id, c.name AS church_name, c.city, a.title, a.body, a.priority, a.created_at
-           FROM church_announcements a
-           JOIN churches c ON c.id = a.church_id
-           WHERE a.church_id = $1
-           ORDER BY a.created_at DESC`,
-          [churchId],
-        )
-      : await this.pool.query(
-          `SELECT a.id, a.church_id, c.name AS church_name, c.city, a.title, a.body, a.priority, a.created_at
-           FROM church_announcements a
-           JOIN churches c ON c.id = a.church_id
-           ORDER BY a.created_at DESC`,
-        );
-    return result.rows.map((row) => this.mapChurchAnnouncementView(row));
-  }
-
-  async createChurchAnnouncement(input: { churchId: string; authorId: string | null; title: string; body: string; priority: string }) {
-    const record: ChurchAnnouncementRecord = {
-      id: randomUUID(),
-      churchId: input.churchId,
-      authorId: input.authorId,
-      title: input.title,
-      body: input.body,
-      priority: input.priority,
-      createdAt: new Date().toISOString(),
-    };
-    const result = await this.pool.query(
-      `INSERT INTO church_announcements (id, church_id, author_id, title, body, priority, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, church_id, author_id, title, body, priority, created_at`,
-      [record.id, record.churchId, record.authorId, record.title, record.body, record.priority, record.createdAt],
-    );
-    const view = await this.pool.query(
-      `SELECT a.id, a.church_id, c.name AS church_name, c.city, a.title, a.body, a.priority, a.created_at
-       FROM church_announcements a
-       JOIN churches c ON c.id = a.church_id
-       WHERE a.id = $1
-       LIMIT 1`,
-      [result.rows[0].id],
-    );
-    return this.mapChurchAnnouncementView(view.rows[0]);
-  }
 
   async listMinistries(viewerId?: string) {
     const result = await this.pool.query(`SELECT m.id, m.name, m.department, m.description, m.lead_name, m.created_at,
@@ -1909,19 +1822,6 @@ export class ContentRepository implements OnModuleInit {
   private async getAnyUserId() {
     const result = await this.pool.query('SELECT id FROM users ORDER BY created_at ASC LIMIT 1');
     return result.rows[0]?.id ? String(result.rows[0].id) : null;
-  }
-
-  private mapChurchAnnouncementView(row: Record<string, unknown>): ChurchAnnouncementViewRecord {
-    return {
-      id: String(row.id),
-      churchId: String(row.church_id),
-      churchName: String(row.church_name),
-      city: String(row.city),
-      title: String(row.title),
-      body: String(row.body),
-      priority: String(row.priority),
-      createdAt: String(row.created_at),
-    };
   }
 
   private mapMinistry(row: Record<string, unknown>): MinistryRecord {

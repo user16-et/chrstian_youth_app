@@ -51,7 +51,7 @@ export class ChurchesService {
   branches(id:string){return this.operations.listChurchBranches(id);}
   schedules(id:string){return this.operations.listChurchSchedules(id);}
   sermons(id:string){return this.operations.listChurchSermons(id);}
-  announcements(id?:string){return this.content.listChurchAnnouncements(id);}
+  announcements(id?:string){return this.operations.listChurchAnnouncements(id);}
   async follow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_follow_managed_church');const r=await this.content.followChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
   async unfollow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_unfollow_managed_church');const r=await this.content.unfollowChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
   async leave(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_leave_managed_church');return this.operations.leaveChurch(u.id,id);}
