@@ -13,6 +13,7 @@ import { OpportunitiesRepository } from './opportunities.repository';
 import { PaymentsCatalogRepository } from './payments-catalog.repository';
 import { TestimonyStoriesRepository } from './testimony-stories.repository';
 import { MentorsRepository } from './mentors.repository';
+import { CourtshipRepository } from './courtship.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
@@ -41,6 +42,7 @@ export class EngagementService {
     private readonly paymentsCatalogRepository: PaymentsCatalogRepository,
     private readonly testimonyStoriesRepository: TestimonyStoriesRepository,
     private readonly mentorsRepository: MentorsRepository,
+    private readonly courtshipRepository: CourtshipRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -632,12 +634,12 @@ export class EngagementService {
   }
 
   listCourtshipProfiles() {
-    return this.contentRepository.listCourtshipProfiles();
+    return this.courtshipRepository.listCourtshipProfiles();
   }
 
   async getCourtshipProfile(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.getCourtshipProfile(actor.id);
+    return this.courtshipRepository.getCourtshipProfile(actor.id);
   }
 
   // Courtship is an adults-only feature; minors may not participate.
@@ -650,7 +652,7 @@ export class EngagementService {
   async upsertCourtshipProfile(token: string, input: UpsertCourtshipProfileDto) {
     const actor = await this.requireActor(token);
     await this.assertAdult(actor.id);
-    return this.contentRepository.upsertCourtshipProfile({
+    return this.courtshipRepository.upsertCourtshipProfile({
       userId: actor.id,
       churchName: input.churchName,
       city: input.city,
@@ -667,7 +669,7 @@ export class EngagementService {
 
   async listCourtshipInterests(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listCourtshipInterests(actor.id);
+    return this.courtshipRepository.listCourtshipInterests(actor.id);
   }
 
   async createCourtshipInterest(token: string, input: CreateCourtshipInterestDto) {
@@ -676,11 +678,11 @@ export class EngagementService {
     if (input.receiverId === actor.id) {
       throw new BadRequestException('cannot_request_self');
     }
-    const receiverProfile = await this.contentRepository.getCourtshipProfile(input.receiverId);
+    const receiverProfile = await this.courtshipRepository.getCourtshipProfile(input.receiverId);
     if (!receiverProfile) {
       throw new NotFoundException('courtship_profile_not_found');
     }
-    return this.contentRepository.createCourtshipInterest({
+    return this.courtshipRepository.createCourtshipInterest({
       senderId: actor.id,
       receiverId: input.receiverId,
       note: input.note,
@@ -692,7 +694,7 @@ export class EngagementService {
     if (!['pending', 'accepted', 'declined'].includes(input.status)) {
       throw new BadRequestException('invalid_courtship_status');
     }
-    const updated = await this.contentRepository.updateCourtshipInterest({
+    const updated = await this.courtshipRepository.updateCourtshipInterest({
       interestId,
       userId: actor.id,
       status: input.status,

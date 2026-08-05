@@ -28,6 +28,7 @@ describe('EngagementService.endorseTalent self-guard', () => {
       undefined as never, // paymentsCatalogRepository
       undefined as never, // testimonyStoriesRepository
       undefined as never, // mentorsRepository
+      undefined as never, // courtshipRepository
     );
     (service as unknown as { requireActor: (t: string) => Promise<{ id: string }> }).requireActor = jest
       .fn()
