@@ -1,4 +1,4 @@
-import { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { once } from 'events';
 import { createConnection } from 'net';
 import type { Pool } from 'pg';
@@ -39,29 +39,24 @@ export class VirusScanner {
       const clean = result.endsWith('OK');
       const infected = result.includes('FOUND');
       if (!clean && !infected) throw new Error(`clamav_unexpected_response:${result}`);
-      let trustedKey: string | null = null;
-      if (clean) {
-        trustedKey = data.objectKey.replace(/^quarantine\//, 'trusted/');
-        await this.storage.send(new CopyObjectCommand({
-          Bucket: data.bucket,
-          CopySource: `${data.bucket}/${data.objectKey.split('/').map(encodeURIComponent).join('/')}`,
-          Key: trustedKey,
-        }));
+      // A clean file stays exactly where it was uploaded so the public URL the
+      // client already received from completeUpload keeps working. (It used to
+      // be copied to a trusted/ prefix and the quarantine/ copy deleted, which
+      // silently invalidated that URL and broke every uploaded image.) Only an
+      // infected file is deleted from storage.
+      if (infected) {
+        await this.storage.send(new DeleteObjectCommand({ Bucket: data.bucket, Key: data.objectKey }));
       }
-      await this.storage.send(new DeleteObjectCommand({ Bucket: data.bucket, Key: data.objectKey }));
       await this.db.query(
-        `UPDATE media_assets SET status=$2,scan_status=$3,scan_result=$4,scanned_at=now(),
-           object_key=COALESCE($5,object_key),
-           public_url=CASE WHEN $5 IS NULL THEN public_url ELSE replace(public_url,'/quarantine/','/trusted/') END
-         WHERE id=$1`,
-        [data.assetId, clean ? 'uploaded' : 'rejected', clean ? 'clean' : 'infected', result.slice(0, 1000), trustedKey],
+        `UPDATE media_assets SET status=$2,scan_status=$3,scan_result=$4,scanned_at=now() WHERE id=$1`,
+        [data.assetId, clean ? 'uploaded' : 'rejected', clean ? 'clean' : 'infected', result.slice(0, 1000)],
       );
       await this.db.query(
         `INSERT INTO api_audit_logs(action,target_type,target_id,outcome,metadata)
          VALUES('virus_scan','media_asset',$1,$2,$3)`,
         [data.assetId, clean ? 'success' : 'failure', JSON.stringify({ result })],
       );
-      return { clean, contentType, bucket: data.bucket, objectKey: trustedKey ?? data.objectKey };
+      return { clean, contentType, bucket: data.bucket, objectKey: data.objectKey };
     } catch (error) {
       await this.db.query(
         `UPDATE media_assets SET status='quarantined',scan_status='error',scan_result=$2,scanned_at=now() WHERE id=$1`,
