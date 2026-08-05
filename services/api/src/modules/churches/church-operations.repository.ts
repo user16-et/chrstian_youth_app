@@ -2,6 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { postgresPoolConfig } from '../../common/postgres';
 
+export interface SermonViewRecord {
+  id: string;
+  churchId: string;
+  churchName: string;
+  title: string;
+  speaker: string;
+  summary: string;
+  mediaUrl: string;
+  createdAt: string;
+}
+
 // Bare-column RETURNING list for the churches table: every column once, with
 // camelCase aliases for the five that clients read camelCase, matching the
 // shape of the church profile endpoint (no duplicate snake_case fields).
@@ -83,4 +94,30 @@ export class ChurchOperationsRepository {
   deleteManaged(k:string,c:string,id:string){const x:Record<string,[string,unknown[]]>={branches:[`DELETE FROM church_branches WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],'service-schedules':[`DELETE FROM church_schedules WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],ministries:[`DELETE FROM ministries WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],announcements:[`DELETE FROM church_announcements WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],sermons:[`DELETE FROM sermons WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],events:[`DELETE FROM events WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],groups:[`DELETE FROM groups WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],resources:[`DELETE FROM church_resources WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],posts:[`DELETE FROM posts WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]],'attendance-sessions':[`DELETE FROM attendance_sessions WHERE church_id=$1 AND id=$2 RETURNING *`,[c,id]]};const s=x[k];return s?this.one(s[0],s[1]):Promise.resolve(null);}
   checkIn(u:string,i:Record<string,unknown>){return this.one(`INSERT INTO attendance_records(session_id,user_id,checked_in_by,checkin_method) SELECT id,$2,$2,'self' FROM attendance_sessions WHERE id=$1 AND ($3='' OR checkin_code=$3) ON CONFLICT(session_id,user_id) DO UPDATE SET checked_in_at=now() RETURNING *`,[i.sessionId,u,i.checkinCode??'']);}
   analytics(c:string){return this.one(`SELECT (SELECT count(*)::int FROM church_memberships WHERE church_id=$1 AND status IN ('active','approved')) "totalMembers",(SELECT count(*)::int FROM church_memberships WHERE church_id=$1 AND status='requested') "membershipRequests",(SELECT count(*)::int FROM ministries WHERE church_id=$1) ministries,(SELECT count(*)::int FROM events WHERE church_id=$1) events,(SELECT count(*)::int FROM attendance_records a JOIN attendance_sessions s ON s.id=a.session_id WHERE s.church_id=$1) attendance`,[c]);}
+
+  // A church's sermons (public list), extracted from ContentRepository.
+  async listChurchSermons(churchId: string): Promise<SermonViewRecord[]> {
+    const result = await this.db.query(
+      `SELECT s.id, s.church_id, c.name AS church_name, s.title, s.speaker, s.summary, s.media_url, s.created_at
+       FROM sermons s
+       JOIN churches c ON c.id = s.church_id
+       WHERE s.church_id = $1
+       ORDER BY s.created_at DESC`,
+      [churchId],
+    );
+    return result.rows.map((row) => this.mapSermonView(row));
+  }
+
+  private mapSermonView(row: Record<string, unknown>): SermonViewRecord {
+    return {
+      id: String(row.id),
+      churchId: String(row.church_id),
+      churchName: String(row.church_name),
+      title: String(row.title),
+      speaker: String(row.speaker),
+      summary: String(row.summary),
+      mediaUrl: String(row.media_url),
+      createdAt: String(row.created_at),
+    };
+  }
 }

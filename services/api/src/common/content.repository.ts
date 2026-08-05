@@ -61,27 +61,6 @@ export interface ChurchScheduleViewRecord {
   createdAt: string;
 }
 
-export interface SermonRecord {
-  id: string;
-  churchId: string;
-  title: string;
-  speaker: string;
-  summary: string;
-  mediaUrl: string;
-  createdAt: string;
-}
-
-export interface SermonViewRecord {
-  id: string;
-  churchId: string;
-  churchName: string;
-  title: string;
-  speaker: string;
-  summary: string;
-  mediaUrl: string;
-  createdAt: string;
-}
-
 export interface ChurchAnnouncementRecord {
   id: string;
   churchId: string;
@@ -492,17 +471,6 @@ export class ContentRepository implements OnModuleInit {
     return result.rows.map((row) => this.mapChurchScheduleView(row));
   }
 
-  async listChurchSermons(churchId: string) {
-    const result = await this.pool.query(
-      `SELECT s.id, s.church_id, c.name AS church_name, s.title, s.speaker, s.summary, s.media_url, s.created_at
-       FROM sermons s
-       JOIN churches c ON c.id = s.church_id
-       WHERE s.church_id = $1
-       ORDER BY s.created_at DESC`,
-      [churchId],
-    );
-    return result.rows.map((row) => this.mapSermonView(row));
-  }
 
   async updateChurchVerification(churchId: string, verified: boolean) {
     const result = await this.pool.query(
@@ -1369,7 +1337,7 @@ export class ContentRepository implements OnModuleInit {
         const sermons = [
           { id: randomUUID(), churchId, title: 'Faith that Moves Forward', speaker: 'Pastor Eliab', summary: 'A youth sermon about courage and service.', mediaUrl: 'https://example.com/sermon1', createdAt: now },
           { id: randomUUID(), churchId, title: 'Prayer with Confidence', speaker: 'Deacon Hanna', summary: 'A sermon clip encouraging consistent prayer.', mediaUrl: 'https://example.com/sermon2', createdAt: now },
-        ] satisfies SermonRecord[];
+        ];
         for (const record of branches) {
           await this.pool.query('INSERT INTO church_branches (id, church_id, name, city, address, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [record.id, record.churchId, record.name, record.city, record.address, record.createdAt]);
         }
@@ -2246,19 +2214,6 @@ export class ContentRepository implements OnModuleInit {
       startTime: String(row.start_time),
       endTime: String(row.end_time),
       activity: String(row.activity),
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapSermonView(row: Record<string, unknown>): SermonViewRecord {
-    return {
-      id: String(row.id),
-      churchId: String(row.church_id),
-      churchName: String(row.church_name),
-      title: String(row.title),
-      speaker: String(row.speaker),
-      summary: String(row.summary),
-      mediaUrl: String(row.media_url),
       createdAt: String(row.created_at),
     };
   }

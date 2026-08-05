@@ -50,7 +50,7 @@ export class ChurchesService {
   async members(id:string){await this.profile(id);return this.content.listChurchMembers(id);}
   branches(id:string){return this.content.listChurchBranches(id);}
   schedules(id:string){return this.content.listChurchSchedules(id);}
-  sermons(id:string){return this.content.listChurchSermons(id);}
+  sermons(id:string){return this.operations.listChurchSermons(id);}
   announcements(id?:string){return this.content.listChurchAnnouncements(id);}
   async follow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_follow_managed_church');const r=await this.content.followChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
   async unfollow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_unfollow_managed_church');const r=await this.content.unfollowChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
