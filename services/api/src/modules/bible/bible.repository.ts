@@ -1,8 +1,83 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { postgresPoolConfig } from '../../common/postgres';
 
 type Params = (string | number | boolean | null)[];
+
+export interface BibleDailyVerseViewRecord {
+  id: string;
+  reference: string;
+  verseText: string;
+  referenceAm: string;
+  verseTextAm: string;
+  language: 'en' | 'am';
+  theme: string;
+  createdAt: string;
+  dayOffset?: number;
+}
+
+export interface BibleBookmarkRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  verseText: string;
+  language: 'en' | 'am';
+  createdAt: string;
+}
+
+export interface BibleBookmarkViewRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  verseText: string;
+  language: 'en' | 'am';
+  createdAt: string;
+}
+
+export interface BibleHighlightRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  verseText: string;
+  color: string;
+  note: string;
+  language: 'en' | 'am';
+  createdAt: string;
+}
+
+export interface BibleHighlightViewRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  verseText: string;
+  color: string;
+  note: string;
+  language: 'en' | 'am';
+  createdAt: string;
+}
+
+export interface BibleNoteRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  verseText: string;
+  note: string;
+  language: 'en' | 'am';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BibleNoteViewRecord {
+  id: string;
+  userId: string;
+  reference: string;
+  verseText: string;
+  note: string;
+  language: 'en' | 'am';
+  createdAt: string;
+  updatedAt: string;
+}
 
 @Injectable()
 export class BibleRepository {
@@ -693,5 +768,207 @@ export class BibleRepository {
     const match = reference.trim().match(/^(.+?)\s+(\d+)(?::(\d+))?$/);
     if (!match) return null;
     return { book: match[1], chapter: Number(match[2]), verse: Number(match[3] ?? 1) };
+  }
+
+  // ---- Bible study features (daily verses, bookmarks, highlights, notes),
+  // consolidated here from the former ContentRepository. ----
+
+  async listDailyVerses() {
+    const result = await this.db.query('SELECT id, reference, verse_text, reference_am, verse_text_am, language, theme, created_at FROM bible_daily_verses ORDER BY created_at ASC, id ASC');
+    const pool = result.rows.map((row) => this.mapBibleDailyVerseView(row));
+    const size = pool.length;
+    if (size === 0) {
+      return [];
+    }
+    // Deterministically pick today's verse and the two days before it, so the
+    // list changes every day and always shows exactly today + the last 2 days.
+    const epochDay = Math.floor(Date.now() / 86_400_000);
+    const selected: BibleDailyVerseViewRecord[] = [];
+    for (let offset = 0; offset < Math.min(3, size); offset += 1) {
+      const index = (((epochDay - offset) % size) + size) % size;
+      selected.push({ ...pool[index], dayOffset: offset });
+    }
+    return selected;
+  }
+
+  async listBibleBookmarks(userId: string) {
+    const result = await this.db.query(
+      `SELECT id, user_id, reference, verse_text, language, created_at
+       FROM bible_bookmarks
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapBibleBookmarkView(row));
+  }
+
+  async createBibleBookmark(input: { userId: string; reference: string; verseText: string; language: 'en' | 'am' }) {
+    const record: BibleBookmarkRecord = {
+      id: randomUUID(),
+      userId: input.userId,
+      reference: input.reference,
+      verseText: input.verseText,
+      language: input.language,
+      createdAt: new Date().toISOString(),
+    };
+    const result = await this.db.query(
+      `INSERT INTO bible_bookmarks (id, user_id, reference, verse_text, language, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, user_id, reference, verse_text, language, created_at`,
+      [record.id, record.userId, record.reference, record.verseText, record.language, record.createdAt],
+    );
+    return this.mapBibleBookmarkView(result.rows[0]);
+  }
+
+  async deleteBibleBookmark(bookmarkId: string, userId: string) {
+    const result = await this.db.query('DELETE FROM bible_bookmarks WHERE id = $1 AND user_id = $2 RETURNING id', [bookmarkId, userId]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listBibleHighlights(userId: string) {
+    const result = await this.db.query(
+      `SELECT id, user_id, reference, verse_text, color, note, language, created_at
+       FROM bible_highlights
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapBibleHighlightView(row));
+  }
+
+  async createBibleHighlight(input: { userId: string; reference: string; verseText: string; color: string; note: string; language: 'en' | 'am' }) {
+    const record: BibleHighlightRecord = {
+      id: randomUUID(),
+      userId: input.userId,
+      reference: input.reference,
+      verseText: input.verseText,
+      color: input.color,
+      note: input.note,
+      language: input.language,
+      createdAt: new Date().toISOString(),
+    };
+    const result = await this.db.query(
+      `INSERT INTO bible_highlights (id, user_id, reference, verse_text, color, note, language, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, user_id, reference, verse_text, color, note, language, created_at`,
+      [record.id, record.userId, record.reference, record.verseText, record.color, record.note, record.language, record.createdAt],
+    );
+    return this.mapBibleHighlightView(result.rows[0]);
+  }
+
+  async deleteBibleHighlight(highlightId: string, userId: string) {
+    const result = await this.db.query('DELETE FROM bible_highlights WHERE id = $1 AND user_id = $2 RETURNING id', [highlightId, userId]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listBibleNotes(userId: string) {
+    const result = await this.db.query(
+      `SELECT id, user_id, reference, verse_text, note, language, created_at, updated_at
+       FROM bible_notes
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapBibleNoteView(row));
+  }
+
+  async createBibleNote(input: { userId: string; reference: string; verseText: string; note: string; language: 'en' | 'am' }) {
+    const record: BibleNoteRecord = {
+      id: randomUUID(),
+      userId: input.userId,
+      reference: input.reference,
+      verseText: input.verseText,
+      note: input.note,
+      language: input.language,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const result = await this.db.query(
+      `INSERT INTO bible_notes (id, user_id, reference, verse_text, note, language, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, user_id, reference, verse_text, note, language, created_at, updated_at`,
+      [record.id, record.userId, record.reference, record.verseText, record.note, record.language, record.createdAt, record.updatedAt],
+    );
+
+    return this.mapBibleNoteView(result.rows[0]);
+  }
+
+  async updateBibleNote(input: { noteId: string; userId: string; reference?: string; verseText?: string; note?: string; language?: 'en' | 'am' }) {
+    const current = await this.db.query('SELECT id, user_id FROM bible_notes WHERE id = $1 LIMIT 1', [input.noteId]);
+    if (current.rowCount === 0) {
+      return null;
+    }
+    const record = current.rows[0] as Record<string, unknown>;
+    if (String(record.user_id) !== input.userId) {
+      return null;
+    }
+    const result = await this.db.query(
+      `UPDATE bible_notes
+       SET reference = COALESCE($2, reference),
+           verse_text = COALESCE($3, verse_text),
+           note = COALESCE($4, note),
+           language = COALESCE($5, language),
+           updated_at = $6
+       WHERE id = $1
+       RETURNING id, user_id, reference, verse_text, note, language, created_at, updated_at`,
+      [input.noteId, input.reference ?? null, input.verseText ?? null, input.note ?? null, input.language ?? null, new Date().toISOString()],
+    );
+    return result.rowCount === 0 ? null : this.mapBibleNoteView(result.rows[0]);
+  }
+
+  async deleteBibleNote(noteId: string, userId: string) {
+    const result = await this.db.query('DELETE FROM bible_notes WHERE id = $1 AND user_id = $2 RETURNING id', [noteId, userId]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private mapBibleDailyVerseView(row: Record<string, unknown>): BibleDailyVerseViewRecord {
+    return {
+      id: String(row.id),
+      reference: String(row.reference),
+      verseText: String(row.verse_text),
+      referenceAm: row.reference_am ? String(row.reference_am) : '',
+      verseTextAm: row.verse_text_am ? String(row.verse_text_am) : '',
+      language: row.language === 'am' ? 'am' : 'en',
+      theme: String(row.theme),
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private mapBibleBookmarkView(row: Record<string, unknown>): BibleBookmarkViewRecord {
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      reference: String(row.reference),
+      verseText: String(row.verse_text),
+      language: row.language === 'am' ? 'am' : 'en',
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private mapBibleHighlightView(row: Record<string, unknown>): BibleHighlightViewRecord {
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      reference: String(row.reference),
+      verseText: String(row.verse_text),
+      color: String(row.color),
+      note: String(row.note),
+      language: row.language === 'am' ? 'am' : 'en',
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private mapBibleNoteView(row: Record<string, unknown>): BibleNoteViewRecord {
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      reference: String(row.reference),
+      verseText: String(row.verse_text),
+      note: String(row.note),
+      language: row.language === 'am' ? 'am' : 'en',
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
   }
 }

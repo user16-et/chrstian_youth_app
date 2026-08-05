@@ -439,117 +439,6 @@ export interface TalentCompetitionRecord {
 }
 
 
-export interface BibleDailyVerseRecord {
-  id: string;
-  reference: string;
-  verseText: string;
-  language: 'en' | 'am';
-  theme: string;
-  createdAt: string;
-}
-
-export interface BibleDailyVerseViewRecord {
-  id: string;
-  reference: string;
-  verseText: string;
-  referenceAm: string;
-  verseTextAm: string;
-  language: 'en' | 'am';
-  theme: string;
-  createdAt: string;
-  dayOffset?: number;
-}
-
-export interface BibleReadingPlanRecord {
-  id: string;
-  title: string;
-  description: string;
-  durationDays: number;
-  language: 'en' | 'am';
-  category: string;
-  createdAt: string;
-}
-
-export interface BibleReadingPlanViewRecord {
-  id: string;
-  title: string;
-  description: string;
-  durationDays: number;
-  language: 'en' | 'am';
-  category: string;
-  createdAt: string;
-}
-
-export interface BibleBookmarkRecord {
-  id: string;
-  userId: string;
-  reference: string;
-  verseText: string;
-  language: 'en' | 'am';
-  createdAt: string;
-}
-
-export interface BibleBookmarkViewRecord {
-  id: string;
-  userId: string;
-  reference: string;
-  verseText: string;
-  language: 'en' | 'am';
-  createdAt: string;
-}
-
-export interface BibleHighlightRecord {
-  id: string;
-  userId: string;
-  reference: string;
-  verseText: string;
-  color: string;
-  note: string;
-  language: 'en' | 'am';
-  createdAt: string;
-}
-
-export interface BibleHighlightViewRecord {
-  id: string;
-  userId: string;
-  reference: string;
-  verseText: string;
-  color: string;
-  note: string;
-  language: 'en' | 'am';
-  createdAt: string;
-}
-
-export interface BibleNoteRecord {
-  id: string;
-  userId: string;
-  reference: string;
-  verseText: string;
-  note: string;
-  language: 'en' | 'am';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface BibleNoteViewRecord {
-  id: string;
-  userId: string;
-  reference: string;
-  verseText: string;
-  note: string;
-  language: 'en' | 'am';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface BibleSearchResultViewRecord {
-  kind: string;
-  title: string;
-  subtitle: string;
-  language: 'en' | 'am';
-  createdAt: string;
-}
-
 @Injectable()
 export class ContentRepository implements OnModuleInit {
   private readonly pool: Pool;
@@ -1408,199 +1297,6 @@ export class ContentRepository implements OnModuleInit {
     return record;
   }
 
-  async listDailyVerses() {
-    const result = await this.pool.query('SELECT id, reference, verse_text, reference_am, verse_text_am, language, theme, created_at FROM bible_daily_verses ORDER BY created_at ASC, id ASC');
-    const pool = result.rows.map((row) => this.mapBibleDailyVerseView(row));
-    const size = pool.length;
-    if (size === 0) {
-      return [];
-    }
-    // Deterministically pick today's verse and the two days before it, so the
-    // list changes every day and always shows exactly today + the last 2 days.
-    const epochDay = Math.floor(Date.now() / 86_400_000);
-    const selected: BibleDailyVerseViewRecord[] = [];
-    for (let offset = 0; offset < Math.min(3, size); offset += 1) {
-      const index = (((epochDay - offset) % size) + size) % size;
-      selected.push({ ...pool[index], dayOffset: offset });
-    }
-    return selected;
-  }
-
-  async listReadingPlans() {
-    const result = await this.pool.query('SELECT id, title, description, duration_days, language, category, created_at FROM bible_reading_plans ORDER BY created_at DESC');
-    return result.rows.map((row) => this.mapBibleReadingPlanView(row));
-  }
-
-  async searchBible(query: string, userId?: string | null) {
-    const needle = query.trim().toLowerCase();
-    const dailyVerses = await this.listDailyVerses();
-    const readingPlans = await this.listReadingPlans();
-    const notes = userId ? await this.listBibleNotes(userId) : [];
-    const bookmarks = userId ? await this.listBibleBookmarks(userId) : [];
-    const highlights = userId ? await this.listBibleHighlights(userId) : [];
-
-    const matchesText = (value: string) => !needle || value.toLowerCase().includes(needle);
-    const results: BibleSearchResultViewRecord[] = [];
-
-    for (const verse of dailyVerses) {
-      if (matchesText(verse.reference) || matchesText(verse.verseText) || matchesText(verse.theme)) {
-        results.push({ kind: 'verse', title: verse.reference, subtitle: verse.verseText, language: verse.language, createdAt: verse.createdAt });
-      }
-    }
-    for (const plan of readingPlans) {
-      if (matchesText(plan.title) || matchesText(plan.description) || matchesText(plan.category)) {
-        results.push({ kind: 'plan', title: plan.title, subtitle: plan.description, language: plan.language, createdAt: plan.createdAt });
-      }
-    }
-    for (const note of notes) {
-      if (matchesText(note.reference) || matchesText(note.verseText) || matchesText(note.note)) {
-        results.push({ kind: 'note', title: note.reference, subtitle: note.note, language: note.language, createdAt: note.createdAt });
-      }
-    }
-    for (const bookmark of bookmarks) {
-      if (matchesText(bookmark.reference) || matchesText(bookmark.verseText)) {
-        results.push({ kind: 'bookmark', title: bookmark.reference, subtitle: bookmark.verseText, language: bookmark.language, createdAt: bookmark.createdAt });
-      }
-    }
-    for (const highlight of highlights) {
-      if (matchesText(highlight.reference) || matchesText(highlight.verseText) || matchesText(highlight.note)) {
-        results.push({ kind: 'highlight', title: highlight.reference, subtitle: highlight.note, language: highlight.language, createdAt: highlight.createdAt });
-      }
-    }
-
-    return results.slice(0, 25);
-  }
-
-  async listBibleBookmarks(userId: string) {
-    const result = await this.pool.query(
-      `SELECT id, user_id, reference, verse_text, language, created_at
-       FROM bible_bookmarks
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [userId],
-    );
-    return result.rows.map((row) => this.mapBibleBookmarkView(row));
-  }
-
-  async createBibleBookmark(input: { userId: string; reference: string; verseText: string; language: 'en' | 'am' }) {
-    const record: BibleBookmarkRecord = {
-      id: randomUUID(),
-      userId: input.userId,
-      reference: input.reference,
-      verseText: input.verseText,
-      language: input.language,
-      createdAt: new Date().toISOString(),
-    };
-    const result = await this.pool.query(
-      `INSERT INTO bible_bookmarks (id, user_id, reference, verse_text, language, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, user_id, reference, verse_text, language, created_at`,
-      [record.id, record.userId, record.reference, record.verseText, record.language, record.createdAt],
-    );
-    return this.mapBibleBookmarkView(result.rows[0]);
-  }
-
-  async deleteBibleBookmark(bookmarkId: string, userId: string) {
-    const result = await this.pool.query('DELETE FROM bible_bookmarks WHERE id = $1 AND user_id = $2 RETURNING id', [bookmarkId, userId]);
-    return (result.rowCount ?? 0) > 0;
-  }
-
-  async listBibleHighlights(userId: string) {
-    const result = await this.pool.query(
-      `SELECT id, user_id, reference, verse_text, color, note, language, created_at
-       FROM bible_highlights
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [userId],
-    );
-    return result.rows.map((row) => this.mapBibleHighlightView(row));
-  }
-
-  async createBibleHighlight(input: { userId: string; reference: string; verseText: string; color: string; note: string; language: 'en' | 'am' }) {
-    const record: BibleHighlightRecord = {
-      id: randomUUID(),
-      userId: input.userId,
-      reference: input.reference,
-      verseText: input.verseText,
-      color: input.color,
-      note: input.note,
-      language: input.language,
-      createdAt: new Date().toISOString(),
-    };
-    const result = await this.pool.query(
-      `INSERT INTO bible_highlights (id, user_id, reference, verse_text, color, note, language, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, user_id, reference, verse_text, color, note, language, created_at`,
-      [record.id, record.userId, record.reference, record.verseText, record.color, record.note, record.language, record.createdAt],
-    );
-    return this.mapBibleHighlightView(result.rows[0]);
-  }
-
-  async deleteBibleHighlight(highlightId: string, userId: string) {
-    const result = await this.pool.query('DELETE FROM bible_highlights WHERE id = $1 AND user_id = $2 RETURNING id', [highlightId, userId]);
-    return (result.rowCount ?? 0) > 0;
-  }
-
-  async listBibleNotes(userId: string) {
-    const result = await this.pool.query(
-      `SELECT id, user_id, reference, verse_text, note, language, created_at, updated_at
-       FROM bible_notes
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [userId],
-    );
-    return result.rows.map((row) => this.mapBibleNoteView(row));
-  }
-
-  async createBibleNote(input: { userId: string; reference: string; verseText: string; note: string; language: 'en' | 'am' }) {
-    const record: BibleNoteRecord = {
-      id: randomUUID(),
-      userId: input.userId,
-      reference: input.reference,
-      verseText: input.verseText,
-      note: input.note,
-      language: input.language,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const result = await this.pool.query(
-      `INSERT INTO bible_notes (id, user_id, reference, verse_text, note, language, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, user_id, reference, verse_text, note, language, created_at, updated_at`,
-      [record.id, record.userId, record.reference, record.verseText, record.note, record.language, record.createdAt, record.updatedAt],
-    );
-
-    return this.mapBibleNoteView(result.rows[0]);
-  }
-
-  async updateBibleNote(input: { noteId: string; userId: string; reference?: string; verseText?: string; note?: string; language?: 'en' | 'am' }) {
-    const current = await this.pool.query('SELECT id, user_id FROM bible_notes WHERE id = $1 LIMIT 1', [input.noteId]);
-    if (current.rowCount === 0) {
-      return null;
-    }
-    const record = current.rows[0] as Record<string, unknown>;
-    if (String(record.user_id) !== input.userId) {
-      return null;
-    }
-    const result = await this.pool.query(
-      `UPDATE bible_notes
-       SET reference = COALESCE($2, reference),
-           verse_text = COALESCE($3, verse_text),
-           note = COALESCE($4, note),
-           language = COALESCE($5, language),
-           updated_at = $6
-       WHERE id = $1
-       RETURNING id, user_id, reference, verse_text, note, language, created_at, updated_at`,
-      [input.noteId, input.reference ?? null, input.verseText ?? null, input.note ?? null, input.language ?? null, new Date().toISOString()],
-    );
-    return result.rowCount === 0 ? null : this.mapBibleNoteView(result.rows[0]);
-  }
-
-  async deleteBibleNote(noteId: string, userId: string) {
-    const result = await this.pool.query('DELETE FROM bible_notes WHERE id = $1 AND user_id = $2 RETURNING id', [noteId, userId]);
-    return (result.rowCount ?? 0) > 0;
-  }
 
 
   async seedIfEmpty() {
@@ -2041,7 +1737,7 @@ export class ContentRepository implements OnModuleInit {
       const records = [
         { id: randomUUID(), userId, reference: 'Psalm 23:1', verseText: 'The Lord is my shepherd; I shall not want.', note: 'God provides daily care and direction.', language: 'en', createdAt: now, updatedAt: now },
         { id: randomUUID(), userId, reference: 'Proverbs 3:5', verseText: 'Trust in the Lord with all your heart.', note: 'Trust means yielding to God in decisions.', language: 'en', createdAt: now, updatedAt: now },
-      ] satisfies BibleNoteRecord[];
+      ];
       for (const record of records) {
         await this.pool.query(
           'INSERT INTO bible_notes (id, user_id, reference, verse_text, note, language, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
@@ -2055,7 +1751,7 @@ export class ContentRepository implements OnModuleInit {
         { id: randomUUID(), reference: 'Psalm 23:1', verseText: 'The Lord is my shepherd; I shall not want.', language: 'en', theme: 'Care', createdAt: now },
         { id: randomUUID(), reference: 'John 3:16', verseText: 'For God so loved the world...', language: 'en', theme: 'Love', createdAt: now },
         { id: randomUUID(), reference: 'ሮሜ 12:2', verseText: 'በአእምሮአችሁ መታደስ ይለወጡ።', language: 'am', theme: 'Transformation', createdAt: now },
-      ] satisfies BibleDailyVerseRecord[];
+      ];
       for (const record of records) {
         await this.pool.query('INSERT INTO bible_daily_verses (id, reference, verse_text, language, theme, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
           record.id,
@@ -2073,7 +1769,7 @@ export class ContentRepository implements OnModuleInit {
         { id: randomUUID(), title: '30-Day Bible Challenge', description: 'Read a chapter per day and reflect.', durationDays: 30, language: 'en', category: 'Discipleship', createdAt: now },
         { id: randomUUID(), title: '7-Day Prayer and Word', description: 'Short reading plan for prayerful mornings.', durationDays: 7, language: 'en', category: 'Prayer', createdAt: now },
         { id: randomUUID(), title: 'የ14 ቀን ጸሎት እና ቃል', description: 'ለጸሎት እና ለቃል የተዘጋጀ አጭር እቅድ።', durationDays: 14, language: 'am', category: 'Prayer', createdAt: now },
-      ] satisfies BibleReadingPlanRecord[];
+      ];
       for (const record of records) {
         await this.pool.query('INSERT INTO bible_reading_plans (id, title, description, duration_days, language, category, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [
           record.id,
@@ -2516,67 +2212,6 @@ export class ContentRepository implements OnModuleInit {
   }
 
 
-  private mapBibleDailyVerseView(row: Record<string, unknown>): BibleDailyVerseViewRecord {
-    return {
-      id: String(row.id),
-      reference: String(row.reference),
-      verseText: String(row.verse_text),
-      referenceAm: row.reference_am ? String(row.reference_am) : '',
-      verseTextAm: row.verse_text_am ? String(row.verse_text_am) : '',
-      language: row.language === 'am' ? 'am' : 'en',
-      theme: String(row.theme),
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapBibleReadingPlanView(row: Record<string, unknown>): BibleReadingPlanViewRecord {
-    return {
-      id: String(row.id),
-      title: String(row.title),
-      description: String(row.description),
-      durationDays: Number(row.duration_days),
-      language: row.language === 'am' ? 'am' : 'en',
-      category: String(row.category),
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapBibleBookmarkView(row: Record<string, unknown>): BibleBookmarkViewRecord {
-    return {
-      id: String(row.id),
-      userId: String(row.user_id),
-      reference: String(row.reference),
-      verseText: String(row.verse_text),
-      language: row.language === 'am' ? 'am' : 'en',
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapBibleHighlightView(row: Record<string, unknown>): BibleHighlightViewRecord {
-    return {
-      id: String(row.id),
-      userId: String(row.user_id),
-      reference: String(row.reference),
-      verseText: String(row.verse_text),
-      color: String(row.color),
-      note: String(row.note),
-      language: row.language === 'am' ? 'am' : 'en',
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapBibleNoteView(row: Record<string, unknown>): BibleNoteViewRecord {
-    return {
-      id: String(row.id),
-      userId: String(row.user_id),
-      reference: String(row.reference),
-      verseText: String(row.verse_text),
-      note: String(row.note),
-      language: row.language === 'am' ? 'am' : 'en',
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
-    };
-  }
 
   private mapChurch(row: Record<string, unknown>): ChurchRecord {
     return {

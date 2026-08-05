@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { ContentRepository } from '../../common/content.repository';
 import { UserRepository } from '../../common/user.repository';
 import { NotificationsService } from '../platform/notifications.service';
 import { CreateBibleNoteDto } from './dto/create-bible-note.dto';
@@ -10,7 +9,6 @@ import { BibleRepository } from './bible.repository';
 @Injectable()
 export class BibleService {
   constructor(
-    private readonly contentRepository: ContentRepository,
     private readonly userRepository: UserRepository,
     private readonly bibleRepository: BibleRepository,
     private readonly notifications: NotificationsService,
@@ -45,11 +43,11 @@ export class BibleService {
   }
 
   listNotes(token: string) {
-    return this.requireActor(token).then((actor) => this.contentRepository.listBibleNotes(actor.id));
+    return this.requireActor(token).then((actor) => this.bibleRepository.listBibleNotes(actor.id));
   }
 
   listDailyVerses() {
-    return this.contentRepository.listDailyVerses();
+    return this.bibleRepository.listDailyVerses();
   }
 
   async listReadingPlans(token: string | null) {
@@ -182,12 +180,12 @@ export class BibleService {
 
   async listBookmarks(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listBibleBookmarks(actor.id);
+    return this.bibleRepository.listBibleBookmarks(actor.id);
   }
 
   async createBookmark(token: string, input: { reference: string; verseText: string; language: 'en' | 'am' }) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.createBibleBookmark({
+    return this.bibleRepository.createBibleBookmark({
       userId: actor.id,
       reference: input.reference,
       verseText: input.verseText,
@@ -197,7 +195,7 @@ export class BibleService {
 
   async deleteBookmark(token: string, bookmarkId: string) {
     const actor = await this.requireActor(token);
-    const deleted = await this.contentRepository.deleteBibleBookmark(bookmarkId, actor.id);
+    const deleted = await this.bibleRepository.deleteBibleBookmark(bookmarkId, actor.id);
     if (!deleted) {
       throw new NotFoundException('bible_bookmark_not_found');
     }
@@ -206,12 +204,12 @@ export class BibleService {
 
   async listHighlights(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listBibleHighlights(actor.id);
+    return this.bibleRepository.listBibleHighlights(actor.id);
   }
 
   async createHighlight(token: string, input: { reference: string; verseText: string; color: string; note: string; language: 'en' | 'am' }) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.createBibleHighlight({
+    return this.bibleRepository.createBibleHighlight({
       userId: actor.id,
       reference: input.reference,
       verseText: input.verseText,
@@ -223,7 +221,7 @@ export class BibleService {
 
   async deleteHighlight(token: string, highlightId: string) {
     const actor = await this.requireActor(token);
-    const deleted = await this.contentRepository.deleteBibleHighlight(highlightId, actor.id);
+    const deleted = await this.bibleRepository.deleteBibleHighlight(highlightId, actor.id);
     if (!deleted) {
       throw new NotFoundException('bible_highlight_not_found');
     }
@@ -232,7 +230,7 @@ export class BibleService {
 
   async createNote(token: string, input: CreateBibleNoteDto) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.createBibleNote({
+    return this.bibleRepository.createBibleNote({
       userId: actor.id,
       reference: input.reference,
       verseText: input.verseText ?? '',
@@ -243,7 +241,7 @@ export class BibleService {
 
   async updateNote(token: string, noteId: string, input: UpdateBibleNoteDto) {
     const actor = await this.requireActor(token);
-    const updated = await this.contentRepository.updateBibleNote({
+    const updated = await this.bibleRepository.updateBibleNote({
       noteId,
       userId: actor.id,
       reference: input.reference,
@@ -259,7 +257,7 @@ export class BibleService {
 
   async deleteNote(token: string, noteId: string) {
     const actor = await this.requireActor(token);
-    const deleted = await this.contentRepository.deleteBibleNote(noteId, actor.id);
+    const deleted = await this.bibleRepository.deleteBibleNote(noteId, actor.id);
     if (!deleted) {
       throw new NotFoundException('bible_note_not_found');
     }
