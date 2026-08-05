@@ -65,9 +65,11 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
         _stage = stage;
       });
     } catch (_) {
-      // Storage unavailable (some web contexts): land on home rather than
-      // trapping the user in onboarding on every launch.
-      if (mounted) setState(() => _stage = stage);
+      // Storage unavailable (some web/release contexts where shared_preferences
+      // has no plugin): we can't confirm the intro was already seen, so show it
+      // rather than silently skipping it. Better to show the intro an extra time
+      // than to have it be absent on first launch.
+      if (mounted) setState(() => _stage = _LaunchStage.onboarding);
     }
   }
 
