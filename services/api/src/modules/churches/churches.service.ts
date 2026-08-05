@@ -47,14 +47,14 @@ export class ChurchesService {
   async deleteManaged(token:string,id:string,kind:string,itemId:string){const u=await this.actor(token);await this.manager(u.id,id);const r=await this.operations.deleteManaged(kind,id,itemId);if(!r)throw new NotFoundException('church_action_not_found');return r;}
   async checkIn(token:string,input:Record<string,unknown>){const u=await this.actor(token);this.text(input.sessionId,'session_id_required');const r=await this.operations.checkIn(u.id,input);if(!r)throw new BadRequestException('invalid_attendance_session_or_code');return r;}
   async analytics(token:string,id:string){const u=await this.actor(token);await this.manager(u.id,id);return this.operations.analytics(id);}
-  async members(id:string){await this.profile(id);return this.content.listChurchMembers(id);}
-  branches(id:string){return this.content.listChurchBranches(id);}
-  schedules(id:string){return this.content.listChurchSchedules(id);}
+  async members(id:string){await this.profile(id);return this.operations.listChurchMembers(id);}
+  branches(id:string){return this.operations.listChurchBranches(id);}
+  schedules(id:string){return this.operations.listChurchSchedules(id);}
   sermons(id:string){return this.operations.listChurchSermons(id);}
   announcements(id?:string){return this.content.listChurchAnnouncements(id);}
   async follow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_follow_managed_church');const r=await this.content.followChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
   async unfollow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_unfollow_managed_church');const r=await this.content.unfollowChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
-  async leave(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_leave_managed_church');return this.content.leaveChurch(u.id,id);}
+  async leave(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_leave_managed_church');return this.operations.leaveChurch(u.id,id);}
   private async actor(t:string){const u=await this.authorization.authenticate(t);if(!u)throw new NotFoundException('authenticated_user_not_found');return u;}
   private async manager(u:string,c:string){if(!await this.operations.canManage(u,c))throw new ForbiddenException('church_manager_required');}
   private async admin(u:string){if(!await this.operations.isPlatformAdmin(u))throw new ForbiddenException('platform_admin_required');}

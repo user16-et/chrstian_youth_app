@@ -6,59 +6,9 @@ import { postgresPoolConfig, postgresReadPoolConfig } from './postgres';
 import { notBlocked, notMuted } from './sql-predicates';
 import { UserRepository } from './user.repository';
 
-export interface ChurchRecord {
-  id: string;
-  name: string;
-  city: string;
-  verified: boolean;
-  createdAt: string;
-  memberCount: number;
-  followerCount: number;
-}
-
 export interface FeedCursorInput {
   createdAt?: string;
   id?: string;
-}
-
-export interface ChurchBranchRecord {
-  id: string;
-  churchId: string;
-  name: string;
-  city: string;
-  address: string;
-  createdAt: string;
-}
-
-export interface ChurchBranchViewRecord {
-  id: string;
-  churchId: string;
-  churchName: string;
-  name: string;
-  city: string;
-  address: string;
-  createdAt: string;
-}
-
-export interface ChurchScheduleRecord {
-  id: string;
-  churchId: string;
-  dayOfWeek: string;
-  startTime: string;
-  endTime: string;
-  activity: string;
-  createdAt: string;
-}
-
-export interface ChurchScheduleViewRecord {
-  id: string;
-  churchId: string;
-  churchName: string;
-  dayOfWeek: string;
-  startTime: string;
-  endTime: string;
-  activity: string;
-  createdAt: string;
 }
 
 export interface ChurchAnnouncementRecord {
@@ -239,34 +189,6 @@ export interface ReportRecord {
   createdAt: string;
 }
 
-export interface ChurchMemberRecord {
-  churchId: string;
-  userId: string;
-  role: string;
-  joinedAt: string;
-}
-
-export interface ChurchMemberViewRecord {
-  churchId: string;
-  churchName: string;
-  city: string;
-  verified: boolean;
-  userId: string;
-  userFullName: string;
-  phoneNumber: string;
-  role: string;
-  joinedAt: string;
-}
-
-export interface ChurchMembershipViewRecord {
-  churchId: string;
-  churchName: string;
-  city: string;
-  verified: boolean;
-  userId: string;
-  role: string;
-  joinedAt: string;
-}
 
 
 export interface MinistryRecord {
@@ -437,97 +359,8 @@ export class ContentRepository implements OnModuleInit {
     await this.seedIfEmpty();
   }
 
-  async listChurches() {
-    const result = await this.pool.query('SELECT c.id, c.name, c.city, c.verified, c.created_at, (SELECT count(*)::int FROM church_memberships cm WHERE cm.church_id=c.id) AS member_count, (SELECT count(*)::int FROM church_follows cf WHERE cf.church_id=c.id) AS follower_count FROM churches c ORDER BY c.created_at DESC');
-    return result.rows.map((row) => this.mapChurch(row));
-  }
-
-  async getChurchById(churchId: string) {
-    const result = await this.pool.query('SELECT c.id, c.name, c.city, c.verified, c.created_at, (SELECT count(*)::int FROM church_memberships cm WHERE cm.church_id=c.id) AS member_count, (SELECT count(*)::int FROM church_follows cf WHERE cf.church_id=c.id) AS follower_count FROM churches c WHERE c.id = $1 LIMIT 1', [churchId]);
-    return result.rowCount === 0 ? null : this.mapChurch(result.rows[0]);
-  }
-
-  async listChurchBranches(churchId: string) {
-    const result = await this.readPool.query(
-      `SELECT b.id, b.church_id, c.name AS church_name, b.name, b.city, b.address, b.created_at
-       FROM church_branches b
-       JOIN churches c ON c.id = b.church_id
-       WHERE b.church_id = $1
-       ORDER BY b.created_at DESC`,
-      [churchId],
-    );
-    return result.rows.map((row) => this.mapChurchBranchView(row));
-  }
-
-  async listChurchSchedules(churchId: string) {
-    const result = await this.pool.query(
-      `SELECT s.id, s.church_id, c.name AS church_name, s.day_of_week, s.start_time, s.end_time, s.activity, s.created_at
-       FROM church_schedules s
-       JOIN churches c ON c.id = s.church_id
-       WHERE s.church_id = $1
-       ORDER BY s.created_at DESC`,
-      [churchId],
-    );
-    return result.rows.map((row) => this.mapChurchScheduleView(row));
-  }
 
 
-  async updateChurchVerification(churchId: string, verified: boolean) {
-    const result = await this.pool.query(
-      'UPDATE churches SET verified = $2 WHERE id = $1 RETURNING id, name, city, verified, created_at',
-      [churchId, verified],
-    );
-    return result.rowCount === 0 ? null : this.mapChurch(result.rows[0]);
-  }
-
-  async listChurchMembers(churchId: string) {
-    const result = await this.pool.query(
-      `SELECT cm.church_id, c.name AS church_name, c.city, c.verified, cm.user_id, u.full_name, '' AS phone_number, cm.role, cm.joined_at
-       FROM church_memberships cm
-       JOIN churches c ON c.id = cm.church_id
-       JOIN users u ON u.id = cm.user_id
-       WHERE cm.church_id = $1 AND cm.status IN ('active','approved')
-       ORDER BY cm.joined_at DESC`,
-      [churchId],
-    );
-    return result.rows.map((row) => this.mapChurchMemberView(row));
-  }
-
-  async listUserChurchMemberships(userId: string) {
-    const result = await this.pool.query(
-      `SELECT cm.church_id, c.name AS church_name, c.city, c.verified, cm.user_id, cm.role, cm.joined_at
-       FROM church_memberships cm
-       JOIN churches c ON c.id = cm.church_id
-       WHERE cm.user_id = $1
-       ORDER BY cm.joined_at DESC`,
-      [userId],
-    );
-    return result.rows.map((row) => this.mapChurchMembershipView(row));
-  }
-
-  async joinChurch(userId: string, churchId: string) {
-    const record: ChurchMemberRecord = {
-      churchId,
-      userId,
-      role: 'member',
-      joinedAt: new Date().toISOString(),
-    };
-
-    await this.pool.query(
-      `INSERT INTO church_memberships (church_id, user_id, role, joined_at)
-       SELECT $1, $2, $3, $4
-       WHERE NOT EXISTS(SELECT 1 FROM church_memberships existing WHERE existing.user_id=$2 AND existing.church_id<>$1 AND existing.status IN ('active','approved','requested','pending'))
-       ON CONFLICT DO NOTHING`,
-      [record.churchId, record.userId, record.role, record.joinedAt],
-    );
-
-    return record;
-  }
-
-  async leaveChurch(userId: string, churchId: string) {
-    await this.pool.query('DELETE FROM church_memberships WHERE church_id = $1 AND user_id = $2', [churchId, userId]);
-    return { churchId, userId, action: 'left' };
-  }
 
   async followChurch(userId: string, churchId: string) {
     const church = await this.pool.query("SELECT id FROM churches WHERE id = $1 AND status <> 'suspended' LIMIT 1", [churchId]);
@@ -1310,7 +1143,7 @@ export class ContentRepository implements OnModuleInit {
         { id: randomUUID(), name: 'Ethiopian Gospel Church', city: 'Addis Ababa', verified: true, createdAt: now, memberCount: 0, followerCount: 0 },
         { id: randomUUID(), name: 'Bethel Youth Fellowship', city: 'Adama', verified: false, createdAt: now, memberCount: 0, followerCount: 0 },
         { id: randomUUID(), name: 'Mekane Yesus Campus Ministry', city: 'Hawassa', verified: true, createdAt: now, memberCount: 0, followerCount: 0 },
-      ] satisfies ChurchRecord[];
+      ];
       for (const record of records) {
         await this.pool.query('INSERT INTO churches (id, name, city, verified, created_at) VALUES ($1, $2, $3, $4, $5)', [
           record.id,
@@ -1323,17 +1156,17 @@ export class ContentRepository implements OnModuleInit {
     }
 
     if (churches === 0) {
-      const churchesSeed = await this.listChurches();
+      const churchesSeed = (await this.pool.query('SELECT id FROM churches ORDER BY created_at DESC')).rows;
       const churchId = churchesSeed[0]?.id;
       if (churchId) {
         const branches = [
           { id: randomUUID(), churchId, name: 'Central Campus Branch', city: 'Addis Ababa', address: 'Bole Road near Friendship Square', createdAt: now },
           { id: randomUUID(), churchId, name: 'North Fellowship Branch', city: 'Addis Ababa', address: 'Bole Bulbula community hall', createdAt: now },
-        ] satisfies ChurchBranchRecord[];
+        ];
         const schedules = [
           { id: randomUUID(), churchId, dayOfWeek: 'Sunday', startTime: '08:30', endTime: '12:00', activity: 'Main worship service', createdAt: now },
           { id: randomUUID(), churchId, dayOfWeek: 'Wednesday', startTime: '18:00', endTime: '20:00', activity: 'Youth Bible study', createdAt: now },
-        ] satisfies ChurchScheduleRecord[];
+        ];
         const sermons = [
           { id: randomUUID(), churchId, title: 'Faith that Moves Forward', speaker: 'Pastor Eliab', summary: 'A youth sermon about courage and service.', mediaUrl: 'https://example.com/sermon1', createdAt: now },
           { id: randomUUID(), churchId, title: 'Prayer with Confidence', speaker: 'Deacon Hanna', summary: 'A sermon clip encouraging consistent prayer.', mediaUrl: 'https://example.com/sermon2', createdAt: now },
@@ -1351,7 +1184,7 @@ export class ContentRepository implements OnModuleInit {
     }
 
     if (churchesAnnouncements === 0) {
-      const churchesSeed = await this.listChurches();
+      const churchesSeed = (await this.pool.query('SELECT id FROM churches ORDER BY created_at DESC')).rows;
       const records = churchesSeed.slice(0, 3).map((church, index) => ({
         id: randomUUID(),
         churchId: church.id,
@@ -2015,7 +1848,7 @@ export class ContentRepository implements OnModuleInit {
     }
 
     if (await this.countRows('church_follows') === 0 && userId) {
-      const churchesSeed = await this.listChurches();
+      const churchesSeed = (await this.pool.query('SELECT id FROM churches ORDER BY created_at DESC')).rows;
       const users = await this.pool.query('SELECT id FROM users ORDER BY created_at ASC LIMIT 2');
       for (const [index, church] of churchesSeed.slice(0, 2).entries()) {
         const user = users.rows[index % Math.max(users.rows.length, 1)];
@@ -2055,9 +1888,15 @@ export class ContentRepository implements OnModuleInit {
     }
 
     if (await this.countRows('church_memberships') === 0 && userId) {
-      const church = await this.getChurchById((await this.listChurches())[0]?.id ?? '');
+      const church = (await this.pool.query('SELECT id FROM churches ORDER BY created_at DESC LIMIT 1')).rows[0];
       if (church) {
-        await this.joinChurch(userId, church.id);
+        await this.pool.query(
+          `INSERT INTO church_memberships (church_id, user_id, role, joined_at)
+           SELECT $1, $2, 'member', $3
+           WHERE NOT EXISTS(SELECT 1 FROM church_memberships existing WHERE existing.user_id=$2 AND existing.church_id<>$1 AND existing.status IN ('active','approved','requested','pending'))
+           ON CONFLICT DO NOTHING`,
+          [church.id, userId, now],
+        );
       }
     }
   }
@@ -2180,78 +2019,6 @@ export class ContentRepository implements OnModuleInit {
   }
 
 
-
-  private mapChurch(row: Record<string, unknown>): ChurchRecord {
-    return {
-      id: String(row.id),
-      name: String(row.name),
-      city: String(row.city),
-      verified: row.verified === true,
-      createdAt: String(row.created_at),
-      memberCount: Number(row.member_count ?? row.memberCount ?? 0),
-      followerCount: Number(row.follower_count ?? row.followerCount ?? 0),
-    };
-  }
-
-  private mapChurchBranchView(row: Record<string, unknown>): ChurchBranchViewRecord {
-    return {
-      id: String(row.id),
-      churchId: String(row.church_id),
-      churchName: String(row.church_name),
-      name: String(row.name),
-      city: String(row.city),
-      address: String(row.address),
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapChurchScheduleView(row: Record<string, unknown>): ChurchScheduleViewRecord {
-    return {
-      id: String(row.id),
-      churchId: String(row.church_id),
-      churchName: String(row.church_name),
-      dayOfWeek: String(row.day_of_week),
-      startTime: String(row.start_time),
-      endTime: String(row.end_time),
-      activity: String(row.activity),
-      createdAt: String(row.created_at),
-    };
-  }
-
-  private mapChurchMember(row: Record<string, unknown>): ChurchMemberRecord {
-    return {
-      churchId: String(row.church_id),
-      userId: String(row.user_id),
-      role: String(row.role),
-      joinedAt: String(row.joined_at),
-    };
-  }
-
-  private mapChurchMemberView(row: Record<string, unknown>): ChurchMemberViewRecord {
-    return {
-      churchId: String(row.church_id),
-      churchName: String(row.church_name),
-      city: String(row.city),
-      verified: row.verified === true,
-      userId: String(row.user_id),
-      userFullName: String(row.full_name),
-      phoneNumber: String(row.phone_number),
-      role: String(row.role),
-      joinedAt: String(row.joined_at),
-    };
-  }
-
-  private mapChurchMembershipView(row: Record<string, unknown>): ChurchMembershipViewRecord {
-    return {
-      churchId: String(row.church_id),
-      churchName: String(row.church_name),
-      city: String(row.city),
-      verified: row.verified === true,
-      userId: String(row.user_id),
-      role: String(row.role),
-      joinedAt: String(row.joined_at),
-    };
-  }
 
   private mapGroup(row: Record<string, unknown>): GroupRecord {
     return {

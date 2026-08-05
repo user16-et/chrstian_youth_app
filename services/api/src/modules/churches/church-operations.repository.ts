@@ -13,6 +13,49 @@ export interface SermonViewRecord {
   createdAt: string;
 }
 
+export interface ChurchBranchViewRecord {
+  id: string;
+  churchId: string;
+  churchName: string;
+  name: string;
+  city: string;
+  address: string;
+  createdAt: string;
+}
+
+export interface ChurchScheduleViewRecord {
+  id: string;
+  churchId: string;
+  churchName: string;
+  dayOfWeek: string;
+  startTime: string;
+  endTime: string;
+  activity: string;
+  createdAt: string;
+}
+
+export interface ChurchMemberViewRecord {
+  churchId: string;
+  churchName: string;
+  city: string;
+  verified: boolean;
+  userId: string;
+  userFullName: string;
+  phoneNumber: string;
+  role: string;
+  joinedAt: string;
+}
+
+export interface ChurchMembershipViewRecord {
+  churchId: string;
+  churchName: string;
+  city: string;
+  verified: boolean;
+  userId: string;
+  role: string;
+  joinedAt: string;
+}
+
 // Bare-column RETURNING list for the churches table: every column once, with
 // camelCase aliases for the five that clients read camelCase, matching the
 // shape of the church profile endpoint (no duplicate snake_case fields).
@@ -118,6 +161,113 @@ export class ChurchOperationsRepository {
       summary: String(row.summary),
       mediaUrl: String(row.media_url),
       createdAt: String(row.created_at),
+    };
+  }
+
+  // ---- Church sub-resources & membership lists, extracted from ContentRepository. ----
+
+  async listChurchBranches(churchId: string): Promise<ChurchBranchViewRecord[]> {
+    const result = await this.db.query(
+      `SELECT b.id, b.church_id, c.name AS church_name, b.name, b.city, b.address, b.created_at
+       FROM church_branches b
+       JOIN churches c ON c.id = b.church_id
+       WHERE b.church_id = $1
+       ORDER BY b.created_at DESC`,
+      [churchId],
+    );
+    return result.rows.map((row) => this.mapChurchBranchView(row));
+  }
+
+  async listChurchSchedules(churchId: string): Promise<ChurchScheduleViewRecord[]> {
+    const result = await this.db.query(
+      `SELECT s.id, s.church_id, c.name AS church_name, s.day_of_week, s.start_time, s.end_time, s.activity, s.created_at
+       FROM church_schedules s
+       JOIN churches c ON c.id = s.church_id
+       WHERE s.church_id = $1
+       ORDER BY s.created_at DESC`,
+      [churchId],
+    );
+    return result.rows.map((row) => this.mapChurchScheduleView(row));
+  }
+
+  async listChurchMembers(churchId: string): Promise<ChurchMemberViewRecord[]> {
+    const result = await this.db.query(
+      `SELECT cm.church_id, c.name AS church_name, c.city, c.verified, cm.user_id, u.full_name, '' AS phone_number, cm.role, cm.joined_at
+       FROM church_memberships cm
+       JOIN churches c ON c.id = cm.church_id
+       JOIN users u ON u.id = cm.user_id
+       WHERE cm.church_id = $1 AND cm.status IN ('active','approved')
+       ORDER BY cm.joined_at DESC`,
+      [churchId],
+    );
+    return result.rows.map((row) => this.mapChurchMemberView(row));
+  }
+
+  async listUserChurchMemberships(userId: string): Promise<ChurchMembershipViewRecord[]> {
+    const result = await this.db.query(
+      `SELECT cm.church_id, c.name AS church_name, c.city, c.verified, cm.user_id, cm.role, cm.joined_at
+       FROM church_memberships cm
+       JOIN churches c ON c.id = cm.church_id
+       WHERE cm.user_id = $1
+       ORDER BY cm.joined_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapChurchMembershipView(row));
+  }
+
+  async leaveChurch(userId: string, churchId: string) {
+    await this.db.query('DELETE FROM church_memberships WHERE church_id = $1 AND user_id = $2', [churchId, userId]);
+    return { churchId, userId, action: 'left' };
+  }
+
+  private mapChurchBranchView(row: Record<string, unknown>): ChurchBranchViewRecord {
+    return {
+      id: String(row.id),
+      churchId: String(row.church_id),
+      churchName: String(row.church_name),
+      name: String(row.name),
+      city: String(row.city),
+      address: String(row.address),
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private mapChurchScheduleView(row: Record<string, unknown>): ChurchScheduleViewRecord {
+    return {
+      id: String(row.id),
+      churchId: String(row.church_id),
+      churchName: String(row.church_name),
+      dayOfWeek: String(row.day_of_week),
+      startTime: String(row.start_time),
+      endTime: String(row.end_time),
+      activity: String(row.activity),
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private mapChurchMemberView(row: Record<string, unknown>): ChurchMemberViewRecord {
+    return {
+      churchId: String(row.church_id),
+      churchName: String(row.church_name),
+      city: String(row.city),
+      verified: row.verified === true,
+      userId: String(row.user_id),
+      userFullName: String(row.full_name),
+      phoneNumber: String(row.phone_number),
+      role: String(row.role),
+      joinedAt: String(row.joined_at),
+    };
+  }
+
+  private mapChurchMembershipView(row: Record<string, unknown>): ChurchMembershipViewRecord {
+    return {
+      churchId: String(row.church_id),
+      churchName: String(row.church_name),
+      city: String(row.city),
+      verified: row.verified === true,
+      userId: String(row.user_id),
+      role: String(row.role),
+      joinedAt: String(row.joined_at),
     };
   }
 }

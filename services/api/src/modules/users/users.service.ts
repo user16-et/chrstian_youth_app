@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { ContentRepository } from '../../common/content.repository';
+import { ChurchOperationsRepository } from '../churches/church-operations.repository';
 import { UserRepository, type UpdateProfileInput, type UserDirectoryRecord } from '../../common/user.repository';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class UsersService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly contentRepository: ContentRepository,
+    private readonly churchOperations: ChurchOperationsRepository,
   ) {}
 
   status() {
@@ -65,7 +67,7 @@ export class UsersService {
 
   async myChurchMemberships(actorToken: string) {
     const actor = await this.requireActor(actorToken);
-    return this.contentRepository.listUserChurchMemberships(actor.id);
+    return this.churchOperations.listUserChurchMemberships(actor.id);
   }
 
   async myGroupMemberships(actorToken: string) {
@@ -108,7 +110,7 @@ export class UsersService {
   }
 
   churchMemberships(userId: string) {
-    return this.contentRepository.listUserChurchMemberships(userId);
+    return this.churchOperations.listUserChurchMemberships(userId);
   }
 
   private async requireActor(token: string) {
