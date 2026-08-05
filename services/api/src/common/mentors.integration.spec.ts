@@ -1,21 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { MentorsRepository } from '../modules/engagement/mentors.repository';
 import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../../test/factories';
 
 /**
- * Integration safety-net for the mentors domain (mentor directory + follows,
+ * Integration coverage for the mentors domain (mentor directory + follows,
  * mentorship requests, session scheduling, and the mentor-side availability /
- * confirmation flow), written BEFORE extracting a MentorsRepository.
+ * confirmation flow), extracted into MentorsRepository.
  */
 describe('Mentors domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: MentorsRepository;
   let requester: TestUser;
   let mentorUser: TestUser;
   let mentorId: string;
 
   beforeAll(async () => {
-    repo = new ContentRepository(undefined as never);
+    repo = new MentorsRepository();
     requester = await createUser();
     mentorUser = await createUser();
     mentorId = randomUUID();
@@ -29,8 +29,7 @@ describe('Mentors domain (integration)', () => {
   afterAll(async () => {
     await testPool.query('DELETE FROM mentors WHERE id=$1', [mentorId]); // cascades follows/requests/sessions/availability
     await deleteUsers(requester.id, mentorUser.id);
-    await (repo as unknown as { pool: Pool; readPool: Pool }).pool.end();
-    await (repo as unknown as { pool: Pool; readPool: Pool }).readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 

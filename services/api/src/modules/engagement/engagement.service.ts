@@ -12,6 +12,7 @@ import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { OpportunitiesRepository } from './opportunities.repository';
 import { PaymentsCatalogRepository } from './payments-catalog.repository';
 import { TestimonyStoriesRepository } from './testimony-stories.repository';
+import { MentorsRepository } from './mentors.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
@@ -39,6 +40,7 @@ export class EngagementService {
     private readonly mediaItemsRepository: MediaItemsRepository,
     private readonly paymentsCatalogRepository: PaymentsCatalogRepository,
     private readonly testimonyStoriesRepository: TestimonyStoriesRepository,
+    private readonly mentorsRepository: MentorsRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -349,30 +351,30 @@ export class EngagementService {
       const actor = await this.requireActor(token);
       actorId = actor.id;
     }
-    return this.contentRepository.listMentors(actorId);
+    return this.mentorsRepository.listMentors(actorId);
   }
 
   async followMentor(token: string, mentorId: string) {
     const actor = await this.requireActor(token);
     await this.ensureMentorExists(mentorId);
-    return this.contentRepository.followMentor(actor.id, mentorId);
+    return this.mentorsRepository.followMentor(actor.id, mentorId);
   }
 
   async unfollowMentor(token: string, mentorId: string) {
     const actor = await this.requireActor(token);
     await this.ensureMentorExists(mentorId);
-    return this.contentRepository.unfollowMentor(actor.id, mentorId);
+    return this.mentorsRepository.unfollowMentor(actor.id, mentorId);
   }
 
   async listMentorshipRequests(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listMentorshipRequests(actor.id);
+    return this.mentorsRepository.listMentorshipRequests(actor.id);
   }
 
   async requestMentorship(token: string, input: CreateMentorshipRequestDto) {
     const actor = await this.requireActor(token);
     await this.ensureMentorExists(input.mentorId);
-    return this.contentRepository.requestMentorship({
+    return this.mentorsRepository.requestMentorship({
       requesterId: actor.id,
       mentorId: input.mentorId,
       note: input.note,
@@ -381,7 +383,7 @@ export class EngagementService {
 
   async listMentorshipSessions(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listMentorshipSessions(actor.id);
+    return this.mentorsRepository.listMentorshipSessions(actor.id);
   }
 
   async bookMentorshipSession(token: string, input: Record<string, unknown>) {
@@ -396,9 +398,9 @@ export class EngagementService {
     const duration = Math.min(180, Math.max(15, Number(input.durationMinutes ?? 30) || 30));
     // If the mentor has a user account they confirm the request; otherwise the
     // curated mentor can't respond, so it's scheduled directly.
-    const mentorUser = await this.contentRepository.mentorUserId(mentorId);
+    const mentorUser = await this.mentorsRepository.mentorUserId(mentorId);
     const status = mentorUser ? 'requested' : 'scheduled';
-    return this.contentRepository.bookMentorshipSession({
+    return this.mentorsRepository.bookMentorshipSession({
       requesterId: actor.id,
       mentorId,
       scheduledAt: when.toISOString(),
@@ -412,18 +414,18 @@ export class EngagementService {
   // ---- Mentor side ----
   async mentorProfile(token: string) {
     const actor = await this.requireActor(token);
-    const mentor = await this.contentRepository.mentorForUser(actor.id);
+    const mentor = await this.mentorsRepository.mentorForUser(actor.id);
     if (!mentor) return { isMentor: false, mentor: null, availability: [], sessions: [] };
     const [availability, sessions] = await Promise.all([
-      this.contentRepository.listMentorAvailability(mentor.id),
-      this.contentRepository.listSessionsForMentor(mentor.id),
+      this.mentorsRepository.listMentorAvailability(mentor.id),
+      this.mentorsRepository.listSessionsForMentor(mentor.id),
     ]);
     return { isMentor: true, mentor, availability, sessions };
   }
 
   async setMentorAvailability(token: string, input: Record<string, unknown>) {
     const actor = await this.requireActor(token);
-    const mentor = await this.contentRepository.mentorForUser(actor.id);
+    const mentor = await this.mentorsRepository.mentorForUser(actor.id);
     if (!mentor) throw new ForbiddenException('not_a_mentor');
     const raw = Array.isArray(input.slots) ? (input.slots as Array<Record<string, unknown>>) : [];
     const slots = raw
@@ -433,18 +435,18 @@ export class EngagementService {
         endMinute: Math.min(1440, Math.max(0, Number(s.endMinute ?? 0) || 0)),
       }))
       .filter((s) => s.endMinute > s.startMinute);
-    return this.contentRepository.setMentorAvailability(mentor.id, slots);
+    return this.mentorsRepository.setMentorAvailability(mentor.id, slots);
   }
 
   mentorAvailability(mentorId: string) {
-    return this.contentRepository.listMentorAvailability(mentorId);
+    return this.mentorsRepository.listMentorAvailability(mentorId);
   }
 
   async respondToSession(token: string, sessionId: string, action: 'confirm' | 'decline', input: Record<string, unknown>) {
     const actor = await this.requireActor(token);
     const status = action === 'confirm' ? 'scheduled' : 'declined';
     const meetingLink = action === 'confirm' ? String(input.meetingLink ?? '') : '';
-    const updated = await this.contentRepository.mentorUpdateSession(actor.id, sessionId, status, meetingLink);
+    const updated = await this.mentorsRepository.mentorUpdateSession(actor.id, sessionId, status, meetingLink);
     if (!updated) throw new NotFoundException('session_not_found');
     // Let the mentee know the outcome.
     void this.notify({
@@ -465,14 +467,14 @@ export class EngagementService {
 
   async cancelMentorshipSession(token: string, sessionId: string) {
     const actor = await this.requireActor(token);
-    const updated = await this.contentRepository.updateMentorshipSession(actor.id, sessionId, { status: 'cancelled' });
+    const updated = await this.mentorsRepository.updateMentorshipSession(actor.id, sessionId, { status: 'cancelled' });
     if (!updated) throw new NotFoundException('session_not_found');
     return updated;
   }
 
   async completeMentorshipSession(token: string, sessionId: string, input: Record<string, unknown>) {
     const actor = await this.requireActor(token);
-    const updated = await this.contentRepository.updateMentorshipSession(actor.id, sessionId, {
+    const updated = await this.mentorsRepository.updateMentorshipSession(actor.id, sessionId, {
       status: 'completed',
       notes: input.notes != null ? String(input.notes) : undefined,
     });
@@ -714,7 +716,7 @@ export class EngagementService {
   }
 
   private async ensureMentorExists(mentorId: string) {
-    const mentors = await this.contentRepository.listMentors(null);
+    const mentors = await this.mentorsRepository.listMentors(null);
     if (!mentors.some((mentor) => mentor.id === mentorId)) {
       throw new NotFoundException('mentor_not_found');
     }
