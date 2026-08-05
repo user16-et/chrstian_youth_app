@@ -10,6 +10,7 @@ import { GrowthRepository } from './growth.repository';
 import { MediaItemsRepository } from './media-items.repository';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { OpportunitiesRepository } from './opportunities.repository';
+import { PaymentsCatalogRepository } from './payments-catalog.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
@@ -35,6 +36,7 @@ export class EngagementService {
     private readonly growthRepository: GrowthRepository,
     private readonly opportunitiesRepository: OpportunitiesRepository,
     private readonly mediaItemsRepository: MediaItemsRepository,
+    private readonly paymentsCatalogRepository: PaymentsCatalogRepository,
   ) {}
 
   private notify(input: Parameters<NotificationsService['send']>[0]) {
@@ -602,18 +604,18 @@ export class EngagementService {
   }
 
   listPaymentPlans() {
-    return this.contentRepository.listPaymentPlans();
+    return this.paymentsCatalogRepository.listPaymentPlans();
   }
 
   async listPaymentHistory(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listPaymentHistory(actor.id);
+    return this.paymentsCatalogRepository.listPaymentHistory(actor.id);
   }
 
   async createPaymentRecord(token: string, input: CreatePaymentRequestDto) {
     const actor = await this.requireActor(token);
     try {
-      return this.contentRepository.createPaymentRecord({
+      return this.paymentsCatalogRepository.createPaymentRecord({
         userId: actor.id,
         planId: input.planId,
       });

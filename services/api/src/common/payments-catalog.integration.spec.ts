@@ -1,27 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { PaymentsCatalogRepository } from '../modules/engagement/payments-catalog.repository';
 import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../../test/factories';
 
 /**
- * Integration safety-net for the payments catalog (giving plans + a user's
- * payment history), written BEFORE extracting a PaymentsCatalogRepository.
- * NOTE: this is the content-side catalog consumed by engagement, distinct from
- * the transactional `payments` module.
+ * Integration coverage for the payments catalog (giving plans + a user's
+ * payment history), extracted into PaymentsCatalogRepository. NOTE: this is the
+ * content-side catalog consumed by engagement, distinct from the transactional
+ * `payments` module.
  */
 describe('Payments catalog domain (integration)', () => {
-  let repo: ContentRepository;
+  let repo: PaymentsCatalogRepository;
   let user: TestUser;
   let planId: string;
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new PaymentsCatalogRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    await (repo as unknown as { pool: Pool }).pool.end();
     await closeTestPool();
   });
 

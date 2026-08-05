@@ -8,12 +8,13 @@ import { GrowthRepository } from './growth.repository';
 import { MediaItemsRepository } from './media-items.repository';
 import { MinistryOperationsRepository } from './ministry-operations.repository';
 import { OpportunitiesRepository } from './opportunities.repository';
+import { PaymentsCatalogRepository } from './payments-catalog.repository';
 import { PrayerRepository } from './prayer.repository';
 import { TalentRepository } from './talent.repository';
 
 @Module({
   imports: [ConnectedLifeModule, PlatformModule],
   controllers: [EngagementController],
-  providers: [EngagementService, MinistryOperationsRepository, TalentRepository, PrayerRepository, GrowthRepository, OpportunitiesRepository, MediaItemsRepository],
+  providers: [EngagementService, MinistryOperationsRepository, TalentRepository, PrayerRepository, GrowthRepository, OpportunitiesRepository, MediaItemsRepository, PaymentsCatalogRepository],
 })
 export class EngagementModule {}
