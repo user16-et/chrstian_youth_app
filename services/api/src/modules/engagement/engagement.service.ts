@@ -154,7 +154,7 @@ export class EngagementService {
 
   async listMinistries(token?: string | null) {
     const actor = token ? await this.requireActor(token) : null;
-    return this.contentRepository.listMinistries(actor?.id);
+    return this.ministryOperationsRepository.listMinistries(actor?.id);
   }
 
   async getMinistryProfile(ministryId: string, token?: string | null) {
@@ -264,12 +264,12 @@ export class EngagementService {
 
   async listMinistryMembers(ministryId: string) {
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.listMinistryMembers(ministryId);
+    return this.ministryOperationsRepository.listMinistryMembers(ministryId);
   }
 
   async listMyMinistryMemberships(token: string) {
     const actor = await this.requireActor(token);
-    return this.contentRepository.listUserMinistryMemberships(actor.id);
+    return this.ministryOperationsRepository.listUserMinistryMemberships(actor.id);
   }
 
   async joinMinistry(token: string, ministryId: string) {
@@ -279,31 +279,31 @@ export class EngagementService {
   async leaveMinistry(token: string, ministryId: string) {
     const actor = await this.requireActor(token);
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.leaveMinistry(actor.id, ministryId);
+    return this.ministryOperationsRepository.leaveMinistry(actor.id, ministryId);
   }
 
   async followMinistry(token: string, ministryId: string) {
     const actor = await this.requireActor(token);
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.followMinistry(actor.id, ministryId);
+    return this.ministryOperationsRepository.followMinistry(actor.id, ministryId);
   }
 
   async unfollowMinistry(token: string, ministryId: string) {
     const actor = await this.requireActor(token);
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.unfollowMinistry(actor.id, ministryId);
+    return this.ministryOperationsRepository.unfollowMinistry(actor.id, ministryId);
   }
 
   async listMinistryTasks(ministryId: string) {
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.listMinistryTasks(ministryId);
+    return this.ministryOperationsRepository.listMinistryTasks(ministryId);
   }
 
   async createMinistryTask(token: string, ministryId: string, input: { title: string; assigneeId?: string | null; dueDate?: string | null }) {
     const actor = await this.requireActor(token);
     await this.ensureMinistryManager(actor.id, ministryId);
     if (!input.title?.trim()) throw new BadRequestException('ministry_task_title_required');
-    return this.contentRepository.createMinistryTask({
+    return this.ministryOperationsRepository.createMinistryTask({
       ministryId,
       title: input.title,
       assigneeId: input.assigneeId ?? null,
@@ -313,19 +313,19 @@ export class EngagementService {
 
   async listMinistryResources(ministryId: string) {
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.listMinistryResources(ministryId);
+    return this.ministryOperationsRepository.listMinistryResources(ministryId);
   }
 
   async listMinistryChats(ministryId: string) {
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.listMinistryChats(ministryId);
+    return this.ministryOperationsRepository.listMinistryChats(ministryId);
   }
 
   async createMinistryChat(token: string, ministryId: string, input: { body: string }) {
     const actor = await this.requireActor(token);
     await this.ensureMinistryParticipant(actor.id, ministryId);
     if (!input.body?.trim()) throw new BadRequestException('ministry_chat_body_required');
-    return this.contentRepository.createMinistryChat({
+    return this.ministryOperationsRepository.createMinistryChat({
       ministryId,
       authorId: actor.id,
       body: input.body,
@@ -334,13 +334,13 @@ export class EngagementService {
 
   async listMinistryAttendance(ministryId: string) {
     await this.ensureMinistryExists(ministryId);
-    return this.contentRepository.listMinistryAttendance(ministryId);
+    return this.ministryOperationsRepository.listMinistryAttendance(ministryId);
   }
 
   async markMinistryAttendance(token: string, ministryId: string, input: { attendedOn?: string | null }) {
     const actor = await this.requireActor(token);
     await this.ensureMinistryParticipant(actor.id, ministryId);
-    return this.contentRepository.markMinistryAttendance({
+    return this.ministryOperationsRepository.markMinistryAttendance({
       ministryId,
       userId: actor.id,
       attendedOn: input.attendedOn ?? undefined,
@@ -746,7 +746,7 @@ export class EngagementService {
   }
 
   private async ensureMinistryExists(ministryId: string) {
-    const ministry = await this.contentRepository.getMinistryById(ministryId);
+    const ministry = await this.ministryOperationsRepository.getMinistryById(ministryId);
     if (!ministry) {
       throw new NotFoundException('ministry_not_found');
     }

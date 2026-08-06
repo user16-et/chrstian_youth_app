@@ -1,6 +1,114 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { postgresPoolConfig } from '../../common/postgres';
+
+export interface MinistryRecord {
+  id: string;
+  name: string;
+  department: string;
+  description: string;
+  leadName: string;
+  createdAt: string;
+  churchId?: string;
+  churchName?: string;
+  branchName?: string;
+  ministryType?: string;
+  memberCount?: number;
+  followerCount?: number;
+  followedByMe?: boolean;
+}
+
+export interface MinistryMemberRecord {
+  ministryId: string;
+  userId: string;
+  role: string;
+  joinedAt: string;
+}
+
+export interface MinistryMemberViewRecord {
+  ministryId: string;
+  ministryName: string;
+  userId: string;
+  userFullName: string;
+  role: string;
+  joinedAt: string;
+}
+
+export interface UserMinistryMembershipViewRecord {
+  ministryId: string;
+  ministryName: string;
+  userId: string;
+  role: string;
+  joinedAt: string;
+}
+
+export interface MinistryTaskRecord {
+  id: string;
+  ministryId: string;
+  title: string;
+  assigneeId: string | null;
+  status: string;
+  dueDate: string | null;
+  createdAt: string;
+}
+
+export interface MinistryTaskViewRecord {
+  id: string;
+  ministryId: string;
+  ministryName: string;
+  title: string;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  status: string;
+  dueDate: string | null;
+  createdAt: string;
+}
+
+export interface MinistryResourceViewRecord {
+  id: string;
+  ministryId: string;
+  ministryName: string;
+  title: string;
+  url: string;
+  createdAt: string;
+}
+
+export interface MinistryChatRecord {
+  id: string;
+  ministryId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface MinistryChatViewRecord {
+  id: string;
+  ministryId: string;
+  ministryName: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface MinistryAttendanceRecord {
+  id: string;
+  ministryId: string;
+  userId: string;
+  attendedOn: string;
+  createdAt: string;
+}
+
+export interface MinistryAttendanceViewRecord {
+  id: string;
+  ministryId: string;
+  ministryName: string;
+  userId: string;
+  userName: string;
+  attendedOn: string;
+  createdAt: string;
+}
 
 @Injectable()
 export class MinistryOperationsRepository {
@@ -196,5 +304,281 @@ export class MinistryOperationsRepository {
        (SELECT count(*)::int FROM post_likes pl JOIN posts p ON p.id=pl.post_id WHERE p.ministry_id=$1) AS "postEngagement"`,
       [ministryId],
     );
+  }
+
+  // ---- Ministry directory, membership, follows, tasks, resources, chats and
+  // attendance — extracted from ContentRepository. ----
+
+  async listMinistries(viewerId?: string) {
+    const result = await this.db.query(`SELECT m.id, m.name, m.department, m.description, m.lead_name, m.created_at,
+      m.church_id, c.name AS church_name, b.name AS branch_name, m.ministry_type,
+      (SELECT count(*)::int FROM ministry_memberships mm WHERE mm.ministry_id=m.id AND mm.status IN ('active','approved')) AS member_count,
+      (SELECT count(*)::int FROM ministry_follows mf WHERE mf.ministry_id=m.id) AS follower_count,
+      ($1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM ministry_follows mf WHERE mf.ministry_id=m.id AND mf.user_id=$1)) AS followed_by_me
+      FROM ministries m LEFT JOIN churches c ON c.id=m.church_id LEFT JOIN church_branches b ON b.id=m.branch_id
+      WHERE m.status <> 'suspended'
+      ORDER BY m.created_at DESC`, [viewerId ?? null]);
+    return result.rows.map((row) => this.mapMinistry(row));
+  }
+
+  async getMinistryById(ministryId: string) {
+    const result = await this.db.query('SELECT id, name, department, description, lead_name, created_at, ministry_type FROM ministries WHERE id = $1 LIMIT 1', [ministryId]);
+    return result.rowCount === 0 ? null : this.mapMinistry(result.rows[0]);
+  }
+
+  async listMinistryMembers(ministryId: string) {
+    const result = await this.db.query(
+      `SELECT mm.ministry_id, m.name AS ministry_name, mm.user_id, u.full_name, mm.role, mm.joined_at
+       FROM ministry_memberships mm
+       JOIN ministries m ON m.id = mm.ministry_id
+       JOIN users u ON u.id = mm.user_id
+       WHERE mm.ministry_id = $1 AND mm.status IN ('active','approved')
+       ORDER BY mm.joined_at DESC`,
+      [ministryId],
+    );
+    return result.rows.map((row) => this.mapMinistryMemberView(row));
+  }
+
+  async listUserMinistryMemberships(userId: string) {
+    const result = await this.db.query(
+      `SELECT mm.ministry_id, m.name AS ministry_name, mm.user_id, mm.role, mm.joined_at
+       FROM ministry_memberships mm
+       JOIN ministries m ON m.id = mm.ministry_id
+       WHERE mm.user_id = $1 AND mm.status IN ('active','approved','requested')
+       ORDER BY mm.joined_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapUserMinistryMembershipView(row));
+  }
+
+  async joinMinistry(userId: string, ministryId: string) {
+    const record: MinistryMemberRecord = {
+      ministryId,
+      userId,
+      role: 'member',
+      joinedAt: new Date().toISOString(),
+    };
+
+    await this.db.query(
+      'INSERT INTO ministry_memberships (ministry_id, user_id, role, joined_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+      [record.ministryId, record.userId, record.role, record.joinedAt],
+    );
+
+    return record;
+  }
+
+  async leaveMinistry(userId: string, ministryId: string) {
+    await this.db.query('DELETE FROM ministry_memberships WHERE ministry_id = $1 AND user_id = $2', [ministryId, userId]);
+    return { ministryId, userId, action: 'left' };
+  }
+
+  async followMinistry(userId: string, ministryId: string) {
+    const ministry = await this.db.query("SELECT id FROM ministries WHERE id=$1 AND status <> 'suspended' LIMIT 1", [ministryId]);
+    if (ministry.rowCount === 0) {
+      return { ministryId, userId, followed: false, changed: false, followerCount: 0, missing: true };
+    }
+    const result = await this.db.query(
+      `INSERT INTO ministry_follows (id, ministry_id, user_id, created_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (ministry_id, user_id) DO NOTHING
+       RETURNING id`,
+      [randomUUID(), ministryId, userId, new Date().toISOString()],
+    );
+    const count = await this.db.query('SELECT count(*)::int AS count FROM ministry_follows WHERE ministry_id=$1', [ministryId]);
+    return { ministryId, userId, followed: true, changed: (result.rowCount ?? 0) > 0, followerCount: Number(count.rows[0]?.count ?? 0) };
+  }
+
+  async unfollowMinistry(userId: string, ministryId: string) {
+    const ministry = await this.db.query("SELECT id FROM ministries WHERE id=$1 AND status <> 'suspended' LIMIT 1", [ministryId]);
+    if (ministry.rowCount === 0) {
+      return { ministryId, userId, followed: false, changed: false, followerCount: 0, missing: true };
+    }
+    const result = await this.db.query('DELETE FROM ministry_follows WHERE ministry_id = $1 AND user_id = $2 RETURNING id', [ministryId, userId]);
+    const count = await this.db.query('SELECT count(*)::int AS count FROM ministry_follows WHERE ministry_id=$1', [ministryId]);
+    return { ministryId, userId, followed: false, changed: (result.rowCount ?? 0) > 0, followerCount: Number(count.rows[0]?.count ?? 0) };
+  }
+
+  async listMinistryTasks(ministryId: string) {
+    const result = await this.db.query(
+      `SELECT t.id, t.ministry_id, m.name AS ministry_name, t.title, t.assignee_id, assignee.full_name AS assignee_name, t.status, t.due_date, t.created_at
+       FROM ministry_tasks t
+       JOIN ministries m ON m.id = t.ministry_id
+       LEFT JOIN users assignee ON assignee.id = t.assignee_id
+       WHERE t.ministry_id = $1
+       ORDER BY t.created_at DESC`,
+      [ministryId],
+    );
+    return result.rows.map((row) => this.mapMinistryTaskView(row));
+  }
+
+  async createMinistryTask(input: { ministryId: string; title: string; assigneeId?: string | null; dueDate?: string | null }) {
+    const record: MinistryTaskRecord = {
+      id: randomUUID(),
+      ministryId: input.ministryId,
+      title: input.title,
+      assigneeId: input.assigneeId ?? null,
+      status: 'open',
+      dueDate: input.dueDate ?? null,
+      createdAt: new Date().toISOString(),
+    };
+    await this.db.query(
+      'INSERT INTO ministry_tasks (id, ministry_id, title, assignee_id, status, due_date, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [record.id, record.ministryId, record.title, record.assigneeId, record.status, record.dueDate, record.createdAt],
+    );
+    return record;
+  }
+
+  async listMinistryResources(ministryId: string) {
+    const result = await this.db.query(
+      `SELECT r.id, r.ministry_id, m.name AS ministry_name, r.title, r.url, r.created_at
+       FROM ministry_resources r
+       JOIN ministries m ON m.id = r.ministry_id
+       WHERE r.ministry_id = $1
+       ORDER BY r.created_at DESC`,
+      [ministryId],
+    );
+    return result.rows.map((row) => this.mapMinistryResourceView(row));
+  }
+
+  async listMinistryChats(ministryId: string) {
+    const result = await this.db.query(
+      `SELECT c.id, c.ministry_id, m.name AS ministry_name, c.author_id, u.full_name AS author_name, c.body, c.created_at
+       FROM ministry_chats c
+       JOIN ministries m ON m.id = c.ministry_id
+       JOIN users u ON u.id = c.author_id
+       WHERE c.ministry_id = $1
+       ORDER BY c.created_at DESC`,
+      [ministryId],
+    );
+    return result.rows.map((row) => this.mapMinistryChatView(row));
+  }
+
+  async createMinistryChat(input: { ministryId: string; authorId: string; body: string }) {
+    const record: MinistryChatRecord = {
+      id: randomUUID(),
+      ministryId: input.ministryId,
+      authorId: input.authorId,
+      body: input.body,
+      createdAt: new Date().toISOString(),
+    };
+    await this.db.query('INSERT INTO ministry_chats (id, ministry_id, author_id, body, created_at) VALUES ($1, $2, $3, $4, $5)', [record.id, record.ministryId, record.authorId, record.body, record.createdAt]);
+    return record;
+  }
+
+  async listMinistryAttendance(ministryId: string) {
+    const result = await this.db.query(
+      `SELECT a.id, a.ministry_id, m.name AS ministry_name, a.user_id, u.full_name AS user_name, a.attended_on, a.created_at
+       FROM ministry_attendance a
+       JOIN ministries m ON m.id = a.ministry_id
+       JOIN users u ON u.id = a.user_id
+       WHERE a.ministry_id = $1
+       ORDER BY a.created_at DESC`,
+      [ministryId],
+    );
+    return result.rows.map((row) => this.mapMinistryAttendanceView(row));
+  }
+
+  async markMinistryAttendance(input: { ministryId: string; userId: string; attendedOn?: string }) {
+    const record: MinistryAttendanceRecord = {
+      id: randomUUID(),
+      ministryId: input.ministryId,
+      userId: input.userId,
+      attendedOn: input.attendedOn ?? new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    await this.db.query('INSERT INTO ministry_attendance (id, ministry_id, user_id, attended_on, created_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING', [record.id, record.ministryId, record.userId, record.attendedOn, record.createdAt]);
+    return record;
+  }
+
+  private mapMinistry(row: Record<string, unknown>): MinistryRecord {
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      department: String(row.department),
+      description: String(row.description),
+      leadName: String(row.lead_name),
+      createdAt: String(row.created_at),
+      churchId: row.church_id == null ? undefined : String(row.church_id),
+      churchName: row.church_name == null ? undefined : String(row.church_name),
+      branchName: row.branch_name == null ? undefined : String(row.branch_name),
+      ministryType: row.ministry_type == null ? undefined : String(row.ministry_type),
+      memberCount: row.member_count == null ? undefined : Number(row.member_count),
+      followerCount: row.follower_count == null ? undefined : Number(row.follower_count),
+      followedByMe: row.followed_by_me === true,
+    };
+  }
+
+  private mapMinistryMemberView(row: Record<string, unknown>): MinistryMemberViewRecord {
+    return {
+      ministryId: String(row.ministry_id),
+      ministryName: String(row.ministry_name),
+      userId: String(row.user_id),
+      userFullName: String(row.full_name),
+      role: String(row.role),
+      joinedAt: this.iso(row.joined_at),
+    };
+  }
+
+  private mapUserMinistryMembershipView(row: Record<string, unknown>): UserMinistryMembershipViewRecord {
+    return {
+      ministryId: String(row.ministry_id),
+      ministryName: String(row.ministry_name),
+      userId: String(row.user_id),
+      role: String(row.role),
+      joinedAt: this.iso(row.joined_at),
+    };
+  }
+
+  private mapMinistryTaskView(row: Record<string, unknown>): MinistryTaskViewRecord {
+    return {
+      id: String(row.id),
+      ministryId: String(row.ministry_id),
+      ministryName: String(row.ministry_name),
+      title: String(row.title),
+      assigneeId: row.assignee_id ? String(row.assignee_id) : null,
+      assigneeName: row.assignee_name ? String(row.assignee_name) : null,
+      status: String(row.status),
+      dueDate: row.due_date ? this.iso(row.due_date) : null,
+      createdAt: this.iso(row.created_at),
+    };
+  }
+
+  private mapMinistryResourceView(row: Record<string, unknown>): MinistryResourceViewRecord {
+    return {
+      id: String(row.id),
+      ministryId: String(row.ministry_id),
+      ministryName: String(row.ministry_name),
+      title: String(row.title),
+      url: String(row.url),
+      createdAt: this.iso(row.created_at),
+    };
+  }
+
+  private mapMinistryChatView(row: Record<string, unknown>): MinistryChatViewRecord {
+    return {
+      id: String(row.id),
+      ministryId: String(row.ministry_id),
+      ministryName: String(row.ministry_name),
+      authorId: String(row.author_id),
+      authorName: String(row.author_name),
+      body: String(row.body),
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private mapMinistryAttendanceView(row: Record<string, unknown>): MinistryAttendanceViewRecord {
+    return {
+      id: String(row.id),
+      ministryId: String(row.ministry_id),
+      ministryName: String(row.ministry_name),
+      userId: String(row.user_id),
+      userName: String(row.user_name),
+      attendedOn: this.iso(row.attended_on),
+      createdAt: this.iso(row.created_at),
+    };
+  }
+
+  private iso(value: unknown): string {
+    return value instanceof Date ? value.toISOString() : String(value ?? '');
   }
 }
