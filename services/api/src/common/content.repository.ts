@@ -6,29 +6,6 @@ import { postgresPoolConfig, postgresReadPoolConfig } from './postgres';
 import { notBlocked, notMuted } from './sql-predicates';
 import { UserRepository } from './user.repository';
 
-export interface EventRecord {
-  id: string;
-  title: string;
-  location: string;
-  startsAt: string;
-  createdAt: string;
-}
-
-export interface EventRegistrationRecord {
-  eventId: string;
-  userId: string;
-  checkedInAt: string | null;
-  createdAt: string;
-}
-
-export interface EventRegistrationViewRecord {
-  eventId: string;
-  userId: string;
-  userFullName: string;
-  checkedInAt: string | null;
-  createdAt: string;
-}
-
 export interface ChatMessageRecord {
   id: string;
   room: string;
@@ -140,65 +117,6 @@ export class ContentRepository implements OnModuleInit {
     await this.pool.query('DELETE FROM church_follows WHERE church_id = $1 AND user_id = $2', [churchId, userId]);
     const count = await this.pool.query('SELECT count(*)::int AS count FROM church_follows WHERE church_id=$1', [churchId]);
     return { churchId, userId, followed: false, followerCount: Number(count.rows[0]?.count ?? 0) };
-  }
-
-  async listEvents() {
-    const result = await this.pool.query('SELECT id, title, location, starts_at, created_at FROM events ORDER BY starts_at ASC');
-    return result.rows.map((row) => this.mapEvent(row));
-  }
-
-  async registerForEvent(eventId: string, userId: string) {
-    const record: EventRegistrationRecord = {
-      eventId,
-      userId,
-      checkedInAt: null,
-      createdAt: new Date().toISOString(),
-    };
-    await this.pool.query(
-      `INSERT INTO event_registrations (event_id, user_id, checked_in_at, created_at, ticket_code, qr_payload)
-       SELECT event_id, user_id, checked_in_at, created_at, ticket_code,
-         'event:' || event_id::text || ':user:' || user_id::text || ':ticket:' || ticket_code
-       FROM (
-         SELECT $1::uuid AS event_id, $2::uuid AS user_id, $3::timestamptz AS checked_in_at, $4::timestamptz AS created_at,
-           'TKT-' || substr(md5($1::text || $2::text), 1, 10) AS ticket_code
-       ) payload
-       ON CONFLICT DO NOTHING`,
-      [record.eventId, record.userId, record.checkedInAt, record.createdAt],
-    );
-    return record;
-  }
-
-  async checkInEvent(eventId: string, userId: string) {
-    const checkedInAt = new Date().toISOString();
-    const result = await this.pool.query(
-      'UPDATE event_registrations SET checked_in_at = $3 WHERE event_id = $1 AND user_id = $2 RETURNING event_id, user_id, checked_in_at, created_at',
-      [eventId, userId, checkedInAt],
-    );
-    if (result.rowCount === 0) {
-      await this.pool.query(
-        `INSERT INTO event_registrations (event_id, user_id, checked_in_at, created_at, ticket_code, qr_payload)
-         SELECT event_id, user_id, checked_in_at, created_at, ticket_code,
-           'event:' || event_id::text || ':user:' || user_id::text || ':ticket:' || ticket_code
-         FROM (
-           SELECT $1::uuid AS event_id, $2::uuid AS user_id, $3::timestamptz AS checked_in_at, $4::timestamptz AS created_at,
-             'TKT-' || substr(md5($1::text || $2::text), 1, 10) AS ticket_code
-         ) payload`,
-        [eventId, userId, checkedInAt, checkedInAt],
-      );
-    }
-    return { eventId, userId, checkedInAt };
-  }
-
-  async listEventRegistrations(eventId: string) {
-    const result = await this.pool.query(
-      `SELECT er.event_id, er.user_id, u.full_name AS user_full_name, er.checked_in_at, er.created_at
-       FROM event_registrations er
-       JOIN users u ON u.id = er.user_id
-       WHERE er.event_id = $1
-       ORDER BY er.created_at DESC`,
-      [eventId],
-    );
-    return result.rows.map((row) => this.mapEventRegistrationView(row));
   }
 
   async listChatMessages(room = 'general', limit = 50) {
@@ -430,7 +348,7 @@ export class ContentRepository implements OnModuleInit {
       const records = [
         { id: randomUUID(), title: 'Youth Fellowship Night', location: 'Addis Ababa', startsAt: now, createdAt: now },
         { id: randomUUID(), title: 'Campus Revival Conference', location: 'Hawassa', startsAt: now, createdAt: now },
-      ] satisfies EventRecord[];
+      ];
       for (const record of records) {
         await this.pool.query('INSERT INTO events (id, title, location, starts_at, created_at) VALUES ($1, $2, $3, $4, $5)', [
           record.id,
@@ -1135,26 +1053,6 @@ export class ContentRepository implements OnModuleInit {
 
 
 
-
-  private mapEvent(row: Record<string, unknown>): EventRecord {
-    return {
-      id: String(row.id),
-      title: String(row.title),
-      location: String(row.location),
-      startsAt: this.iso(row.starts_at),
-      createdAt: this.iso(row.created_at),
-    };
-  }
-
-  private mapEventRegistrationView(row: Record<string, unknown>): EventRegistrationViewRecord {
-    return {
-      eventId: String(row.event_id),
-      userId: String(row.user_id),
-      userFullName: String(row.user_full_name),
-      checkedInAt: row.checked_in_at ? this.iso(row.checked_in_at) : null,
-      createdAt: this.iso(row.created_at),
-    };
-  }
 
   private mapChatMessageView(row: Record<string, unknown>): ChatMessageViewRecord {
     return {
