@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { SocialRepository } from '../modules/posts/social.repository';
 import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../../test/factories';
 
 /**
@@ -7,8 +7,8 @@ import { createUser, deleteUsers, testPool, closeTestPool, TestUser } from '../.
  * filters are security-relevant: a viewer must never see posts from someone
  * they blocked or muted, nor soft-deleted posts.
  */
-describe('ContentRepository.listPublicFeedPage (integration)', () => {
-  let repo: ContentRepository;
+describe('SocialRepository.listPublicFeedPage (integration)', () => {
+  let repo: SocialRepository;
   let viewer: TestUser;
   let friend: TestUser;
   let blocked: TestUser;
@@ -16,14 +16,13 @@ describe('ContentRepository.listPublicFeedPage (integration)', () => {
   const postIds: Record<string, string> = {};
 
   beforeAll(() => {
-    // UserRepository is only used by onModuleInit (not called here).
-    repo = new ContentRepository(undefined as never);
+    repo = new SocialRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    const r = repo as unknown as { db: Pool; readDb: Pool };
+    await r.db.end();
+    await r.readDb.end();
     await closeTestPool();
   });
 

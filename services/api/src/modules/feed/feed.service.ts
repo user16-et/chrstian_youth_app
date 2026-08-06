@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
 
 import { loadConfig } from '../../common/config';
-import { ContentRepository } from '../../common/content.repository';
+import { SocialRepository } from '../posts/social.repository';
 import { UserRepository } from '../../common/user.repository';
 
 interface FeedCursor {
@@ -15,7 +15,7 @@ export class FeedService {
   private readonly redis: Redis | null;
 
   constructor(
-    private readonly contentRepository: ContentRepository,
+    private readonly social: SocialRepository,
     private readonly userRepository: UserRepository,
   ) {
     const config = loadConfig();
@@ -32,10 +32,10 @@ export class FeedService {
 
     // Personalized (followed + church) feed when the viewer has one; otherwise
     // fall back to public discovery so new users never see an empty feed.
-    const usePersonalized = actor ? await this.contentRepository.hasFeedEvents(actor.id) : false;
+    const usePersonalized = actor ? await this.social.hasFeedEvents(actor.id) : false;
     const rows = usePersonalized
-      ? await this.contentRepository.listFeedPage({ viewerId: actor!.id, language: input.language, limit, cursor })
-      : await this.contentRepository.listPublicFeedPage({ viewerId: actor?.id, language: input.language, limit, cursor });
+      ? await this.social.listFeedPage({ viewerId: actor!.id, language: input.language, limit, cursor })
+      : await this.social.listPublicFeedPage({ viewerId: actor?.id, language: input.language, limit, cursor });
     const pageRows = rows.slice(0, limit);
     const nextCursor = rows.length > limit && pageRows.length > 0 ? this.encodeCursor(pageRows[pageRows.length - 1].cursor) : null;
     const response = {

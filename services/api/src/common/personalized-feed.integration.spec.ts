@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { ContentRepository } from './content.repository';
+import { SocialRepository } from '../modules/posts/social.repository';
 import {
   createUser,
   addFeedEvent,
@@ -14,21 +14,21 @@ import {
  * which serves each viewer the posts fanned out into their feed_events. Covers
  * scoping, ordering, keyset pagination, block/mute, removed posts and language.
  */
-describe('ContentRepository.listFeedPage (personalized, integration)', () => {
-  let repo: ContentRepository;
+describe('SocialRepository.listFeedPage (personalized, integration)', () => {
+  let repo: SocialRepository;
   let viewer: TestUser;
   let author: TestUser;
   let other: TestUser;
   const post: Record<string, string> = {};
 
   beforeAll(() => {
-    repo = new ContentRepository(undefined as never);
+    repo = new SocialRepository();
   });
 
   afterAll(async () => {
-    const r = repo as unknown as { pool: Pool; readPool: Pool };
-    await r.pool.end();
-    await r.readPool.end();
+    const r = repo as unknown as { db: Pool; readDb: Pool };
+    await r.db.end();
+    await r.readDb.end();
     await closeTestPool();
   });
 

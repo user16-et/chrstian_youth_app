@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { Pool } from 'pg';
-import { ContentRepository } from '../../common/content.repository';
+import { SocialRepository } from './social.repository';
 import { postgresPoolConfig } from '../../common/postgres';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
@@ -10,7 +10,7 @@ import { UserRepository } from '../../common/user.repository';
 export class PostsService {
   private readonly socialPool = new Pool(postgresPoolConfig('api-posts-service'));
   constructor(
-    private readonly contentRepository: ContentRepository,
+    private readonly social: SocialRepository,
     private readonly userRepository: UserRepository,
     private readonly queues: QueueProducer,
   ) {}
@@ -25,7 +25,7 @@ export class PostsService {
   // A single post in the same shape as feed items (for deep-links).
   async getById(actorToken: string | undefined, postId: string) {
     const viewer = actorToken ? await this.userRepository.authenticate(actorToken) : null;
-    const post = await this.contentRepository.getPostById(postId, viewer?.id ?? undefined);
+    const post = await this.social.getPostById(postId, viewer?.id ?? undefined);
     if (!post) throw new NotFoundException('post_not_found');
     return {
       id: post.id,
@@ -57,7 +57,7 @@ export class PostsService {
 
   async list(actorToken?: string) {
     await (actorToken ? this.userRepository.authenticate(actorToken) : Promise.resolve(null));
-    const rows = await this.contentRepository.listPublicFeedPage({ limit: 50 });
+    const rows = await this.social.listPublicFeedPage({ limit: 50 });
     return rows.slice(0, 50).map((row) => row.post);
   }
 
@@ -70,7 +70,7 @@ export class PostsService {
       throw new BadRequestException('body_required');
     }
 
-    const post = await this.contentRepository.createPost({
+    const post = await this.social.createPost({
       authorId: actor.id,
       body: input.body.trim(),
       language: input.language,
@@ -92,7 +92,7 @@ export class PostsService {
     const actor = await this.userRepository.authenticate(actorToken);
     if (!actor) throw new NotFoundException('authenticated_user_not_found');
     if (!body.trim()) throw new BadRequestException('body_required');
-    const updated = await this.contentRepository.updatePostBody(postId, actor.id, body.trim());
+    const updated = await this.social.updatePostBody(postId, actor.id, body.trim());
     if (!updated) throw new NotFoundException('post_not_found');
     void this.queues.searchIndexing({ entityType: 'post', entityId: postId, operation: 'upsert' });
     return updated;
@@ -101,14 +101,14 @@ export class PostsService {
   async remove(actorToken: string, postId: string) {
     const actor = await this.userRepository.authenticate(actorToken);
     if (!actor) throw new NotFoundException('authenticated_user_not_found');
-    const removed = await this.contentRepository.removePostByAuthor(postId, actor.id);
+    const removed = await this.social.removePostByAuthor(postId, actor.id);
     if (!removed) throw new NotFoundException('post_not_found');
     void this.queues.searchIndexing({ entityType: 'post', entityId: postId, operation: 'delete' });
     return { id: postId, status: 'deleted' };
   }
 
   comments(postId: string) {
-    return this.contentRepository.listPostComments(postId);
+    return this.social.listPostComments(postId);
   }
 
   async like(actorToken: string, postId: string) {
@@ -116,7 +116,7 @@ export class PostsService {
     if (!actor) {
       throw new NotFoundException('authenticated_user_not_found');
     }
-    const result = await this.contentRepository.likePost(postId, actor.id);
+    const result = await this.social.likePost(postId, actor.id);
     if (result.changed) void this.queues.engagementCounts({ postId, metric: 'like', delta: 1 });
     void this.queues.analyticsAggregation({ scope: 'platform' });
     return result;
@@ -127,7 +127,7 @@ export class PostsService {
     if (!actor) {
       throw new NotFoundException('authenticated_user_not_found');
     }
-    const result = await this.contentRepository.unlikePost(postId, actor.id);
+    const result = await this.social.unlikePost(postId, actor.id);
     if (result.changed) void this.queues.engagementCounts({ postId, metric: 'like', delta: -1 });
     return result;
   }
@@ -137,7 +137,7 @@ export class PostsService {
     if (!actor) {
       throw new NotFoundException('authenticated_user_not_found');
     }
-    const result = await this.contentRepository.sharePost(postId, actor.id);
+    const result = await this.social.sharePost(postId, actor.id);
     if (result.changed) void this.queues.engagementCounts({ postId, metric: 'share', delta: 1 });
     void this.queues.analyticsAggregation({ scope: 'platform' });
     return result;
@@ -191,7 +191,7 @@ export class PostsService {
     if (!input.body.trim()) {
       throw new BadRequestException('body_required');
     }
-    const comment = await this.contentRepository.createPostComment({
+    const comment = await this.social.createPostComment({
       postId,
       authorId: actor.id,
       body: input.body.trim(),
