@@ -6,33 +6,6 @@ import { postgresPoolConfig, postgresReadPoolConfig } from './postgres';
 import { notBlocked, notMuted } from './sql-predicates';
 import { UserRepository } from './user.repository';
 
-export interface ChatMessageRecord {
-  id: string;
-  room: string;
-  authorId: string;
-  body: string;
-  createdAt: string;
-}
-
-export interface ChatMessageViewRecord {
-  id: string;
-  room: string;
-  authorId: string;
-  authorFullName: string;
-  body: string;
-  createdAt: string;
-}
-
-export interface ReportRecord {
-  id: string;
-  reporterId: string;
-  targetType: string;
-  targetId: string;
-  reason: string;
-  status: string;
-  createdAt: string;
-}
-
 
 
 export interface MediaItemRecord {
@@ -119,36 +92,6 @@ export class ContentRepository implements OnModuleInit {
     return { churchId, userId, followed: false, followerCount: Number(count.rows[0]?.count ?? 0) };
   }
 
-  async listChatMessages(room = 'general', limit = 50) {
-    const result = await this.pool.query(
-      `SELECT m.id, m.room, m.author_id, u.full_name AS author_full_name, m.body, m.created_at
-       FROM chat_messages m
-       JOIN users u ON u.id = m.author_id
-       WHERE m.room = $1
-       ORDER BY m.created_at DESC
-       LIMIT $2`,
-      [room, limit],
-    );
-    return result.rows.reverse().map((row) => this.mapChatMessageView(row));
-  }
-
-  async createChatMessage(input: { authorId: string; body: string; room?: string }) {
-    const record: ChatMessageRecord = {
-      id: randomUUID(),
-      room: input.room?.trim() || 'general',
-      authorId: input.authorId,
-      body: input.body,
-      createdAt: new Date().toISOString(),
-    };
-
-    await this.pool.query(
-      'INSERT INTO chat_messages (id, room, author_id, body, created_at) VALUES ($1, $2, $3, $4, $5)',
-      [record.id, record.room, record.authorId, record.body, record.createdAt],
-    );
-
-    return record;
-  }
-
   async recordAudit(actorId: string, action: string, targetType: string, targetId: string, metadata: Record<string, unknown> = {}) {
     await this.pool.query(
       'INSERT INTO api_audit_logs(actor_id,action,target_type,target_id,metadata) VALUES($1,$2,$3,$4,$5)',
@@ -156,77 +99,6 @@ export class ContentRepository implements OnModuleInit {
     );
   }
 
-  async listReports() {
-    const result = await this.pool.query(
-      'SELECT id, reporter_id, target_type, target_id, reason, status, created_at FROM reports ORDER BY created_at DESC',
-    );
-    return result.rows.map((row) => this.mapReport(row));
-  }
-
-  async updateReportStatus(reportId: string, status: string) {
-    const result = await this.pool.query(
-      'UPDATE reports SET status = $2 WHERE id = $1 RETURNING id, reporter_id, target_type, target_id, reason, status, created_at',
-      [reportId, status],
-    );
-    return result.rowCount === 0 ? null : this.mapReport(result.rows[0]);
-  }
-
-  getReport(reportId: string) {
-    return this.pool.query('SELECT id, target_type AS "targetType", target_id AS "targetId", status FROM reports WHERE id=$1 LIMIT 1', [reportId])
-      .then((r) => r.rows[0] ?? null);
-  }
-
-  // Records who resolved a report and what enforcement action was taken.
-  async resolveReport(reportId: string, actorId: string, status: string, action: string) {
-    const result = await this.pool.query(
-      `UPDATE reports SET status=$2, action=$4, resolved_by=$3,
-         resolved_at=CASE WHEN $2='open' THEN NULL ELSE now() END
-       WHERE id=$1 RETURNING id, reporter_id, target_type, target_id, reason, status, created_at`,
-      [reportId, status, actorId, action],
-    );
-    return result.rowCount === 0 ? null : this.mapReport(result.rows[0]);
-  }
-
-  // Soft-removes reported content so it stops appearing in feeds/threads.
-  async removeReportedContent(targetType: string, targetId: string, actorId: string) {
-    if (targetType === 'post') {
-      await this.pool.query('UPDATE posts SET removed_at=now(), removed_by=$2 WHERE id=$1 AND removed_at IS NULL', [targetId, actorId]);
-    } else if (targetType === 'comment' || targetType === 'post_comment') {
-      await this.pool.query('UPDATE post_comments SET removed_at=now() WHERE id=$1 AND removed_at IS NULL', [targetId]);
-    } else if (targetType === 'discussion' || targetType === 'community_discussion') {
-      await this.pool.query(`UPDATE community_discussions SET status='removed' WHERE id=$1`, [targetId]);
-    }
-  }
-
-  // Author of reported content, used to suspend the offender.
-  async contentAuthor(targetType: string, targetId: string): Promise<string | null> {
-    const table = targetType === 'post' ? 'posts'
-      : targetType === 'comment' || targetType === 'post_comment' ? 'post_comments'
-      : targetType === 'discussion' || targetType === 'community_discussion' ? 'community_discussions'
-      : null;
-    if (!table) return null;
-    const result = await this.pool.query(`SELECT author_id FROM ${table} WHERE id=$1 LIMIT 1`, [targetId]);
-    return result.rows[0]?.author_id ? String(result.rows[0].author_id) : null;
-  }
-
-  async createReport(input: { reporterId: string; targetType: string; targetId: string; reason: string }) {
-    const record: ReportRecord = {
-      id: randomUUID(),
-      reporterId: input.reporterId,
-      targetType: input.targetType,
-      targetId: input.targetId,
-      reason: input.reason,
-      status: 'open',
-      createdAt: new Date().toISOString(),
-    };
-
-    await this.pool.query(
-      'INSERT INTO reports (id, reporter_id, target_type, target_id, reason, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [record.id, record.reporterId, record.targetType, record.targetId, record.reason, record.status, record.createdAt],
-    );
-
-    return record;
-  }
 
 
   async seedIfEmpty() {
@@ -945,7 +817,7 @@ export class ContentRepository implements OnModuleInit {
       const messages = [
         { id: randomUUID(), room: 'general', authorId: userId, body: 'Welcome to the chat room', createdAt: now },
         { id: randomUUID(), room: 'general', authorId: userId, body: 'እንኳን ወደ ውይይት ክፍሉ በደህና መጡ', createdAt: now },
-      ] satisfies ChatMessageRecord[];
+      ];
       for (const record of messages) {
         await this.pool.query(
           'INSERT INTO chat_messages (id, room, author_id, body, created_at) VALUES ($1, $2, $3, $4, $5)',
@@ -1054,27 +926,5 @@ export class ContentRepository implements OnModuleInit {
 
 
 
-  private mapChatMessageView(row: Record<string, unknown>): ChatMessageViewRecord {
-    return {
-      id: String(row.id),
-      room: String(row.room),
-      authorId: String(row.author_id),
-      authorFullName: String(row.author_full_name),
-      body: String(row.body),
-      createdAt: this.iso(row.created_at),
-    };
-  }
-
-  private mapReport(row: Record<string, unknown>): ReportRecord {
-    return {
-      id: String(row.id),
-      reporterId: String(row.reporter_id),
-      targetType: String(row.target_type),
-      targetId: String(row.target_id),
-      reason: String(row.reason),
-      status: String(row.status),
-      createdAt: String(row.created_at),
-    };
-  }
 
 }

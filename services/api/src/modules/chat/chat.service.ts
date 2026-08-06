@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { ContentRepository } from '../../common/content.repository';
+import { ChatRepository } from './chat.repository';
 import { UserRepository } from '../../common/user.repository';
 
 @Injectable()
 export class ChatService {
   constructor(
-    private readonly contentRepository: ContentRepository,
+    private readonly chat: ChatRepository,
     private readonly userRepository: UserRepository,
   ) {}
 
@@ -18,7 +18,7 @@ export class ChatService {
   }
 
   listMessages(room?: string) {
-    return this.contentRepository.listChatMessages(room || 'general');
+    return this.chat.listChatMessages(room || 'general');
   }
 
   async sendMessage(actorToken: string, input: { body: string; room?: string }) {
@@ -30,7 +30,7 @@ export class ChatService {
       throw new BadRequestException('body_required');
     }
 
-    return this.contentRepository.createChatMessage({
+    return this.chat.createChatMessage({
       authorId: actor.id,
       body: input.body.trim(),
       room: input.room,
