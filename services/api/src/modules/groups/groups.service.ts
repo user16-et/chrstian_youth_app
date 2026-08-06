@@ -1,15 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { ContentRepository, GroupRecord } from '../../common/content.repository';
 import { UserRepository } from '../../common/user.repository';
 import { NotificationsService } from '../platform/notifications.service';
 import { GroupRealtime } from './group-realtime.service';
-import { GroupRepository } from './group.repository';
+import { GroupRepository, GroupRecord } from './group.repository';
 
 @Injectable()
 export class GroupsService {
   constructor(
-    private readonly contentRepository: ContentRepository,
     private readonly userRepository: UserRepository,
     private readonly groups: GroupRepository,
     private readonly notifications: NotificationsService,
@@ -61,11 +59,11 @@ export class GroupsService {
   }
 
   list(): Promise<GroupRecord[]> {
-    return this.contentRepository.listGroups();
+    return this.groups.listGroups();
   }
 
   async getById(groupId: string) {
-    const group = await this.contentRepository.getGroupById(groupId);
+    const group = await this.groups.getGroupById(groupId);
     if (!group) {
       throw new NotFoundException('group_not_found');
     }
@@ -74,7 +72,7 @@ export class GroupsService {
 
   async members(groupId: string) {
     await this.getById(groupId);
-    return this.contentRepository.listGroupMembers(groupId);
+    return this.groups.listGroupMembers(groupId);
   }
 
   async join(actorToken: string, groupId: string) {
@@ -83,7 +81,7 @@ export class GroupsService {
       throw new NotFoundException('authenticated_user_not_found');
     }
     await this.getById(groupId);
-    const result = await this.contentRepository.joinGroup(actor.id, groupId);
+    const result = await this.groups.joinGroup(actor.id, groupId);
     this.realtime.membersChanged(groupId, { userId: actor.id });
     return result;
   }
@@ -94,7 +92,7 @@ export class GroupsService {
       throw new NotFoundException('authenticated_user_not_found');
     }
     await this.getById(groupId);
-    const result = await this.contentRepository.leaveGroup(actor.id, groupId);
+    const result = await this.groups.leaveGroup(actor.id, groupId);
     this.realtime.membersChanged(groupId, { removedUserId: actor.id });
     return result;
   }
@@ -104,7 +102,7 @@ export class GroupsService {
     if (!actor) {
       throw new NotFoundException('authenticated_user_not_found');
     }
-    return this.contentRepository.listUserGroupMemberships(actor.id);
+    return this.groups.listUserGroupMemberships(actor.id);
   }
 
   // ---- Create / detail ----

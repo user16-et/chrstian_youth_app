@@ -3,6 +3,41 @@ import { Pool } from 'pg';
 
 import { postgresPoolConfig } from '../../common/postgres';
 
+export interface GroupRecord {
+  id: string;
+  name: string;
+  category: string;
+  createdAt: string;
+}
+
+export interface GroupMembershipRecord {
+  groupId: string;
+  userId: string;
+  role: string;
+  joinedAt: string;
+  status?: string;
+}
+
+export interface GroupMembershipViewRecord {
+  groupId: string;
+  groupName: string;
+  category: string;
+  userId: string;
+  userFullName: string;
+  phoneNumber: string;
+  role: string;
+  joinedAt: string;
+}
+
+export interface UserGroupMembershipViewRecord {
+  groupId: string;
+  groupName: string;
+  category: string;
+  userId: string;
+  role: string;
+  joinedAt: string;
+}
+
 @Injectable()
 export class GroupRepository {
   private readonly db: Pool;
@@ -377,5 +412,107 @@ export class GroupRepository {
         exceptId,
       ])
       .then((r) => r.rows.map((row) => String(row.user_id)));
+  }
+
+  // ---- Group directory & membership lists, extracted from ContentRepository. ----
+
+  async listGroups() {
+    const result = await this.db.query('SELECT id, name, category, created_at FROM groups ORDER BY created_at DESC');
+    return result.rows.map((row) => this.mapGroup(row));
+  }
+
+  async getGroupById(groupId: string) {
+    const result = await this.db.query('SELECT id, name, category, created_at FROM groups WHERE id = $1 LIMIT 1', [groupId]);
+    return result.rowCount === 0 ? null : this.mapGroup(result.rows[0]);
+  }
+
+  async listGroupMembers(groupId: string) {
+    const result = await this.db.query(
+      `SELECT gm.group_id, g.name AS group_name, g.category, gm.user_id, u.full_name, u.phone_number, gm.role, gm.joined_at
+       FROM group_memberships gm
+       JOIN groups g ON g.id = gm.group_id
+       JOIN users u ON u.id = gm.user_id
+       WHERE gm.group_id = $1
+       ORDER BY gm.joined_at DESC`,
+      [groupId],
+    );
+    return result.rows.map((row) => this.mapGroupMembershipView(row));
+  }
+
+  async listUserGroupMemberships(userId: string) {
+    const result = await this.db.query(
+      `SELECT gm.group_id, g.name AS group_name, g.category, gm.user_id, gm.role, gm.joined_at
+       FROM group_memberships gm
+       JOIN groups g ON g.id = gm.group_id
+       WHERE gm.user_id = $1
+       ORDER BY gm.joined_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapUserGroupMembershipView(row));
+  }
+
+  async joinGroup(userId: string, groupId: string): Promise<GroupMembershipRecord> {
+    // Private and secret groups require approval; only public groups auto-join.
+    const group = await this.db.query('SELECT type, visibility FROM groups WHERE id = $1', [groupId]);
+    const info = group.rows[0];
+    const restricted = ['private', 'secret'].includes(String(info?.type)) || ['private', 'secret'].includes(String(info?.visibility));
+    const status = restricted ? 'requested' : 'active';
+
+    const result = await this.db.query(
+      `INSERT INTO group_memberships (group_id, user_id, role, status, joined_at) VALUES ($1, $2, 'member', $3, now())
+       ON CONFLICT (group_id, user_id) DO UPDATE SET status = CASE WHEN group_memberships.status IN ('active','approved') THEN group_memberships.status ELSE EXCLUDED.status END
+       RETURNING group_id, user_id, role, status, joined_at`,
+      [groupId, userId, status],
+    );
+    const saved = result.rows[0];
+    return {
+      groupId,
+      userId,
+      role: String(saved?.role ?? 'member'),
+      status: String(saved?.status ?? status),
+      joinedAt: saved?.joined_at ? new Date(saved.joined_at).toISOString() : new Date().toISOString(),
+    };
+  }
+
+  async leaveGroup(userId: string, groupId: string) {
+    await this.db.query('DELETE FROM group_memberships WHERE group_id = $1 AND user_id = $2', [groupId, userId]);
+    return { groupId, userId, action: 'left' };
+  }
+
+  private mapGroup(row: Record<string, unknown>): GroupRecord {
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      category: String(row.category),
+      createdAt: this.iso(row.created_at),
+    };
+  }
+
+  private mapGroupMembershipView(row: Record<string, unknown>): GroupMembershipViewRecord {
+    return {
+      groupId: String(row.group_id),
+      groupName: String(row.group_name),
+      category: String(row.category),
+      userId: String(row.user_id),
+      userFullName: String(row.full_name),
+      phoneNumber: String(row.phone_number),
+      role: String(row.role),
+      joinedAt: this.iso(row.joined_at),
+    };
+  }
+
+  private mapUserGroupMembershipView(row: Record<string, unknown>): UserGroupMembershipViewRecord {
+    return {
+      groupId: String(row.group_id),
+      groupName: String(row.group_name),
+      category: String(row.category),
+      userId: String(row.user_id),
+      role: String(row.role),
+      joinedAt: this.iso(row.joined_at),
+    };
+  }
+
+  private iso(value: unknown): string {
+    return value instanceof Date ? value.toISOString() : String(value ?? '');
   }
 }

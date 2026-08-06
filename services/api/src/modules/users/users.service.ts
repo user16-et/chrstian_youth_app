@@ -1,14 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
-import { ContentRepository } from '../../common/content.repository';
 import { ChurchOperationsRepository } from '../churches/church-operations.repository';
+import { GroupRepository } from '../groups/group.repository';
 import { UserRepository, type UpdateProfileInput, type UserDirectoryRecord } from '../../common/user.repository';
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly userRepository: UserRepository,
-    private readonly contentRepository: ContentRepository,
+    private readonly groups: GroupRepository,
     private readonly churchOperations: ChurchOperationsRepository,
   ) {}
 
@@ -72,7 +72,7 @@ export class UsersService {
 
   async myGroupMemberships(actorToken: string) {
     const actor = await this.requireActor(actorToken);
-    return this.contentRepository.listUserGroupMemberships(actor.id);
+    return this.groups.listUserGroupMemberships(actor.id);
   }
 
   async follow(actorToken: string, targetUserId: string) {
