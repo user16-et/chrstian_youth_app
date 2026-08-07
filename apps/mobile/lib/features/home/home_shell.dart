@@ -6,6 +6,7 @@ import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/call_controller.dart';
 import '../../data/daily_verse_notifier.dart';
+import '../../data/push_service.dart';
 import '../../data/session_store.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
@@ -39,6 +40,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   final SessionStore _sessionStore = SessionStore();
+  late final PushService _pushService = PushService(widget.apiClient);
   int _index = 0;
   late Future<DashboardSnapshot> _snapshotFuture;
   AuthResult? _session;
@@ -107,6 +109,11 @@ class _HomeShellState extends State<HomeShell> {
     unawaited(
         session == null ? _sessionStore.clear() : _sessionStore.save(session));
     unawaited(widget.callController.bind(session));
+    // Register this device for push once signed in (no-op until Firebase is
+    // configured — see PushService / docs/push-notifications-setup.md).
+    if (session != null && session.token.isNotEmpty) {
+      unawaited(_pushService.enable(session.token));
+    }
     _scheduleSessionRefresh(session);
     unawaited(_refreshDashboard());
   }
