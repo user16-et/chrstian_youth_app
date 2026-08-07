@@ -55,7 +55,7 @@ export class QueueProducer implements OnModuleDestroy {
   }
 
   virusScanning(payload: QueueJobPayload<typeof QUEUE_NAMES.virusScanning>) {
-    return this.enqueue(QUEUE_NAMES.virusScanning, payload, `virus:\u0024{payload.assetId}`);
+    return this.enqueue(QUEUE_NAMES.virusScanning, payload, `virus:${payload.assetId}`);
   }
 
   badgeAwarding(payload: QueueJobPayload<typeof QUEUE_NAMES.badgeAwarding>) {
