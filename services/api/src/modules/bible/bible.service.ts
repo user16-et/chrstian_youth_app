@@ -69,14 +69,14 @@ export class BibleService {
     return this.bibleRepository.deletePersonalPlan(actor.id, planId);
   }
 
-  search(query: string, token: string | null, version?: string | null) {
+  search(query: string, token: string | null, version?: string | null, book?: string | null) {
     if (!query.trim()) {
       return [];
     }
     if (token) {
-      return this.userRepository.authenticate(token).then((actor) => this.bibleRepository.search(query, actor?.id ?? null, version));
+      return this.userRepository.authenticate(token).then((actor) => this.bibleRepository.search(query, actor?.id ?? null, version, book));
     }
-    return this.bibleRepository.search(query, null, version);
+    return this.bibleRepository.search(query, null, version, book);
   }
 
   async updateSettings(token: string, input: Record<string, unknown>) {

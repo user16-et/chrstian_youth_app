@@ -75,4 +75,58 @@ describe('Bible study features (integration)', () => {
     expect(await repo.deleteBibleNote(note.id, other.id)).toBe(false); // not owner
     expect(await repo.deleteBibleNote(note.id, user.id)).toBe(true);
   });
+
+  // Self-contained search coverage: seed one book + a few verses (the test DB
+  // ships no scripture), exercise whole-Bible, book-scoped, and Amharic search.
+  describe('search', () => {
+    const bookId = randomUUID();
+    const bookName = `SearchBook_${bookId.slice(0, 8)}`;
+    const bookNameAm = 'የሙከራ መጽሐፍ';
+
+    beforeAll(async () => {
+      await testPool.query(
+        `INSERT INTO bible_books (id, testament, name, name_am, book_order, code, chapters)
+         VALUES ($1,'New Testament',$2,$3,999,$4,3)`,
+        [bookId, bookName, bookNameAm, `T${bookId.slice(0, 6)}`],
+      );
+      const kjv = (await testPool.query("SELECT id FROM bible_versions WHERE code='kjv'")).rows[0].id;
+      const amh = (await testPool.query("SELECT id FROM bible_versions WHERE code='amh'")).rows[0].id;
+      await testPool.query(
+        `INSERT INTO bible_verses (id, version_id, book_id, chapter, verse, text) VALUES
+         ($1,$2,$3,3,16,'For God so loved the world'),
+         ($4,$2,$3,1,1,'In the beginning was the Word'),
+         ($5,$6,$3,3,16,'እግዚአብሔር ዓለምን እንዲሁ ወዶአልና')`,
+        [randomUUID(), kjv, bookId, randomUUID(), randomUUID(), amh],
+      );
+    });
+
+    afterAll(async () => {
+      await testPool.query('DELETE FROM bible_verses WHERE book_id = $1', [bookId]);
+      await testPool.query('DELETE FROM bible_books WHERE id = $1', [bookId]);
+    });
+
+    it('finds a verse whole-Bible and returns navigable book/chapter/verse', async () => {
+      const rows = await repo.search('loved', null, 'kjv');
+      const hit = rows.find((r) => r.book === bookName && r.verse === 16);
+      expect(hit).toBeDefined();
+      expect(hit).toMatchObject({ type: 'verse', chapter: 3, verse: 16 });
+    });
+
+    it('scopes results to a single book (English name)', async () => {
+      const inBook = await repo.search('loved', null, 'kjv', bookName);
+      expect(inBook.length).toBeGreaterThan(0);
+      expect(inBook.every((r) => r.book === bookName)).toBe(true);
+
+      // The same term scoped to a different book returns nothing from ours.
+      const elsewhere = await repo.search('loved', null, 'kjv', 'Genesis');
+      expect(elsewhere.some((r) => r.book === bookName)).toBe(false);
+    });
+
+    it('searches the Amharic version and exposes the Amharic book name', async () => {
+      const rows = await repo.search('ወዶአል', null, 'amh');
+      const hit = rows.find((r) => r.book === bookName);
+      expect(hit).toBeDefined();
+      expect(hit?.bookAm).toBe(bookNameAm);
+    });
+  });
 });

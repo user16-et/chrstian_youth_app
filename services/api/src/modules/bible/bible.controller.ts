@@ -80,8 +80,8 @@ export class BibleController {
 
   @ApiOperation({ summary: 'Search Bible content' })
   @Get('/bible/search')
-  search(@Query('q') query?: string, @Query('version') version?: string, @Headers('authorization') authorization?: string) {
-    return this.bibleService.search(query ?? '', authorization ? requireBearerToken(authorization) : null, version ?? null);
+  search(@Query('q') query?: string, @Query('version') version?: string, @Query('book') book?: string, @Headers('authorization') authorization?: string) {
+    return this.bibleService.search(query ?? '', authorization ? requireBearerToken(authorization) : null, version ?? null, book ?? null);
   }
 
   @ApiBearerAuth()

@@ -220,56 +220,75 @@ export class BibleRepository {
     return rows;
   }
 
-  async search(query: string, userId: string | null, version?: string | null) {
+  // Powerful, bilingual Bible search. Scope to the whole Bible or a single book
+  // (`book` matches either the English name or the Amharic name, so it works in
+  // both languages). Returns navigable book/chapter/verse fields so the client
+  // can jump straight to a hit, plus the user's own notes (whole-Bible only).
+  async search(query: string, userId: string | null, version?: string | null, book?: string | null) {
     const trimmed = query.trim();
     if (!trimmed) {
       return [];
     }
     const ref = this.parseReferenceOrNull(trimmed);
-    // $1 like, $2 userId, $3 version filter, then (only when it's a reference) $4 book, $5 chapter, $6 verse
-    const params: Params = [`%${trimmed}%`, userId, version || null];
+    const bookScope = book?.trim() ? book.trim() : null;
+    // Escape regex metacharacters so a query like "(grace)" can't break the
+    // word-boundary rank regex below.
+    const rankTerm = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // $1 like, $2 userId, $3 version, $4 book scope, $5 rank term, then
+    // (reference only) $6 book, $7 chapter, $8 verse
+    const params: Params = [`%${trimmed}%`, userId, version || null, bookScope, rankTerm];
     let refClause = '';
     if (ref) {
       params.push(ref.book, ref.chapter, ref.verse);
-      refClause = 'OR (lower(b.name) = lower($4) AND bv.chapter = $5 AND bv.verse = $6)';
+      refClause = 'OR (lower(b.name) = lower($6) AND bv.chapter = $7 AND bv.verse = $8)';
     }
     // Split the verse match into two index-friendly branches: the text match
     // uses the trigram index on bible_verses.text, while the book-name /
     // reference match filters the (tiny) books table first. Combining them with
     // OR in one predicate forced a full scan of every verse (~62k rows).
+    // The $4 book scope matches English *or* Amharic name so scoping works in
+    // either language. Ranking puts a whole-word hit before a mere substring,
+    // then falls back to canonical order.
     const result = await this.db.query(
-      `SELECT type, reference, "verseText", language, source FROM (
+      `SELECT type, reference, "verseText", language, source, book, "bookAm", chapter, verse FROM (
          (
            SELECT 'verse' AS type, concat(b.name, ' ', bv.chapter, ':', bv.verse) AS reference,
                   bv.text AS "verseText", v.code AS language, v.name AS source,
-                  b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
+                  b.name AS book, b.name_am AS "bookAm", bv.chapter AS chapter, bv.verse AS verse,
+                  (bv.text !~* ('\\y' || $5 || '\\y'))::int AS rank, b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
            FROM bible_verses bv
            JOIN bible_versions v ON v.id = bv.version_id
            JOIN bible_books b ON b.id = bv.book_id
            WHERE ($3::text IS NULL OR lower(v.code) = lower($3))
+             AND ($4::text IS NULL OR lower(b.name) = lower($4) OR lower(b.name_am) = lower($4))
              AND bv.text ILIKE $1
-           LIMIT 50
+           LIMIT 80
          )
          UNION
          (
            SELECT 'verse' AS type, concat(b.name, ' ', bv.chapter, ':', bv.verse) AS reference,
                   bv.text AS "verseText", v.code AS language, v.name AS source,
-                  b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
+                  b.name AS book, b.name_am AS "bookAm", bv.chapter AS chapter, bv.verse AS verse,
+                  0 AS rank, b.book_order AS o1, bv.chapter AS o2, bv.verse AS o3
            FROM bible_verses bv
            JOIN bible_versions v ON v.id = bv.version_id
            JOIN bible_books b ON b.id = bv.book_id
            WHERE ($3::text IS NULL OR lower(v.code) = lower($3))
-             AND (b.name ILIKE $1 ${refClause})
-           LIMIT 50
+             AND ($4::text IS NULL OR lower(b.name) = lower($4) OR lower(b.name_am) = lower($4))
+             AND ((b.name ILIKE $1 OR b.name_am ILIKE $1) ${refClause})
+           LIMIT 80
          )
          UNION ALL
          SELECT 'note' AS type, reference, verse_text AS "verseText", language, 'My notes' AS source,
-                1000 AS o1, 0 AS o2, 0 AS o3
+                NULL::text AS book, NULL::text AS "bookAm", NULL::int AS chapter, NULL::int AS verse,
+                0 AS rank, 1000 AS o1, 0 AS o2, 0 AS o3
          FROM bible_notes
-         WHERE $2::uuid IS NOT NULL AND user_id = $2::uuid AND (note ILIKE $1 OR reference ILIKE $1)
+         WHERE $2::uuid IS NOT NULL AND user_id = $2::uuid
+           AND ($4::text IS NULL OR reference ILIKE $4 || ' %' OR reference ILIKE $4 || '%')
+           AND (note ILIKE $1 OR reference ILIKE $1)
        ) results
-       ORDER BY o1, o2, o3
-       LIMIT 50`,
+       ORDER BY rank, o1, o2, o3
+       LIMIT 80`,
       params,
     );
     return result.rows;
