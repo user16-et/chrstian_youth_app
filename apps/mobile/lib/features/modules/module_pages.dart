@@ -15,6 +15,7 @@ import '../../theme/app_theme.dart';
 import 'church_detail_page.dart';
 import 'courtship_swipe.dart';
 import 'bible_reader.dart';
+import 'bible_search.dart';
 import 'group_detail_screen.dart';
 import 'likes_you.dart';
 import 'matches_inbox.dart';

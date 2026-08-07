@@ -469,25 +469,39 @@ class PrayerJournalItem {
 class BibleSearchResultItem {
   const BibleSearchResultItem({
     required this.kind,
-    required this.title,
-    required this.subtitle,
+    required this.reference,
+    required this.verseText,
+    required this.source,
     required this.language,
-    required this.createdAt,
+    this.book,
+    this.bookAm,
+    this.chapter,
+    this.verse,
   });
 
-  final String kind;
-  final String title;
-  final String subtitle;
-  final String language;
-  final String createdAt;
+  final String kind; // 'verse' or 'note'
+  final String reference; // e.g. "John 3:16"
+  final String verseText;
+  final String source; // version name, or "My notes"
+  final String language; // version code (kjv/amh) or note language
+  final String? book; // English book name — used for scoping + navigation
+  final String? bookAm; // Amharic book name — for display
+  final int? chapter;
+  final int? verse;
+
+  bool get isNavigable => book != null && chapter != null;
 
   factory BibleSearchResultItem.fromJson(Map<String, dynamic> json) {
     return BibleSearchResultItem(
-      kind: json['kind'] as String? ?? 'verse',
-      title: json['title'] as String? ?? '',
-      subtitle: json['subtitle'] as String? ?? '',
+      kind: json['type'] as String? ?? 'verse',
+      reference: json['reference'] as String? ?? '',
+      verseText: json['verseText'] as String? ?? '',
+      source: json['source'] as String? ?? '',
       language: json['language'] as String? ?? 'en',
-      createdAt: json['createdAt'] as String? ?? '',
+      book: json['book'] as String?,
+      bookAm: json['bookAm'] as String?,
+      chapter: (json['chapter'] as num?)?.toInt(),
+      verse: (json['verse'] as num?)?.toInt(),
     );
   }
 }

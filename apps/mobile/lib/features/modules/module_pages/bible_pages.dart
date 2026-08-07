@@ -1234,6 +1234,23 @@ class _BibleScreenState extends State<BibleScreen> {
                   ),
                 )),
               ),
+              const SizedBox(height: 12),
+
+              // Search across the whole Bible (scope narrows inside the screen).
+              _SearchLauncher(
+                colors: colors,
+                label: _tr('Search the Bible', 'መጽሐፍ ቅዱስን ይፈልጉ'),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => BibleSearchScreen(
+                    apiClient: widget.apiClient,
+                    language: language,
+                    token: widget.session?.token,
+                    versions: _list(ecosystem, 'versions'),
+                    books: _list(ecosystem, 'books'),
+                    initialVersion: _readerVersion,
+                  ),
+                )),
+              ),
               const SizedBox(height: 18),
 
               // Verse of the day, with clear one-tap actions.
@@ -1920,6 +1937,48 @@ class _ReaderLauncher extends StatelessWidget {
                 const Icon(Icons.arrow_forward_rounded, color: Colors.white),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// A search-bar-styled tile that opens the full Bible search. Deliberately quiet
+// so it reads as secondary to the gradient reader launcher above it.
+class _SearchLauncher extends StatelessWidget {
+  const _SearchLauncher({
+    required this.colors,
+    required this.label,
+    required this.onTap,
+  });
+
+  final ColorScheme colors;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: colors.surfaceContainerHighest.withValues(alpha: 0.6),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(Icons.search_rounded, color: colors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(label,
+                    style: TextStyle(
+                        color: colors.onSurfaceVariant,
+                        fontWeight: FontWeight.w600)),
+              ),
+              Icon(Icons.tune_rounded, size: 18, color: colors.onSurfaceVariant),
+            ],
           ),
         ),
       ),

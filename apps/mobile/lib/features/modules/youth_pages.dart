@@ -710,10 +710,14 @@ class _SearchResultCard extends StatelessWidget {
       'highlight' => Icons.highlight_rounded,
       _ => Icons.auto_stories_rounded,
     };
+    final en = language == AppLanguage.english;
+    final reference = !en && item.bookAm != null && item.chapter != null
+        ? '${item.bookAm} ${item.chapter}:${item.verse}'
+        : item.reference;
     return ListTile(
       leading: Icon(icon),
-      title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(item.subtitle, maxLines: 3, overflow: TextOverflow.ellipsis),
+      title: Text(reference, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(item.verseText, maxLines: 3, overflow: TextOverflow.ellipsis),
       tileColor: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     );

@@ -1623,10 +1623,13 @@ class ApiClient {
   }
 
   Future<List<BibleSearchResultItem>> searchBible(String query,
-      {String? token, String? version}) async {
+      {String? token, String? version, String? book}) async {
     var path = '/bible/search?q=${Uri.encodeQueryComponent(query)}';
     if (version != null && version.isNotEmpty) {
       path += '&version=${Uri.encodeQueryComponent(version)}';
+    }
+    if (book != null && book.isNotEmpty) {
+      path += '&book=${Uri.encodeQueryComponent(book)}';
     }
     final response = token == null
         ? await _getJson(path)

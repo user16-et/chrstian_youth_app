@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/api_client.dart';
+import '../../data/app_models.dart';
 import '../../data/bible_local_store.dart';
 import '../../i18n/app_i18n.dart';
+import 'bible_search.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
 String _t(AppLanguage l, String en, String am) => _en(l) ? en : am;
@@ -224,6 +226,11 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                 child: Icon(Icons.cloud_done_rounded, size: 20, color: colors.primary),
               ),
             ),
+          IconButton(
+            tooltip: _t(lang, 'Search', 'ፈልግ'),
+            icon: const Icon(Icons.search_rounded),
+            onPressed: (_books.isEmpty || _versions.isEmpty) ? null : _openSearch,
+          ),
           TextButton(
             onPressed: _versions.isEmpty ? null : _openTranslationPicker,
             child: Text(_primary.toUpperCase(),
@@ -338,6 +345,43 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   }
 
   // ---- Pickers ----
+
+  // Open the powerful search (defaults to "this book" scope) and jump straight
+  // to whatever the user taps.
+  Future<void> _openSearch() async {
+    final result = await Navigator.of(context).push<BibleSearchResultItem>(
+      MaterialPageRoute(
+        builder: (_) => BibleSearchScreen(
+          apiClient: widget.apiClient,
+          language: lang,
+          token: widget.token,
+          versions: _versions,
+          books: _books,
+          currentBook: _book,
+          initialVersion: _primary,
+        ),
+      ),
+    );
+    if (result != null && result.isNavigable) _jumpToResult(result);
+  }
+
+  void _jumpToResult(BibleSearchResultItem item) {
+    final book = _books.firstWhere(
+      (b) => '${b['name']}'.toLowerCase() == (item.book ?? '').toLowerCase(),
+      orElse: () => <String, dynamic>{},
+    );
+    if (book.isEmpty) return;
+    // If the result is from a version we have, switch the primary reader to it
+    // so the tapped verse is the one shown.
+    if (_versions.any((v) => v['code'] == item.language)) {
+      _primary = item.language;
+    }
+    setState(() {
+      _book = book;
+      _chapter = item.chapter ?? 1;
+    });
+    _loadChapter();
+  }
 
   Future<void> _openBookPicker() async {
     final selected = await showModalBottomSheet<Map<String, dynamic>>(

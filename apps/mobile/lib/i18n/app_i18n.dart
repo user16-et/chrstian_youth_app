@@ -21,6 +21,21 @@ extension AppLanguageX on AppLanguage {
       };
 }
 
+/// Localized label for a Bible testament category. The DB stores the English
+/// value ('Old Testament' / 'New Testament'); this renders it in Amharic when
+/// the app is in Amharic. Unknown values pass through unchanged.
+String testamentLabel(AppLanguage lang, String testament) {
+  final en = lang == AppLanguage.english;
+  switch (testament) {
+    case 'Old Testament':
+      return en ? 'Old Testament' : 'ብሉይ ኪዳን';
+    case 'New Testament':
+      return en ? 'New Testament' : 'አዲስ ኪዳን';
+    default:
+      return testament;
+  }
+}
+
 class AppStrings {
   static const Map<AppLanguage, Map<String, String>> _strings = {
     AppLanguage.english: {
