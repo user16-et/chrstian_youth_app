@@ -3363,6 +3363,10 @@ class ApiClient {
     final request = http.Request(method, uri)
       ..headers.addAll({
         'Accept': 'application/json',
+        // Skip ngrok's free-tier browser-warning interstitial: without this,
+        // a demo tunnel can answer API calls with an HTML page that fails to
+        // parse as JSON and blanks the screen. Harmless against any other host.
+        'ngrok-skip-browser-warning': 'true',
         if (body != null) 'Content-Type': 'application/json; charset=utf-8',
         ...headers,
       });
