@@ -405,6 +405,12 @@ export class RelationshipRepository {
   }
 
   addMessage(userId: string, relationshipId: string, input: Record<string, unknown>) { return this.one('INSERT INTO relationship_messages(relationship_id,author_id,body,verse_reference,attachment_url,attachment_type) VALUES($1,$2,$3,$4,$5,$6) RETURNING *', [relationshipId, userId, input.body ?? '', input.verseReference ?? '', input.attachmentUrl ?? '', input.attachmentType ?? '']); }
+
+  // Persist a call-log entry into a courtship match's message thread. Authored
+  // by the caller; the client renders direction from metadata.callerId.
+  insertCallLog(relationshipId: string, callerId: string, metadata: Record<string, unknown>) {
+    return this.one('INSERT INTO relationship_messages(relationship_id,author_id,body,metadata) VALUES($1,$2,$3,$4::jsonb) RETURNING *', [relationshipId, callerId, '', JSON.stringify(metadata)]);
+  }
   addPrayer(userId: string, relationshipId: string, input: Record<string, unknown>) { return this.one('INSERT INTO relationship_shared_prayers(relationship_id,created_by,title,body) VALUES($1,$2,$3,$4) RETURNING *', [relationshipId, userId, input.title, input.body ?? '']); }
   answerPrayer(userId: string, prayerId: string) { return this.one(`UPDATE relationship_shared_prayers p SET status='answered',answered_at=now() FROM relationship_connections rc WHERE p.relationship_id=rc.id AND p.id=$1 AND (rc.user1_id=$2 OR rc.user2_id=$2) RETURNING p.*`, [prayerId, userId]); }
   addBiblePlan(_userId: string, relationshipId: string, input: Record<string, unknown>) { return this.one('INSERT INTO relationship_bible_plans(relationship_id,title,passage) VALUES($1,$2,$3) RETURNING *', [relationshipId, input.title, input.passage ?? '']); }

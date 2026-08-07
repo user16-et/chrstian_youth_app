@@ -12,10 +12,19 @@ import {
 import { Server, Socket } from 'socket.io';
 
 import { ConferenceRegistry } from '../../common/conference-registry';
-import { CallService } from './call.service';
+import { CallOutcome, CallService } from './call.service';
 
 type CallUser = { id: string; fullName: string; username: string };
 type AuthedSocket = Socket & { data: { user?: CallUser; conferenceRooms?: Set<string>; authReady?: Promise<void> } };
+
+interface CallState {
+  conversationId: string;
+  callerId: string;
+  calleeId: string;
+  media: 'audio' | 'video';
+  invitedAt: number;
+  acceptedAt: number | null;
+}
 
 /**
  * Signaling for WebRTC calls. This gateway carries invitations, presence, and
@@ -29,15 +38,51 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(CallGateway.name);
 
+  // In-flight 1:1 calls, so we can log an accurate outcome + duration when a
+  // call reaches any terminal state (decline / cancel / end / disconnect).
+  private readonly activeCalls = new Map<string, CallState>();
+
   constructor(
     private readonly service: CallService,
     private readonly conferences: ConferenceRegistry,
   ) {}
 
+  // Write one call-log message into the conversation and tell both users so
+  // their open chat can show it live. Deleting state first makes this idempotent
+  // (both peers ending, or an end followed by a disconnect, log only once).
+  private async finalizeCall(callId: string, outcome: CallOutcome) {
+    const state = this.activeCalls.get(callId);
+    if (!state) return;
+    this.activeCalls.delete(callId);
+    const durationSeconds = outcome === 'completed' && state.acceptedAt
+      ? Math.max(0, Math.round((Date.now() - state.acceptedAt) / 1000))
+      : 0;
+    const message = await this.service.logCall({
+      conversationId: state.conversationId,
+      callerId: state.callerId,
+      calleeId: state.calleeId,
+      media: state.media,
+      outcome,
+      durationSeconds,
+    });
+    if (message) {
+      for (const userId of [state.callerId, state.calleeId]) {
+        this.server.to(this.userRoom(userId)).emit('call:logged', { conversationId: state.conversationId, message });
+      }
+    }
+  }
+
   handleDisconnect(client: AuthedSocket) {
     const user = client.data.user;
+    if (!user) return;
+    // Finalize any 1:1 call this user was in so a dropped connection still logs.
+    for (const [callId, state] of this.activeCalls) {
+      if (state.callerId === user.id || state.calleeId === user.id) {
+        void this.finalizeCall(callId, state.acceptedAt ? 'completed' : 'missed');
+      }
+    }
     const rooms = client.data.conferenceRooms;
-    if (!user || !rooms) return;
+    if (!rooms) return;
     for (const groupId of rooms) {
       this.conferences.leave(groupId, user.id);
       client.to(this.groupRoom(groupId)).emit('peer:left', { groupId, peerId: user.id });
@@ -89,6 +134,14 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!callerOk || !calleeOk) return { ok: false, error: 'conversation_access_denied' };
 
     const callId = randomUUID();
+    this.activeCalls.set(callId, {
+      conversationId,
+      callerId: user.id,
+      calleeId,
+      media,
+      invitedAt: Date.now(),
+      acceptedAt: null,
+    });
     await client.join(this.callRoom(callId));
     this.server.to(this.userRoom(calleeId)).emit('call:incoming', {
       callId,
@@ -104,6 +157,8 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = await this.authedUser(client);
     const callId = String(body?.callId ?? '').trim();
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
+    const state = this.activeCalls.get(callId);
+    if (state) state.acceptedAt = Date.now();
     await client.join(this.callRoom(callId));
     // The caller initiates the WebRTC offer once the callee has accepted.
     client.to(this.callRoom(callId)).emit('call:accepted', { callId, by: user });
@@ -116,6 +171,7 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const callId = String(body?.callId ?? '').trim();
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
     this.server.to(this.callRoom(callId)).emit('call:declined', { callId, by: user });
+    void this.finalizeCall(callId, 'declined');
     return { ok: true };
   }
 
@@ -127,6 +183,7 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
     if (calleeId) this.server.to(this.userRoom(calleeId)).emit('call:cancelled', { callId, by: user });
     this.server.to(this.callRoom(callId)).emit('call:cancelled', { callId, by: user });
+    void this.finalizeCall(callId, 'cancelled');
     return { ok: true };
   }
 
@@ -137,6 +194,9 @@ export class CallGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!user || !callId) return { ok: false, error: 'call_invalid' };
     this.server.to(this.callRoom(callId)).emit('call:ended', { callId, by: user });
     await client.leave(this.callRoom(callId));
+    // Connected before ending => a completed call; otherwise it never connected.
+    const state = this.activeCalls.get(callId);
+    void this.finalizeCall(callId, state?.acceptedAt ? 'completed' : 'missed');
     return { ok: true };
   }
 

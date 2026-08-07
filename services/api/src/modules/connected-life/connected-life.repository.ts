@@ -159,7 +159,7 @@ export class ConnectedLifeRepository {
     const after = options.after?.trim();
     const result = await this.pool.query(
       `SELECT dm.id,dm.body,dm.attachment_url AS "attachmentUrl",dm.attachment_type AS "attachmentType",
-        dm.created_at AS "createdAt",dm.edited_at AS "editedAt",dm.deleted_at AS "deletedAt",
+        dm.metadata,dm.created_at AS "createdAt",dm.edited_at AS "editedAt",dm.deleted_at AS "deletedAt",
         u.full_name AS "authorName",u.username AS "authorUsername",dm.author_id AS "authorId"
        FROM direct_messages dm JOIN users u ON u.id=dm.author_id
        JOIN conversation_members cm ON cm.conversation_id=dm.conversation_id AND cm.user_id=$2
@@ -179,12 +179,38 @@ export class ConnectedLifeRepository {
         SELECT $1,$2,$3,$4,$5,$6::jsonb WHERE EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id=$1 AND user_id=$2)
         RETURNING id,conversation_id,author_id,body,attachment_url,attachment_type,created_at,edited_at,deleted_at
       )
-      SELECT i.id,i.conversation_id AS "conversationId",i.author_id AS "authorId",i.body,i.attachment_url AS "attachmentUrl",i.attachment_type AS "attachmentType",i.created_at AS "createdAt",i.edited_at AS "editedAt",i.deleted_at AS "deletedAt",u.full_name AS "authorName",u.username AS "authorUsername"
+      SELECT i.id,i.conversation_id AS "conversationId",i.author_id AS "authorId",i.body,i.attachment_url AS "attachmentUrl",i.attachment_type AS "attachmentType",i.metadata,i.created_at AS "createdAt",i.edited_at AS "editedAt",i.deleted_at AS "deletedAt",u.full_name AS "authorName",u.username AS "authorUsername"
       FROM inserted i JOIN users u ON u.id=i.author_id`,
       [id,userId,input.body||'',input.attachmentUrl||'',input.attachmentType||'', JSON.stringify(input.metadata ?? {})]);
     const message = result.rows[0];
     if (message) await this.markRead(userId, id, message.id);
     return message;
+  }
+
+  // Persist a call-log entry (missed / declined / completed…) into a direct
+  // conversation, visible to both members. Authored by the caller; the client
+  // renders direction from metadata.callerId. Returns the created row.
+  async insertCallLog(conversationId: string, callerId: string, metadata: Record<string, unknown>) {
+    const result = await this.pool.query(
+      `WITH inserted AS (
+         INSERT INTO direct_messages(conversation_id,author_id,body,metadata)
+         SELECT $1,$2,'',$3::jsonb WHERE EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id=$1 AND user_id=$2)
+         RETURNING id,conversation_id,author_id,body,attachment_url,attachment_type,metadata,created_at,edited_at,deleted_at
+       )
+       SELECT i.id,i.conversation_id AS "conversationId",i.author_id AS "authorId",i.body,i.attachment_url AS "attachmentUrl",i.attachment_type AS "attachmentType",i.metadata,i.created_at AS "createdAt",i.edited_at AS "editedAt",i.deleted_at AS "deletedAt",u.full_name AS "authorName",u.username AS "authorUsername"
+       FROM inserted i JOIN users u ON u.id=i.author_id`,
+      [conversationId, callerId, JSON.stringify(metadata)],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  // The other member of a direct conversation (used to address a call-back).
+  async otherMember(conversationId: string, userId: string) {
+    const result = await this.pool.query(
+      'SELECT user_id FROM conversation_members WHERE conversation_id=$1 AND user_id<>$2 LIMIT 1',
+      [conversationId, userId],
+    );
+    return result.rows[0]?.user_id ?? null;
   }
 
   async markRead(userId: string, id: string, messageId?: string) {

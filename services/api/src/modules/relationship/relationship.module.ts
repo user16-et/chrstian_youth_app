@@ -9,5 +9,6 @@ import { RelationshipService } from './relationship.service';
   imports: [PlatformModule],
   controllers: [RelationshipController],
   providers: [RelationshipService, RelationshipRepository, RelationshipChatGateway],
+  exports: [RelationshipRepository],
 })
 export class RelationshipModule {}

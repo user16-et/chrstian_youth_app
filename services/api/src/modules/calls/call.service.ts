@@ -1,12 +1,24 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
+import { RelationshipRepository } from '../relationship/relationship.repository';
 import { UserRepository } from '../../common/user.repository';
 
 export interface IceServer {
   urls: string[];
   username?: string;
   credential?: string;
+}
+
+export type CallOutcome = 'completed' | 'missed' | 'declined' | 'cancelled';
+
+export interface CallLog {
+  conversationId: string;
+  callerId: string;
+  calleeId: string;
+  media: 'audio' | 'video';
+  outcome: CallOutcome;
+  durationSeconds: number;
 }
 
 /**
@@ -19,7 +31,31 @@ export class CallService {
   constructor(
     private readonly users: UserRepository,
     private readonly life: ConnectedLifeRepository,
+    private readonly relationships: RelationshipRepository,
   ) {}
+
+  // Persist a call-log message into the conversation the call belongs to. A
+  // "match:<id>" conversation lives in the courtship thread; anything else is a
+  // direct conversation. Best-effort — a logging failure must never crash the
+  // signaling gateway.
+  async logCall(log: CallLog): Promise<Record<string, unknown> | null> {
+    const metadata = {
+      kind: 'call',
+      media: log.media,
+      outcome: log.outcome,
+      durationSeconds: log.durationSeconds,
+      callerId: log.callerId,
+      calleeId: log.calleeId,
+    };
+    try {
+      if (log.conversationId.startsWith('match:')) {
+        return await this.relationships.insertCallLog(log.conversationId.slice('match:'.length), log.callerId, metadata);
+      }
+      return await this.life.insertCallLog(log.conversationId, log.callerId, metadata);
+    } catch {
+      return null;
+    }
+  }
 
   async authenticateSocket(token: string) {
     const user = await this.users.authenticate(token);
