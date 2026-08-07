@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 
 import { ConnectedLifeModule } from '../connected-life/connected-life.module';
+import { PlatformModule } from '../platform/platform.module';
 import { RelationshipModule } from '../relationship/relationship.module';
 import { CallGateway } from './call.gateway';
 import { CallService } from './call.service';
 import { CallsController } from './calls.controller';
 
 @Module({
-  imports: [ConnectedLifeModule, RelationshipModule],
+  imports: [ConnectedLifeModule, RelationshipModule, PlatformModule],
   controllers: [CallsController],
   providers: [CallService, CallGateway],
 })

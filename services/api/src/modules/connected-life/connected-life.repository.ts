@@ -213,6 +213,24 @@ export class ConnectedLifeRepository {
     return result.rows[0]?.user_id ?? null;
   }
 
+  // Everyone in a conversation except the sender — the message recipients.
+  async conversationRecipients(conversationId: string, senderId: string) {
+    const result = await this.pool.query(
+      'SELECT user_id FROM conversation_members WHERE conversation_id=$1 AND user_id<>$2',
+      [conversationId, senderId],
+    );
+    return result.rows.map((row) => String(row.user_id));
+  }
+
+  // Enough of a conversation to shape a message notification (direct vs group).
+  async conversationForNotify(conversationId: string) {
+    const result = await this.pool.query(
+      "SELECT kind, scope_type AS \"scopeType\", title FROM conversations WHERE id=$1",
+      [conversationId],
+    );
+    return result.rows[0] ?? null;
+  }
+
   async markRead(userId: string, id: string, messageId?: string) {
     const result = await this.pool.query(
       `UPDATE conversation_members

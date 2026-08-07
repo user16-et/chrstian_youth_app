@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
 import { RelationshipRepository } from '../relationship/relationship.repository';
+import { NotificationsService } from '../platform/notifications.service';
 import { UserRepository } from '../../common/user.repository';
 
 export interface IceServer {
@@ -32,6 +33,7 @@ export class CallService {
     private readonly users: UserRepository,
     private readonly life: ConnectedLifeRepository,
     private readonly relationships: RelationshipRepository,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Persist a call-log message into the conversation the call belongs to. A
@@ -47,6 +49,11 @@ export class CallService {
       callerId: log.callerId,
       calleeId: log.calleeId,
     };
+    // A call the callee didn't pick up: nudge them like Telegram does. The
+    // notifications service applies the user's "missed calls" push preference.
+    if (log.outcome === 'missed' || log.outcome === 'cancelled') {
+      void this.notifyMissedCall(log).catch(() => undefined);
+    }
     try {
       if (log.conversationId.startsWith('match:')) {
         return await this.relationships.insertCallLog(log.conversationId.slice('match:'.length), log.callerId, metadata);
@@ -55,6 +62,24 @@ export class CallService {
     } catch {
       return null;
     }
+  }
+
+  private async notifyMissedCall(log: CallLog) {
+    const caller = await this.users.getById(log.callerId).catch(() => null);
+    const name = caller?.fullName?.trim() || 'Someone';
+    const kind = log.media === 'video' ? 'video call' : 'call';
+    await this.notifications.send({
+      userId: log.calleeId,
+      actorId: log.callerId,
+      type: 'missed_call',
+      title: 'Missed call',
+      body: `${name} tried to reach you (${kind}).`,
+      targetType: 'conversation',
+      priority: 'high',
+      channels: ['in_app', 'push'],
+      dedupeKey: `missed_call:${log.conversationId}:${log.callerId}:${Math.floor(Date.now() / 60000)}`,
+      metadata: { conversationId: log.conversationId, media: log.media },
+    });
   }
 
   async authenticateSocket(token: string) {

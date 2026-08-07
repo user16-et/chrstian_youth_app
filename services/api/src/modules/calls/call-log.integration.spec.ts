@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { CallService } from './call.service';
+import type { NotificationsService } from '../platform/notifications.service';
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
 import { RelationshipRepository } from '../relationship/relationship.repository';
 import { UserRepository } from '../../common/user.repository';
@@ -17,6 +18,7 @@ describe('Call logging (integration)', () => {
   let users: UserRepository;
   let life: ConnectedLifeRepository;
   let relationships: RelationshipRepository;
+  let notifications: NotificationsService;
   let caller: TestUser;
   let callee: TestUser;
   let conversationId: string;
@@ -26,7 +28,8 @@ describe('Call logging (integration)', () => {
     users = new UserRepository();
     life = new ConnectedLifeRepository();
     relationships = new RelationshipRepository();
-    service = new CallService(users, life, relationships);
+    notifications = { send: jest.fn().mockResolvedValue({}) } as unknown as NotificationsService;
+    service = new CallService(users, life, relationships, notifications);
     caller = await createUser();
     callee = await createUser();
 
@@ -81,6 +84,10 @@ describe('Call logging (integration)', () => {
     const row = await testPool.query('SELECT metadata FROM relationship_messages WHERE relationship_id = $1', [relationshipId]);
     expect(row.rowCount).toBe(1);
     expect(row.rows[0].metadata).toMatchObject({ kind: 'call', media: 'video', outcome: 'missed', callerId: caller.id });
+    // A missed call also pings the callee (subject to their push preference).
+    expect(notifications.send).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: callee.id, type: 'missed_call' }),
+    );
   });
 
   it('never throws when the conversation is not writable (best-effort logging)', async () => {

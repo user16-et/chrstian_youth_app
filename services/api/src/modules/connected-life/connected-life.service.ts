@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
+import { NotificationsService } from '../platform/notifications.service';
 import { ConnectedLifeRepository } from './connected-life.repository';
 
 const SCOPED_CHAT_TYPES = ['church', 'ministry', 'group', 'event', 'community_event', 'marketplace_listing'] as const;
@@ -9,7 +10,41 @@ type ScopedChatType = typeof SCOPED_CHAT_TYPES[number];
 
 @Injectable()
 export class ConnectedLifeService {
-  constructor(private readonly users: UserRepository, private readonly life: ConnectedLifeRepository, private readonly queues: QueueProducer) {}
+  constructor(private readonly users: UserRepository, private readonly life: ConnectedLifeRepository, private readonly queues: QueueProducer, private readonly notifications: NotificationsService) {}
+
+  // Notify the other participant(s) of a new chat message. A direct chat is a
+  // "friend message"; a scoped conversation is a "group message" — each gated
+  // by its own push preference. Best-effort; never blocks sending.
+  private async notifyNewMessage(senderId: string, conversationId: string, message: Record<string, unknown>) {
+    try {
+      const conv = await this.life.conversationForNotify(conversationId);
+      if (!conv) return;
+      const isGroup = String(conv.scopeType ?? '') !== '' || String(conv.kind ?? 'direct') !== 'direct';
+      const recipients = await this.life.conversationRecipients(conversationId, senderId);
+      if (recipients.length === 0) return;
+      const sender = await this.users.getById(senderId).catch(() => null);
+      const name = sender?.fullName?.trim() || 'Someone';
+      const raw = String(message.body ?? '').trim();
+      const preview = raw.length > 80 ? `${raw.slice(0, 80)}…` : (raw || 'Sent an attachment');
+      const groupTitle = String(conv.title ?? '').trim();
+      for (const userId of recipients) {
+        void this.notifications.send({
+          userId,
+          actorId: senderId,
+          type: isGroup ? 'group_message' : 'direct_message',
+          title: isGroup && groupTitle ? groupTitle : name,
+          body: isGroup ? `${name}: ${preview}` : preview,
+          targetType: 'conversation',
+          priority: 'normal',
+          channels: ['in_app', 'push'],
+          dedupeKey: `msg:${conversationId}:${message.id}:${userId}`,
+          metadata: { conversationId, messageId: message.id },
+        }).catch(() => undefined);
+      }
+    } catch {
+      // Notification failures must never affect message delivery.
+    }
+  }
 
   async dashboard(token: string) { return this.life.dashboard((await this.actor(token)).id); }
   groupActivity(id: string) { return this.life.groupActivity(id); }
@@ -73,7 +108,9 @@ export class ConnectedLifeService {
   async message(token:string,id:string,input:any) {
     const actor=await this.actor(token);
     if (!input.body?.trim() && !input.attachmentUrl?.trim()) throw new BadRequestException('message_or_attachment_required');
-    const result=await this.life.message(actor.id,id,input); if(!result) throw new ForbiddenException('conversation_access_denied'); return result;
+    const result=await this.life.message(actor.id,id,input); if(!result) throw new ForbiddenException('conversation_access_denied');
+    void this.notifyNewMessage(actor.id, id, result);
+    return result;
   }
 
   async markRead(token: string, id: string, input: any = {}) {
@@ -122,7 +159,9 @@ export class ConnectedLifeService {
 
   async messageAsUser(userId:string,id:string,input:any) {
     if (!input.body?.trim() && !input.attachmentUrl?.trim()) throw new BadRequestException('message_or_attachment_required');
-    const result=await this.life.message(userId,id,input); if(!result) throw new ForbiddenException('conversation_access_denied'); return result;
+    const result=await this.life.message(userId,id,input); if(!result) throw new ForbiddenException('conversation_access_denied');
+    void this.notifyNewMessage(userId, id, result);
+    return result;
   }
 
   async markReadAsUser(userId: string, id: string, messageId?: string) {

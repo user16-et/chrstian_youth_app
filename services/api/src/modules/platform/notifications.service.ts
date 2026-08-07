@@ -89,8 +89,8 @@ export class NotificationsService implements OnModuleDestroy {
   async updatePreferences(token: string, input: Record<string, unknown>) {
     const userId = await this.userId(token);
     const result = await this.pool.query(
-      `INSERT INTO notification_preferences(user_id,in_app_enabled,push_enabled,sms_enabled,email_enabled,church_alerts_enabled,event_reminders_enabled,prayer_updates_enabled,digest_frequency,updated_at)
-       VALUES($1,COALESCE($2,true),COALESCE($3,true),COALESCE($4,false),COALESCE($5,false),COALESCE($6,true),COALESCE($7,true),COALESCE($8,true),COALESCE($9,'daily'),now())
+      `INSERT INTO notification_preferences(user_id,in_app_enabled,push_enabled,sms_enabled,email_enabled,church_alerts_enabled,event_reminders_enabled,prayer_updates_enabled,daily_verse_enabled,friend_messages_enabled,group_messages_enabled,missed_calls_enabled,digest_frequency,updated_at)
+       VALUES($1,COALESCE($2,true),COALESCE($3,true),COALESCE($4,false),COALESCE($5,false),COALESCE($6,true),COALESCE($7,true),COALESCE($8,true),COALESCE($10,true),COALESCE($11,true),COALESCE($12,true),COALESCE($13,true),COALESCE($9,'daily'),now())
        ON CONFLICT(user_id) DO UPDATE SET
          in_app_enabled=COALESCE($2,notification_preferences.in_app_enabled),
          push_enabled=COALESCE($3,notification_preferences.push_enabled),
@@ -99,10 +99,14 @@ export class NotificationsService implements OnModuleDestroy {
          church_alerts_enabled=COALESCE($6,notification_preferences.church_alerts_enabled),
          event_reminders_enabled=COALESCE($7,notification_preferences.event_reminders_enabled),
          prayer_updates_enabled=COALESCE($8,notification_preferences.prayer_updates_enabled),
+         daily_verse_enabled=COALESCE($10,notification_preferences.daily_verse_enabled),
+         friend_messages_enabled=COALESCE($11,notification_preferences.friend_messages_enabled),
+         group_messages_enabled=COALESCE($12,notification_preferences.group_messages_enabled),
+         missed_calls_enabled=COALESCE($13,notification_preferences.missed_calls_enabled),
          digest_frequency=COALESCE($9,notification_preferences.digest_frequency),
          updated_at=now()
        RETURNING *`,
-      [userId, boolOrNull(input.inAppEnabled), boolOrNull(input.pushEnabled), boolOrNull(input.smsEnabled), boolOrNull(input.emailEnabled), boolOrNull(input.churchAlertsEnabled), boolOrNull(input.eventRemindersEnabled), boolOrNull(input.prayerUpdatesEnabled), textOrNull(input.digestFrequency)],
+      [userId, boolOrNull(input.inAppEnabled), boolOrNull(input.pushEnabled), boolOrNull(input.smsEnabled), boolOrNull(input.emailEnabled), boolOrNull(input.churchAlertsEnabled), boolOrNull(input.eventRemindersEnabled), boolOrNull(input.prayerUpdatesEnabled), textOrNull(input.digestFrequency), boolOrNull(input.dailyVerseEnabled), boolOrNull(input.friendMessagesEnabled), boolOrNull(input.groupMessagesEnabled), boolOrNull(input.missedCallsEnabled)],
     );
     return this.mapPreferences(result.rows[0]);
   }
@@ -292,6 +296,10 @@ export class NotificationsService implements OnModuleDestroy {
       churchAlertsEnabled: row.church_alerts_enabled,
       eventRemindersEnabled: row.event_reminders_enabled,
       prayerUpdatesEnabled: row.prayer_updates_enabled,
+      dailyVerseEnabled: row.daily_verse_enabled,
+      friendMessagesEnabled: row.friend_messages_enabled,
+      groupMessagesEnabled: row.group_messages_enabled,
+      missedCallsEnabled: row.missed_calls_enabled,
       digestFrequency: row.digest_frequency,
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
     };
@@ -337,6 +345,11 @@ function channelEnabled(channel: NotificationChannel, preferences: Record<string
   if (type.includes('church') && preferences.churchAlertsEnabled === false) return false;
   if (type.includes('event') && preferences.eventRemindersEnabled === false) return false;
   if (type.includes('prayer') && preferences.prayerUpdatesEnabled === false) return false;
+  // Per-category opt-outs the user controls in settings.
+  if (type === 'daily_verse' && preferences.dailyVerseEnabled === false) return false;
+  if (type === 'direct_message' && preferences.friendMessagesEnabled === false) return false;
+  if (type === 'group_message' && preferences.groupMessagesEnabled === false) return false;
+  if (type === 'missed_call' && preferences.missedCallsEnabled === false) return false;
   if (channel === 'in_app') return preferences.inAppEnabled !== false;
   if (channel === 'push') return preferences.pushEnabled !== false;
   if (channel === 'sms') return preferences.smsEnabled === true;
