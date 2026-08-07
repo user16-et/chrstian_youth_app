@@ -488,6 +488,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
               titleOf: (x) => '${x['type'] ?? ''}',
               subtitleOf: (x) => '${x['status'] ?? ''}'),
           const SizedBox(height: 16),
+          if (widget.session?.token.isNotEmpty == true)
+            Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                leading: const Icon(Icons.notifications_active_rounded),
+                title: Text(en ? 'Notification settings' : 'የማሳወቂያ ቅንብሮች'),
+                subtitle: Text(en
+                    ? 'Choose what reaches your phone'
+                    : 'ወደ ስልክዎ የሚደርሱትን ይምረጡ'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => NotificationSettingsScreen(
+                    apiClient: widget.apiClient,
+                    token: widget.session!.token,
+                    language: widget.language,
+                  ),
+                )),
+              ),
+            ),
+          const SizedBox(height: 16),
           _ProfileList(
               title: en ? 'Notification history' : 'የማሳወቂያ ታሪክ',
               icon: Icons.notifications_rounded,

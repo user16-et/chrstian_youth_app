@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -16,10 +17,42 @@ class DailyVerseNotifier {
 
   static const int _notificationId = 7001;
   static const int _hourOfDay = 7; // 7:00 in the device's local time
+  static const String _enabledKey = 'daily_verse_notification_enabled';
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _ready = false;
+
+  // The local alarm is on by default; the user can turn it off in settings.
+  Future<bool> _isEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_enabledKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Persist the on/off choice and arm or cancel the alarm to match.
+  Future<void> setEnabled(bool value, ApiClient apiClient, AppLanguage language) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_enabledKey, value);
+    } catch (_) {}
+    if (value) {
+      await refresh(apiClient, language);
+    } else {
+      await cancel();
+    }
+  }
+
+  /// Cancel the scheduled daily-verse notification.
+  Future<void> cancel() async {
+    if (!await _init()) return;
+    try {
+      await _plugin.cancel(id: _notificationId);
+    } catch (_) {}
+  }
 
   Future<bool> _init() async {
     if (kIsWeb) return false;
@@ -52,6 +85,11 @@ class DailyVerseNotifier {
   /// text stays current.
   Future<void> refresh(ApiClient apiClient, AppLanguage language) async {
     if (!await _init()) return;
+    // Respect the user's choice — if they turned it off, make sure it's cancelled.
+    if (!await _isEnabled()) {
+      await cancel();
+      return;
+    }
     // The daily verse notification is always in Amharic.
     String title = 'የዛሬው ቃል 📖';
     String body = 'የዕለቱን ጥቅስ ለማንበብ መተግበሪያውን ይክፈቱ።';

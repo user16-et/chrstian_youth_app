@@ -2719,6 +2719,29 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> fetchNotificationPreferences(String token) async {
+    final response = await _getJson(
+      '/notifications/preferences',
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return Map<String, dynamic>.from(response as Map);
+  }
+
+  // Patch any subset of preference flags (camelCase keys like pushEnabled,
+  // dailyVerseEnabled, friendMessagesEnabled, groupMessagesEnabled,
+  // missedCallsEnabled). Returns the updated preferences.
+  Future<Map<String, dynamic>> updateNotificationPreferences(
+    String token,
+    Map<String, dynamic> changes,
+  ) async {
+    final response = await _patchJson(
+      '/notifications/preferences',
+      changes,
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return Map<String, dynamic>.from(response as Map);
+  }
+
   // Register this device's push token (FCM) so the backend can target it.
   Future<Map<String, dynamic>> registerDeviceToken(
     String token, {

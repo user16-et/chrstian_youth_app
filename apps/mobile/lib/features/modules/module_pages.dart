@@ -20,6 +20,7 @@ import 'group_detail_screen.dart';
 import 'likes_you.dart';
 import 'matches_inbox.dart';
 import 'live_chat_panel.dart';
+import 'notification_settings.dart';
 import 'prayer_growth_pages.dart';
 import 'relationship_social.dart';
 import 'stories_feed.dart';
