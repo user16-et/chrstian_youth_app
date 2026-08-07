@@ -11,9 +11,9 @@ import 'i18n/app_i18n.dart';
 import 'theme/app_theme.dart';
 
 /// What the app shows at launch: promo slides on the very first open, then a
-/// sign-in step (skippable), then the home shell. Returning users skip
-/// straight to home.
-enum _LaunchStage { loading, onboarding, auth, home }
+/// quick language + theme choice, then a sign-in step (skippable), then the
+/// home shell. Returning users skip straight to home.
+enum _LaunchStage { loading, onboarding, preferences, auth, home }
 
 class ChristianYouthSuperApp extends StatefulWidget {
   const ChristianYouthSuperApp({super.key});
@@ -73,13 +73,21 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
     }
   }
 
+  // After the intro slides, let the user pick language + theme before anything
+  // else. The flag is set here so the intro isn't shown again on next launch.
   Future<void> _finishOnboarding() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('onboarding_seen_v1', true);
     } catch (_) {}
-    // Straight to home when a session is already stored; otherwise offer
-    // sign-in / sign-up first.
+    if (!mounted) return;
+    setState(() => _stage = _LaunchStage.preferences);
+  }
+
+  // Language + theme already applied (and persisted) as the user tapped; here we
+  // just move on. Straight to home when a session is already stored; otherwise
+  // offer sign-in / sign-up first.
+  Future<void> _finishPreferences() async {
     final stored = await SessionStore().load();
     if (!mounted) return;
     setState(
@@ -151,6 +159,13 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
         _LaunchStage.onboarding => OnboardingScreen(
             language: _language,
             onDone: _finishOnboarding,
+          ),
+        _LaunchStage.preferences => LanguageThemeScreen(
+            language: _language,
+            themeMode: _themeMode,
+            onLanguageChanged: _setLanguage,
+            onThemeModeChanged: _setThemeMode,
+            onDone: _finishPreferences,
           ),
         _LaunchStage.auth => AuthWelcomeScreen(
             language: _language,

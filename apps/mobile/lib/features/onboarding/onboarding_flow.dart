@@ -200,6 +200,206 @@ class _SlideView extends StatelessWidget {
   }
 }
 
+/// Shown once, right after the intro slides: pick language + theme before the
+/// sign-in step. Selections apply (and persist) immediately as they're tapped,
+/// so the screen itself previews the choice — Amharic labels and the chosen
+/// light/dark theme update live.
+class LanguageThemeScreen extends StatelessWidget {
+  const LanguageThemeScreen({
+    super.key,
+    required this.language,
+    required this.themeMode,
+    required this.onLanguageChanged,
+    required this.onThemeModeChanged,
+    required this.onDone,
+  });
+
+  final AppLanguage language;
+  final ThemeMode themeMode;
+  final ValueChanged<AppLanguage> onLanguageChanged;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+  final VoidCallback onDone;
+
+  bool get _en => language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _t('Make it yours', 'እንደፈለጉት ያድርጉት'),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _t('Choose your language and theme. You can change these any '
+                    'time in settings.',
+                    'ቋንቋዎን እና ገጽታዎን ይምረጡ። በማንኛውም ጊዜ ከቅንብሮች መቀየር ይችላሉ።'),
+                style: TextStyle(color: colors.onSurfaceVariant, height: 1.4),
+              ),
+              const SizedBox(height: 26),
+              Expanded(
+                child: ListView(
+                  children: [
+                    _SectionLabel(text: _t('Language', 'ቋንቋ')),
+                    const SizedBox(height: 10),
+                    _ChoiceTile(
+                      icon: Icons.translate_rounded,
+                      title: 'English',
+                      subtitle: _t('Use English', 'እንግሊዝኛ ይጠቀሙ'),
+                      selected: language == AppLanguage.english,
+                      onTap: () => onLanguageChanged(AppLanguage.english),
+                    ),
+                    const SizedBox(height: 10),
+                    _ChoiceTile(
+                      icon: Icons.translate_rounded,
+                      title: 'አማርኛ',
+                      subtitle: _t('Use Amharic', 'አማርኛ ይጠቀሙ'),
+                      selected: language == AppLanguage.amharic,
+                      onTap: () => onLanguageChanged(AppLanguage.amharic),
+                    ),
+                    const SizedBox(height: 28),
+                    _SectionLabel(text: _t('Theme', 'ገጽታ')),
+                    const SizedBox(height: 10),
+                    _ChoiceTile(
+                      icon: Icons.brightness_auto_rounded,
+                      title: _t('System default', 'የስርዓት ነባሪ'),
+                      subtitle: _t('Match your phone', 'ከስልክዎ ጋር ያዛምዱ'),
+                      selected: themeMode == ThemeMode.system,
+                      onTap: () => onThemeModeChanged(ThemeMode.system),
+                    ),
+                    const SizedBox(height: 10),
+                    _ChoiceTile(
+                      icon: Icons.light_mode_rounded,
+                      title: _t('Light', 'ብርሃናማ'),
+                      subtitle: _t('Bright background', 'ብሩህ ዳራ'),
+                      selected: themeMode == ThemeMode.light,
+                      onTap: () => onThemeModeChanged(ThemeMode.light),
+                    ),
+                    const SizedBox(height: 10),
+                    _ChoiceTile(
+                      icon: Icons.dark_mode_rounded,
+                      title: _t('Dark', 'ጨለማ'),
+                      subtitle: _t('Easy on the eyes', 'ለዓይን ምቹ'),
+                      selected: themeMode == ThemeMode.dark,
+                      onTap: () => onThemeModeChanged(ThemeMode.dark),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: onDone,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(_t('Continue', 'ቀጥል')),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        letterSpacing: .8,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
+class _ChoiceTile extends StatelessWidget {
+  const _ChoiceTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: selected ? colors.primaryContainer : colors.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(icon,
+                  color:
+                      selected ? colors.onPrimaryContainer : colors.onSurfaceVariant),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: selected
+                              ? colors.onPrimaryContainer
+                              : colors.onSurface,
+                        )),
+                    Text(subtitle,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: selected
+                              ? colors.onPrimaryContainer.withValues(alpha: .8)
+                              : colors.onSurfaceVariant,
+                        )),
+                  ],
+                ),
+              ),
+              Icon(
+                selected
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                color: selected ? colors.primary : colors.outline,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Pre-home authentication step: sign in or create an account (reusing the
 /// full portal forms, OTP included), or continue exploring signed out.
 class AuthWelcomeScreen extends StatelessWidget {

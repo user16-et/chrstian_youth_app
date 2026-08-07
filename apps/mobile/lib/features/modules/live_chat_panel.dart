@@ -846,6 +846,9 @@ class _MessageBubble extends StatelessWidget {
         ),
         child: Card(
           elevation: 0,
+          // Explicit vertical gap so consecutive sender/receiver bubbles never
+          // touch or overlap; a little horizontal inset keeps them off the edge.
+          margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 2),
           color: bubbleColor,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
