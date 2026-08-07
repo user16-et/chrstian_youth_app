@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
@@ -9,6 +10,23 @@ import 'bible_search.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
 String _t(AppLanguage l, String en, String am) => _en(l) ? en : am;
+
+// A verse — or a merged verse range — as shown in the reader. In the Amharic
+// text a combined range is stored as a marker verse whose text is just "-"
+// (e.g. verse 3), with the real text under the next number (verse 4); we merge
+// those so the reader shows a single "3-4" verse.
+class _DisplayVerse {
+  const _DisplayVerse({required this.start, required this.end, required this.nums, required this.text});
+  final int start;
+  final int end;
+  final List<int> nums; // every underlying verse number this row covers
+  final String text;
+  String get label => start == end ? '$start' : '$start-$end';
+}
+
+// A verse whose whole text is just a number-and-hyphen marker (e.g. "-", "3-").
+final RegExp _rangeMarkerPattern = RegExp(r'^\d*\s*-\s*$');
+bool _isRangeMarker(String text) => _rangeMarkerPattern.hasMatch(text.trim());
 
 /// A full Bible reader: book + chapter navigation, translation switching,
 /// side-by-side parallel reading, adjustable text size, and per-verse actions.
@@ -48,10 +66,37 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   String _error = '';
   Set<String> _offline = {}; // version codes available on-device
   bool _readingOffline = false;
+  final Set<int> _selected = {}; // display-verse start numbers currently selected
 
   final _store = BibleLocalStore.instance;
 
   AppLanguage get lang => widget.language;
+
+  // Merge Amharic range markers ("3-" + text under 4 => "3-4"). Amharic only,
+  // per the source text's convention.
+  bool get _mergeRanges => _isAmharic(_primary);
+
+  // The verses as rendered: markers folded into the following verse's range.
+  List<_DisplayVerse> get _displayVerses {
+    final out = <_DisplayVerse>[];
+    final pending = <int>[];
+    for (final v in _verses) {
+      final verseNum = (v['verse'] as num).toInt();
+      final text = '${v['text'] ?? ''}';
+      if (_mergeRanges && _isRangeMarker(text)) {
+        pending.add(verseNum);
+        continue;
+      }
+      final nums = [...pending, verseNum];
+      out.add(_DisplayVerse(start: nums.first, end: verseNum, nums: nums, text: text));
+      pending.clear();
+    }
+    // A trailing marker with no following verse: keep it visible on its own.
+    if (pending.isNotEmpty) {
+      out.add(_DisplayVerse(start: pending.first, end: pending.last, nums: pending, text: '-'));
+    }
+    return out;
+  }
 
   @override
   void initState() {
@@ -160,7 +205,8 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   Future<void> _loadChapter() async {
     final book = _book;
     if (book == null) return;
-    setState(() { _loading = true; _error = ''; _readingOffline = false; });
+    // A new chapter means a fresh selection.
+    setState(() { _loading = true; _error = ''; _readingOffline = false; _selected.clear(); });
     try {
       final verses = await _fetchVerses(_primary, '${book['name']}', _chapter);
       Map<int, String> secByVerse = const {};
@@ -248,7 +294,9 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
           : _error.isNotEmpty
               ? _errorView(colors)
               : _readerBody(colors),
-      bottomNavigationBar: _book == null ? null : _navBar(colors),
+      bottomNavigationBar: _selected.isNotEmpty
+          ? _selectionBar(colors)
+          : (_book == null ? null : _navBar(colors)),
     );
   }
 
@@ -270,49 +318,67 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       return Center(child: Text(_t(lang, 'This chapter is not available yet.', 'ይህ ምዕራፍ ገና የለም።')));
     }
     final parallel = _secondary != null;
+    final verses = _displayVerses;
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
-      itemCount: _verses.length + 1,
-      separatorBuilder: (_, __) => SizedBox(height: parallel ? 14 : 8),
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 32),
+      itemCount: verses.length + 1,
+      separatorBuilder: (_, __) => SizedBox(height: parallel ? 10 : 4),
       itemBuilder: (context, i) {
         if (i == 0) {
           return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.only(bottom: 8, left: 6),
             child: Text('${_bookLabel(_book!)} $_chapter',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
           );
         }
-        final v = _verses[i - 1];
-        final verseNum = (v['verse'] as num).toInt();
-        final text = '${v['text'] ?? ''}';
-        return InkWell(
+        final dv = verses[i - 1];
+        final selected = _selected.contains(dv.start);
+        // Parallel: join the secondary's texts for this row's numbers, dropping
+        // any marker so a merged Amharic row still lines up with its pair.
+        final secondaryText = parallel
+            ? dv.nums
+                .map((n) => _secondaryByVerse[n])
+                .where((t) => t != null && t.isNotEmpty && !_isRangeMarker(t))
+                .join(' ')
+            : '';
+        return Material(
+          color: selected ? colors.primaryContainer.withValues(alpha: 0.55) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          onTap: () => _verseActions(verseNum, text),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text.rich(TextSpan(children: [
-                TextSpan(
-                    text: '$verseNum ',
-                    style: TextStyle(
-                        color: colors.primary, fontWeight: FontWeight.w700, fontSize: 12 * _font, height: 1.6)),
-                TextSpan(text: text, style: TextStyle(fontSize: 17 * _font, height: 1.6)),
-              ])),
-              if (parallel)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4, left: 2),
-                  child: Text(_secondaryByVerse[verseNum] ?? '—',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _toggleVerse(dv.start),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text.rich(TextSpan(children: [
+                  TextSpan(
+                      text: '${dv.label} ',
                       style: TextStyle(
-                          fontSize: 16 * _font,
-                          height: 1.5,
-                          color: colors.onSurfaceVariant,
-                          fontStyle: FontStyle.italic)),
-                ),
-            ]),
+                          color: colors.primary, fontWeight: FontWeight.w700, fontSize: 12 * _font, height: 1.6)),
+                  TextSpan(text: dv.text, style: TextStyle(fontSize: 17 * _font, height: 1.6)),
+                ])),
+                if (parallel)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, left: 2),
+                    child: Text(secondaryText.isEmpty ? '—' : secondaryText,
+                        style: TextStyle(
+                            fontSize: 16 * _font,
+                            height: 1.5,
+                            color: colors.onSurfaceVariant,
+                            fontStyle: FontStyle.italic)),
+                  ),
+              ]),
+            ),
           ),
         );
       },
     );
+  }
+
+  void _toggleVerse(int start) {
+    setState(() {
+      if (!_selected.remove(start)) _selected.add(start);
+    });
   }
 
   Widget _navBar(ColorScheme colors) {
@@ -599,66 +665,116 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
   // ---- Verse actions ----
 
-  void _verseActions(int verse, String text) {
-    final reference = '${_book!['name']} $_chapter:$verse';
-    final displayRef = '${_bookLabel(_book!)} $_chapter:$verse';
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-            child: Text('$displayRef\n$text',
-                style: Theme.of(context).textTheme.bodyMedium),
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.copy_rounded),
-            title: Text(_t(lang, 'Copy', 'ቅዳ')),
-            onTap: () {
-              Clipboard.setData(ClipboardData(text: '$displayRef — $text'));
-              Navigator.pop(context);
-              _toast(_t(lang, 'Copied', 'ተቀድቷል'));
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.bookmark_add_outlined),
-            title: Text(_t(lang, 'Bookmark', 'ዕልባት')),
-            onTap: () => _bookmark(reference, text),
-          ),
-          ListTile(
-            leading: const Icon(Icons.share_rounded),
-            title: Text(_t(lang, 'Share', 'አጋራ')),
-            onTap: () => _share(reference, text),
-          ),
-        ]),
+  // ---- Multi-verse selection: copy, share (system sheet) and bookmark ----
+
+  // Selected rows in canonical order.
+  List<_DisplayVerse> get _selectedVerses =>
+      _displayVerses.where((dv) => _selected.contains(dv.start)).toList()
+        ..sort((a, b) => a.start.compareTo(b.start));
+
+  // Compact verse range like "3-4, 6" from every selected (possibly merged) row.
+  String _selectedRange() {
+    final nums = <int>{};
+    for (final dv in _selectedVerses) {
+      nums.addAll(dv.nums);
+    }
+    final sorted = nums.toList()..sort();
+    final parts = <String>[];
+    int? start, prev;
+    for (final n in sorted) {
+      if (start == null) {
+        start = n;
+        prev = n;
+      } else if (n == prev! + 1) {
+        prev = n;
+      } else {
+        parts.add(start == prev ? '$start' : '$start-$prev');
+        start = n;
+        prev = n;
+      }
+    }
+    if (start != null) parts.add(start == prev ? '$start' : '$start-$prev');
+    return parts.join(', ');
+  }
+
+  // "Book chapter:range" — display label (Amharic book name in Amharic).
+  String _selectionReference() => '${_bookLabel(_book!)} $_chapter:${_selectedRange()}';
+
+  // Reference + verse text, ready to copy or share.
+  String _selectionText() {
+    final chosen = _selectedVerses;
+    final body = chosen.length == 1
+        ? chosen.first.text
+        : chosen.map((dv) => '${dv.label}. ${dv.text}').join('\n');
+    return '${_selectionReference()}\n$body';
+  }
+
+  Widget _selectionBar(ColorScheme colors) {
+    final count = _selected.length;
+    return SafeArea(
+      child: Material(
+        color: colors.surfaceContainerHigh,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(children: [
+            IconButton(
+              tooltip: _t(lang, 'Clear', 'አጽዳ'),
+              icon: const Icon(Icons.close_rounded),
+              onPressed: () => setState(_selected.clear),
+            ),
+            Text(_en(lang) ? '$count selected' : '$count ተመርጧል',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            const Spacer(),
+            IconButton(
+                tooltip: _t(lang, 'Copy', 'ቅዳ'),
+                icon: const Icon(Icons.copy_rounded),
+                onPressed: _copySelection),
+            IconButton(
+                tooltip: _t(lang, 'Share', 'አጋራ'),
+                icon: const Icon(Icons.share_rounded),
+                onPressed: _shareSelection),
+            IconButton(
+                tooltip: _t(lang, 'Bookmark', 'ዕልባት'),
+                icon: const Icon(Icons.bookmark_add_outlined),
+                onPressed: _bookmarkSelection),
+          ]),
+        ),
       ),
     );
   }
 
-  Future<void> _bookmark(String reference, String text) async {
-    Navigator.pop(context);
-    if (!_signedIn) return _toast(_t(lang, 'Sign in to bookmark verses.', 'ጥቅሶችን ለማስቀመጥ ይግቡ።'));
-    try {
-      await widget.apiClient.createBibleBookmark(
-          token: widget.token!, reference: reference, verseText: text,
-          language: _isAmharic(_primary) ? 'am' : 'en');
-      _toast(_t(lang, 'Bookmarked', 'ተመዝግቧል'));
-    } catch (error) {
-      _toast(_clean(error));
-    }
+  void _copySelection() {
+    if (_selected.isEmpty) return;
+    Clipboard.setData(ClipboardData(text: _selectionText()));
+    setState(_selected.clear);
+    _toast(_t(lang, 'Copied', 'ተቀድቷል'));
+  }
+
+  // Hand the text to the OS share sheet — the user picks where it goes. Nothing
+  // is posted automatically.
+  Future<void> _shareSelection() async {
+    if (_selected.isEmpty) return;
+    final params = ShareParams(text: _selectionText(), subject: _selectionReference());
+    await SharePlus.instance.share(params);
+    if (mounted) setState(_selected.clear);
   }
 
   bool get _signedIn => widget.token != null && widget.token!.isNotEmpty;
 
-  Future<void> _share(String reference, String text) async {
-    Navigator.pop(context);
-    if (!_signedIn) return _toast(_t(lang, 'Sign in to share verses.', 'ጥቅሶችን ለማጋራት ይግቡ።'));
+  Future<void> _bookmarkSelection() async {
+    if (_selected.isEmpty) return;
+    if (!_signedIn) return _toast(_t(lang, 'Sign in to bookmark verses.', 'ጥቅሶችን ለማስቀመጥ ይግቡ።'));
+    final chosen = _selectedVerses;
+    final reference = '${_book!['name']} $_chapter:${_selectedRange()}';
+    final text = chosen.map((dv) => dv.text).join(' ');
     try {
-      await widget.apiClient.shareBibleVerse(
-          token: widget.token!, reference: reference, verseText: text, channel: 'app');
-      _toast(_t(lang, 'Shared to your feed', 'ወደ ፍሰትዎ ተጋርቷል'));
+      await widget.apiClient.createBibleBookmark(
+          token: widget.token!,
+          reference: reference,
+          verseText: text,
+          language: _isAmharic(_primary) ? 'am' : 'en');
+      if (mounted) setState(_selected.clear);
+      _toast(_t(lang, 'Bookmarked', 'ተመዝግቧል'));
     } catch (error) {
       _toast(_clean(error));
     }
