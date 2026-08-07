@@ -9,6 +9,7 @@ import '../../data/call_client.dart';
 import '../../data/call_controller.dart';
 import '../../data/live_chat_client.dart';
 import '../../i18n/app_i18n.dart';
+import 'call_log_bubble.dart';
 import 'user_profile_sheet.dart';
 
 class LiveChatPanel extends StatefulWidget {
@@ -59,6 +60,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
   final List<Map<String, dynamic>> _messages = [];
   final Set<String> _messageIds = {};
   final List<Map<String, dynamic>> _members = [];
+  CallController? _boundCall;
 
   bool get _en => widget.language == AppLanguage.english;
   String _t(String en, String am) => _en ? en : am;
@@ -68,6 +70,42 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
     super.initState();
     _liveChat = LiveChatClient(baseUrl: widget.apiClient.baseUrl);
     _loadFuture = _open();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final call = CallScope.maybeOf(context);
+    if (!identical(call, _boundCall)) {
+      _boundCall?.callLogged.removeListener(_onCallLogged);
+      _boundCall = call;
+      _boundCall?.callLogged.addListener(_onCallLogged);
+    }
+  }
+
+  // The server logged a call in some conversation; if it's this one, pull the
+  // new entry in.
+  void _onCallLogged() {
+    final event = _boundCall?.callLogged.value;
+    if (event != null && event.conversationId == _conversationId) {
+      unawaited(_reloadMessages());
+    }
+  }
+
+  Future<void> _reloadMessages() async {
+    final session = widget.session;
+    if (session == null || _conversationId.isEmpty) return;
+    try {
+      final msgs = await widget.apiClient
+          .fetchConversationMessages(session.token, _conversationId, limit: 60);
+      if (!mounted) return;
+      setState(() {
+        for (final m in msgs) {
+          _addMessage(m);
+        }
+      });
+      _scrollToBottom();
+    } catch (_) {}
   }
 
   @override
@@ -84,6 +122,7 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
 
   @override
   void dispose() {
+    _boundCall?.callLogged.removeListener(_onCallLogged);
     _messageSub?.cancel();
     _typingSub?.cancel();
     _readSub?.cancel();
@@ -487,6 +526,25 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
     );
   }
 
+  // Call-back is only meaningful in a direct conversation with a known peer.
+  String? get _callBackTarget {
+    final isDirect = widget.scopeType == 'direct';
+    final callee = widget.otherUserId ?? (isDirect ? widget.scopeId : '');
+    return (isDirect && callee.isNotEmpty && _conversationId.isNotEmpty) ? callee : null;
+  }
+
+  void _callBack() {
+    final target = _callBackTarget;
+    final call = CallScope.maybeOf(context);
+    if (target == null || call == null || !call.ready) return;
+    call.startDirectCall(
+      conversationId: _conversationId,
+      calleeId: target,
+      media: CallMedia.audio,
+      title: widget.title,
+    );
+  }
+
   Future<void> _messageActions(Map<String, dynamic> message) async {
     final session = widget.session;
     if (session == null) return;
@@ -696,6 +754,17 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
                           itemCount: _messages.length,
                           itemBuilder: (context, index) {
                             final message = _messages[index];
+                            final meta = message['metadata'];
+                            if (meta is Map && meta['kind'] == 'call') {
+                              return CallLogBubble(
+                                metadata: Map<String, dynamic>.from(meta),
+                                isOutgoing: meta['callerId']?.toString() ==
+                                    session.user.id,
+                                language: widget.language,
+                                createdAt: message['createdAt']?.toString() ?? '',
+                                onCallBack: _callBackTarget == null ? null : _callBack,
+                              );
+                            }
                             final mine = message['authorId']?.toString() ==
                                 session.user.id;
                             return _MessageBubble(

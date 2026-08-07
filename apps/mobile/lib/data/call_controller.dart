@@ -21,6 +21,12 @@ class CallController {
 
   bool get ready => _client != null;
 
+  /// Fires when the server logs a call into a conversation. Carries the
+  /// conversation id (+ a nonce so repeats still notify) so an open chat can
+  /// refresh and show the new call entry.
+  final ValueNotifier<({String conversationId, int at})?> callLogged =
+      ValueNotifier(null);
+
   /// Connects (or disconnects) the call socket to match the current session.
   Future<void> bind(AuthResult? session) async {
     final token = session?.token ?? '';
@@ -40,6 +46,8 @@ class CallController {
     final client = CallClient(baseUrl: apiClient.baseUrl, iceServers: ice);
     client.onIncomingCall = _handleIncoming;
     client.onError = _showCallError;
+    client.onCallLogged = (conversationId) => callLogged.value =
+        (conversationId: conversationId, at: DateTime.now().microsecondsSinceEpoch);
     client.connect(token, session.user.id);
     _client = client;
   }

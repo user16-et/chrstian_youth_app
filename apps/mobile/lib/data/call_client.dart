@@ -58,6 +58,9 @@ class CallClient {
   void Function(String peerId)? onRemoteStreamRemoved;
   void Function(String reason)? onError;
   void Function()? onParticipantsChanged;
+  // A call was logged into a conversation (server-authoritative); carries the
+  // conversation id so an open chat can refresh and show the entry.
+  void Function(String conversationId)? onCallLogged;
 
   CallState get state => _state;
   CallMedia get media => _media;
@@ -109,6 +112,7 @@ class CallClient {
     socket.on('peer:mic', (data) => _onPeerMic(_map(data)));
     socket.on('mute:request', (_) => _onMuteRequest());
     socket.on('signal', (data) => _onSignal(_map(data)));
+    socket.on('call:logged', (data) => onCallLogged?.call(_map(data)['conversationId']?.toString() ?? ''));
     socket.connect();
     _socket = socket;
   }

@@ -7,6 +7,7 @@ import '../../data/call_client.dart';
 import '../../data/call_controller.dart';
 import '../../data/relationship_chat_client.dart';
 import '../../i18n/app_i18n.dart';
+import 'call_log_bubble.dart';
 import 'relationship_social.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
@@ -252,8 +253,28 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   bool _connected = false; // realtime socket up?
   Timer? _typingClear; // clears the partner's "typing…" if no update
   Timer? _typingStop; // stops broadcasting my typing after I go idle
+  CallController? _boundCall;
 
   AppLanguage get lang => widget.language;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final call = CallScope.maybeOf(context);
+    if (!identical(call, _boundCall)) {
+      _boundCall?.callLogged.removeListener(_onCallLogged);
+      _boundCall = call;
+      _boundCall?.callLogged.addListener(_onCallLogged);
+    }
+  }
+
+  // A call was logged; if it's this match's thread, reload to show the entry.
+  void _onCallLogged() {
+    final event = _boundCall?.callLogged.value;
+    if (event != null && event.conversationId == 'match:${widget.connectionId}') {
+      unawaited(_load());
+    }
+  }
 
   bool _isMine(Map<String, dynamic> message) => '${message['author_id'] ?? ''}' != widget.partnerId;
 
@@ -345,6 +366,7 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
 
   @override
   void dispose() {
+    _boundCall?.callLogged.removeListener(_onCallLogged);
     _typingClear?.cancel();
     _typingStop?.cancel();
     for (final s in _subs) {
@@ -672,6 +694,17 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   }
 
   Widget _bubble(BuildContext context, Map<String, dynamic> message) {
+    final meta = message['metadata'];
+    if (meta is Map && meta['kind'] == 'call') {
+      return CallLogBubble(
+        metadata: Map<String, dynamic>.from(meta),
+        isOutgoing: _isMine(message),
+        language: lang,
+        createdAt: '${message['created_at'] ?? ''}',
+        onCallBack: () => _startCall(
+            '${meta['media']}' == 'video' ? CallMedia.video : CallMedia.audio),
+      );
+    }
     final colors = Theme.of(context).colorScheme;
     final mine = _isMine(message);
     final body = '${message['body'] ?? ''}';
