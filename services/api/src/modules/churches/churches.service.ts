@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthorizationService, PLATFORM_ADMIN_ROLES } from '../../common/authorization.service';
-import { ContentRepository } from '../../common/content.repository';
+import { AuditRepository } from '../../common/audit.repository';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
 import { ConferenceRegistry } from '../../common/conference-registry';
@@ -9,7 +9,7 @@ import { ChurchOperationsRepository } from './church-operations.repository';
 
 @Injectable()
 export class ChurchesService {
-  constructor(private readonly operations:ChurchOperationsRepository,private readonly users:UserRepository,private readonly content:ContentRepository,private readonly queues:QueueProducer,private readonly authorization:AuthorizationService,private readonly notifications:NotificationsService,private readonly conferences:ConferenceRegistry){}
+  constructor(private readonly operations:ChurchOperationsRepository,private readonly users:UserRepository,private readonly audit:AuditRepository,private readonly queues:QueueProducer,private readonly authorization:AuthorizationService,private readonly notifications:NotificationsService,private readonly conferences:ConferenceRegistry){}
 
   // Start a church audio conference — admins only. Members are notified so they
   // can join the live church:<id> audio room.
@@ -30,10 +30,10 @@ export class ChurchesService {
   async assignManager(token:string,id:string,input:Record<string,unknown>){const u=await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);this.text(input.userId,'church_manager_user_required');const role=String(input.role??'church_admin');if(!['pastor','church_admin','elder'].includes(role))throw new BadRequestException('invalid_church_manager_role');const existing=await this.operations.currentMembership(String(input.userId),id,true);if(existing)throw new BadRequestException('user_already_has_church_membership');const r=await this.operations.assignManager(u.id,id,{...input,role});if(!r)throw new NotFoundException('church_or_user_not_found');return r;}
   async assignBranchAdmin(token:string,id:string,branchId:string,input:Record<string,unknown>){const u=await this.actor(token);await this.manager(u.id,id);this.text(input.userId,'branch_admin_user_required');const existing=await this.operations.currentMembership(String(input.userId),id,true);if(existing)throw new BadRequestException('user_already_has_church_membership');const r=await this.operations.assignBranchAdmin(u.id,id,branchId,input);if(!r)throw new NotFoundException('church_branch_or_user_not_found');return r;}
   async update(token:string,id:string,input:Record<string,unknown>){const u=await this.actor(token);await this.manager(u.id,id);const r=await this.operations.update(id,input);if(r)void this.queues.searchIndexing({entityType:'church',entityId:id,operation:'upsert'});return r;}
-  async delete(token:string,id:string){const u=await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);const r=await this.operations.delete(id);if(!r)throw new NotFoundException('church_not_found');await this.content.recordAudit(u.id,'church_deleted','church',id);return r;}
+  async delete(token:string,id:string){const u=await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);const r=await this.operations.delete(id);if(!r)throw new NotFoundException('church_not_found');await this.audit.recordAudit(u.id,'church_deleted','church',id);return r;}
   async requestVerification(token:string,id:string,input:Record<string,unknown>){const u=await this.actor(token);await this.manager(u.id,id);const p=await this.operations.profile(id,u.id);if(!p)throw new NotFoundException('church_not_found');if(p.verified===true||['verified','official'].includes(String(p.verificationStatus??'')))throw new BadRequestException('church_already_verified');return this.operations.requestVerification(u.id,id,input);}
   async verificationRequests(token:string){await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);return this.operations.verificationRequests();}
-  async reviewVerification(token:string,id:string,ok:boolean,reason=''){const u=await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);const r=await this.operations.reviewVerification(u.id,id,ok,reason);if(r)await this.content.recordAudit(u.id,ok?'church_verification_approved':'church_verification_rejected','church',id,{reason});if(r)void this.queues.searchIndexing({entityType:'church',entityId:id,operation:'upsert'});return r;}
+  async reviewVerification(token:string,id:string,ok:boolean,reason=''){const u=await this.authorization.requireRoles(token,PLATFORM_ADMIN_ROLES);const r=await this.operations.reviewVerification(u.id,id,ok,reason);if(r)await this.audit.recordAudit(u.id,ok?'church_verification_approved':'church_verification_rejected','church',id,{reason});if(r)void this.queues.searchIndexing({entityType:'church',entityId:id,operation:'upsert'});return r;}
   async join(token:string,id:string,input:Record<string,unknown>={}){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_join_managed_church');const role=String(input.role??'member');if(!['member','visitor'].includes(role))throw new ForbiddenException('church_leadership_assignment_requires_platform_admin');
     // One church *membership* per person; visiting (and following) many is fine.
     if(role==='member'){const existing=await this.operations.currentMembership(u.id,id,true);if(existing)throw new BadRequestException('already_member_of_another_church');}
@@ -52,8 +52,8 @@ export class ChurchesService {
   schedules(id:string){return this.operations.listChurchSchedules(id);}
   sermons(id:string){return this.operations.listChurchSermons(id);}
   announcements(id?:string){return this.operations.listChurchAnnouncements(id);}
-  async follow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_follow_managed_church');const r=await this.content.followChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
-  async unfollow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_unfollow_managed_church');const r=await this.content.unfollowChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
+  async follow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_follow_managed_church');const r=await this.operations.followChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
+  async unfollow(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_unfollow_managed_church');const r=await this.operations.unfollowChurch(u.id,id);if((r as {missing?:boolean}).missing)throw new NotFoundException('church_not_found');return r;}
   async leave(token:string,id:string){const u=await this.actor(token);await this.profile(id);if(await this.operations.isLocalManager(u.id,id))throw new ForbiddenException('church_manager_cannot_leave_managed_church');return this.operations.leaveChurch(u.id,id);}
   private async actor(t:string){const u=await this.authorization.authenticate(t);if(!u)throw new NotFoundException('authenticated_user_not_found');return u;}
   private async manager(u:string,c:string){if(!await this.operations.canManage(u,c))throw new ForbiddenException('church_manager_required');}

@@ -13,7 +13,6 @@ describe('EngagementService.endorseTalent self-guard', () => {
 
   function serviceForActor(actorId: string) {
     const service = new EngagementService(
-      undefined as never, // contentRepository
       undefined as never, // userRepository
       undefined as never, // connectedLifeRepository
       undefined as never, // ministryOperationsRepository

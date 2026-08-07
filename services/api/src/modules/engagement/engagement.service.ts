@@ -1,7 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { AuthorizationService } from '../../common/authorization.service';
-import { ContentRepository } from '../../common/content.repository';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
 import { ConnectedLifeRepository } from '../connected-life/connected-life.repository';
@@ -27,7 +26,6 @@ import { UpsertCourtshipProfileDto } from './dto/upsert-courtship-profile.dto';
 @Injectable()
 export class EngagementService {
   constructor(
-    private readonly contentRepository: ContentRepository,
     private readonly userRepository: UserRepository,
     private readonly connectedLifeRepository: ConnectedLifeRepository,
     private readonly ministryOperationsRepository: MinistryOperationsRepository,

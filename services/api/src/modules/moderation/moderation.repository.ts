@@ -16,8 +16,8 @@ export interface ReportRecord {
 
 // User reports + the moderation enforcement actions (resolve, remove reported
 // content, find the offending author). A self-contained domain extracted from
-// ContentRepository. NOTE: audit logging stays on ContentRepository.recordAudit,
-// which is shared across modules.
+// ContentRepository. NOTE: audit logging lives on the shared AuditRepository,
+// which the service calls after each enforcement action.
 @Injectable()
 export class ModerationRepository {
   private readonly db: Pool;

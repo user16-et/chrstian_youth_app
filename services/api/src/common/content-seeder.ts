@@ -1,20 +1,28 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Pool } from 'pg';
 
 import { postgresPoolConfig } from './postgres';
+import { UserRepository } from './user.repository';
 
 // Idempotent demo/seed data for a fresh database, extracted from
-// ContentRepository. Runs once on boot (see ContentRepository.onModuleInit) and
-// only fills tables that are currently empty.
+// ContentRepository. Runs once on boot (see onModuleInit) and only fills tables
+// that are currently empty.
 @Injectable()
-export class ContentSeeder {
+export class ContentSeeder implements OnModuleInit {
   private readonly db: Pool;
 
-  constructor() {
+  constructor(private readonly userRepository: UserRepository) {
     const url = process.env.DATABASE_URL?.trim();
     if (!url) throw new Error('DATABASE_URL is required');
     this.db = new Pool(postgresPoolConfig('api-content-seeder', url));
+  }
+
+  // Seed order matters: users first (the content seed needs an existing user),
+  // then the demo content.
+  async onModuleInit() {
+    await this.userRepository.seedIfEmpty();
+    await this.seedIfEmpty();
   }
 
   async seedIfEmpty() {

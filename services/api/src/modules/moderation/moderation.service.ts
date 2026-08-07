@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { AuthorizationService, MODERATION_ROLES } from '../../common/authorization.service';
-import { ContentRepository } from '../../common/content.repository';
+import { AuditRepository } from '../../common/audit.repository';
 import { ModerationRepository } from './moderation.repository';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
@@ -9,7 +9,7 @@ import { UserRepository } from '../../common/user.repository';
 @Injectable()
 export class ModerationService {
   constructor(
-    private readonly contentRepository: ContentRepository,
+    private readonly audit: AuditRepository,
     private readonly moderation: ModerationRepository,
     private readonly userRepository: UserRepository,
     private readonly queues: QueueProducer,
@@ -34,7 +34,7 @@ export class ModerationService {
     if (!updated) {
       throw new NotFoundException('report_not_found');
     }
-    await this.contentRepository.recordAudit(actor.id, 'moderation_report_status_changed', 'report', reportId, { status });
+    await this.audit.recordAudit(actor.id, 'moderation_report_status_changed', 'report', reportId, { status });
     return updated;
   }
 
@@ -59,7 +59,7 @@ export class ModerationService {
 
     const status = input.status ?? (input.action === 'dismiss' ? 'closed' : 'resolved');
     const updated = await this.moderation.resolveReport(reportId, actor.id, status, input.action);
-    await this.contentRepository.recordAudit(actor.id, `moderation_${input.action}`, 'report', reportId, {
+    await this.audit.recordAudit(actor.id, `moderation_${input.action}`, 'report', reportId, {
       status,
       target: `${report.targetType}:${report.targetId}`,
       ...(suspendedUserId ? { suspendedUserId } : {}),

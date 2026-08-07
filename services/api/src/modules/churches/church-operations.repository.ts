@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { postgresPoolConfig } from '../../common/postgres';
 
@@ -77,6 +78,34 @@ export class ChurchOperationsRepository {
   private readonly db:Pool;
   constructor(){const u=process.env.DATABASE_URL?.trim();if(!u)throw new Error('DATABASE_URL is required');this.db=new Pool(postgresPoolConfig('api-church-operations',u));}
   private async one(q:string,v:unknown[]){const r=await this.db.query(q,v);return r.rows[0]??null;}
+
+  async followChurch(userId: string, churchId: string) {
+    const church = await this.db.query("SELECT id FROM churches WHERE id = $1 AND status <> 'suspended' LIMIT 1", [churchId]);
+    if (church.rowCount === 0) {
+      return { churchId, userId, followed: false, created: false, followerCount: 0, missing: true };
+    }
+
+    const result = await this.db.query(
+      `INSERT INTO church_follows (id, church_id, user_id, created_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (church_id, user_id) DO NOTHING
+       RETURNING church_id`,
+      [randomUUID(), churchId, userId, new Date().toISOString()],
+    );
+    const count = await this.db.query('SELECT count(*)::int AS count FROM church_follows WHERE church_id=$1', [churchId]);
+    return { churchId, userId, followed: true, created: result.rowCount === 1, followerCount: Number(count.rows[0]?.count ?? 0) };
+  }
+
+  async unfollowChurch(userId: string, churchId: string) {
+    const church = await this.db.query("SELECT id FROM churches WHERE id = $1 AND status <> 'suspended' LIMIT 1", [churchId]);
+    if (church.rowCount === 0) {
+      return { churchId, userId, followed: false, followerCount: 0, missing: true };
+    }
+
+    await this.db.query('DELETE FROM church_follows WHERE church_id = $1 AND user_id = $2', [churchId, userId]);
+    const count = await this.db.query('SELECT count(*)::int AS count FROM church_follows WHERE church_id=$1', [churchId]);
+    return { churchId, userId, followed: false, followerCount: Number(count.rows[0]?.count ?? 0) };
+  }
   async canManage(u:string,c:string){const r=await this.db.query(`SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role IN ('admin','platform_admin','super_admin') UNION ALL SELECT 1 FROM church_memberships WHERE user_id=$1 AND church_id=$2 AND status IN ('active','approved') AND role IN ('pastor','church_admin','elder','branch_admin')) allowed`,[u,c]);return r.rows[0].allowed===true;}
   async isPlatformAdmin(u:string){const r=await this.db.query(`SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role IN ('admin','platform_admin','super_admin')) allowed`,[u]);return r.rows[0].allowed===true;}
   async isLocalManager(u:string,c:string){const r=await this.db.query(`SELECT EXISTS(SELECT 1 FROM church_memberships WHERE user_id=$1 AND church_id=$2 AND status IN ('active','approved') AND role IN ('pastor','church_admin','elder','branch_admin')) allowed`,[u,c]);return r.rows[0].allowed===true;}
