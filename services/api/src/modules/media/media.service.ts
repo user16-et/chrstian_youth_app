@@ -151,6 +151,12 @@ export class MediaService {
       region: this.config.mediaRegion,
       endpoint: this.config.mediaEndpoint ?? undefined,
       forcePathStyle: this.config.mediaForcePathStyle,
+      // AWS SDK v3 injects a CRC32 checksum by default (WHEN_SUPPORTED), which
+      // adds x-amz-checksum/x-amz-sdk-checksum params that break presigned PUTs
+      // against MinIO for browser/mobile clients. Only send checksums when the
+      // operation actually requires one.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
       credentials: {
         accessKeyId: this.config.mediaAccessKeyId as string,
         secretAccessKey: this.config.mediaSecretAccessKey as string,
@@ -177,6 +183,10 @@ export class MediaService {
         region: this.config.mediaRegion,
         endpoint,
         forcePathStyle: this.config.mediaForcePathStyle,
+        // Keep presigned upload URLs clean SigV4 (no CRC32 checksum params) so
+        // they work with MinIO from every client. See client() above.
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+        responseChecksumValidation: 'WHEN_REQUIRED',
         credentials: {
           accessKeyId: this.config.mediaAccessKeyId as string,
           secretAccessKey: this.config.mediaSecretAccessKey as string,
