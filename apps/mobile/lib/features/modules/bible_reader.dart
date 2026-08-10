@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -5,8 +7,18 @@ import 'package:share_plus/share_plus.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/bible_local_store.dart';
+import '../../data/theme_controller.dart';
 import '../../i18n/app_i18n.dart';
 import 'bible_search.dart';
+
+// Verse highlight colors (name stored server-side, tint used to render).
+const Map<String, Color> _highlightPalette = {
+  'gold': Color(0xFFFFE082),
+  'green': Color(0xFFA5D6A7),
+  'blue': Color(0xFF90CAF9),
+  'pink': Color(0xFFF48FB1),
+  'purple': Color(0xFFCE93D8),
+};
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
 String _t(AppLanguage l, String en, String am) => _en(l) ? en : am;
@@ -67,6 +79,9 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   Set<String> _offline = {}; // version codes available on-device
   bool _readingOffline = false;
   final Set<int> _selected = {}; // display-verse start numbers currently selected
+  // Saved highlights keyed by verse reference ("John 3:16") -> color name / id.
+  Map<String, String> _highlightColorByRef = {};
+  Map<String, String> _highlightIdByRef = {};
 
   final _store = BibleLocalStore.instance;
 
@@ -162,7 +177,26 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       (b) => '${b['name']}'.toLowerCase() == widget.initialBook.toLowerCase(),
       orElse: () => _books.isNotEmpty ? _books.first : <String, dynamic>{},
     );
+    unawaited(_loadHighlights());
     await _loadChapter();
+  }
+
+  // Stable reference key for a verse/range, always in English book name so it
+  // matches regardless of the display language.
+  String _refFor(_DisplayVerse dv) => '${_book?['name']} $_chapter:${dv.label}';
+
+  Future<void> _loadHighlights() async {
+    if (!_signedIn) return;
+    try {
+      final items = await widget.apiClient.fetchBibleHighlights(widget.token!);
+      if (!mounted) return;
+      setState(() {
+        _highlightColorByRef = {for (final h in items) h.reference: h.color};
+        _highlightIdByRef = {for (final h in items) h.reference: h.id};
+      });
+    } catch (_) {
+      // Highlights are a nicety — never block reading on them.
+    }
   }
 
   String _clean(Object e) => e.toString().replaceFirst('HttpException: ', '');
@@ -277,6 +311,13 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
             icon: const Icon(Icons.search_rounded),
             onPressed: (_books.isEmpty || _versions.isEmpty) ? null : _openSearch,
           ),
+          IconButton(
+            tooltip: _t(lang, 'Day / night', 'ቀን / ሌሊት'),
+            icon: Icon(Theme.of(context).brightness == Brightness.dark
+                ? Icons.light_mode_rounded
+                : Icons.dark_mode_rounded),
+            onPressed: ThemeController.instance.toggle,
+          ),
           TextButton(
             onPressed: _versions.isEmpty ? null : _openTranslationPicker,
             child: Text(_primary.toUpperCase(),
@@ -333,6 +374,12 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
         }
         final dv = verses[i - 1];
         final selected = _selected.contains(dv.start);
+        final highlight = _highlightPalette[_highlightColorByRef[_refFor(dv)]];
+        // Selection tint wins while selecting; otherwise show the saved
+        // highlight; otherwise transparent.
+        final background = selected
+            ? colors.primaryContainer.withValues(alpha: 0.55)
+            : (highlight != null ? highlight.withValues(alpha: 0.5) : Colors.transparent);
         // Parallel: join the secondary's texts for this row's numbers, dropping
         // any marker so a merged Amharic row still lines up with its pair.
         final secondaryText = parallel
@@ -342,7 +389,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                 .join(' ')
             : '';
         return Material(
-          color: selected ? colors.primaryContainer.withValues(alpha: 0.55) : Colors.transparent,
+          color: background,
           borderRadius: BorderRadius.circular(8),
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
@@ -350,17 +397,21 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text.rich(TextSpan(children: [
-                  TextSpan(
-                      text: '${dv.label} ',
-                      style: TextStyle(
-                          color: colors.primary, fontWeight: FontWeight.w700, fontSize: 12 * _font, height: 1.6)),
-                  TextSpan(text: dv.text, style: TextStyle(fontSize: 17 * _font, height: 1.6)),
-                ])),
+                Text.rich(
+                  TextSpan(children: [
+                    TextSpan(
+                        text: '${dv.label} ',
+                        style: TextStyle(
+                            color: colors.primary, fontWeight: FontWeight.w700, fontSize: 12 * _font, height: 1.6)),
+                    TextSpan(text: dv.text, style: TextStyle(fontSize: 17 * _font, height: 1.6)),
+                  ]),
+                  textAlign: TextAlign.justify,
+                ),
                 if (parallel)
                   Padding(
                     padding: const EdgeInsets.only(top: 4, left: 2),
                     child: Text(secondaryText.isEmpty ? '—' : secondaryText,
+                        textAlign: TextAlign.justify,
                         style: TextStyle(
                             fontSize: 16 * _font,
                             height: 1.5,
@@ -726,6 +777,10 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w700)),
             const Spacer(),
             IconButton(
+                tooltip: _t(lang, 'Highlight', 'አድምቅ'),
+                icon: const Icon(Icons.brush_rounded),
+                onPressed: _openHighlightPicker),
+            IconButton(
                 tooltip: _t(lang, 'Copy', 'ቅዳ'),
                 icon: const Icon(Icons.copy_rounded),
                 onPressed: _copySelection),
@@ -778,6 +833,93 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     } catch (error) {
       _toast(_clean(error));
     }
+  }
+
+  // Pick a highlight color for the selected verses, or clear it.
+  void _openHighlightPicker() {
+    if (_selected.isEmpty) return;
+    if (!_signedIn) {
+      _toast(_t(lang, 'Sign in to highlight verses.', 'ጥቅሶችን ለማድመቅ ይግቡ።'));
+      return;
+    }
+    final hasHighlight = _selectedVerses.any((dv) => _highlightIdByRef.containsKey(_refFor(dv)));
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_t(lang, 'Highlight', 'አድምቅ'),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 14),
+            Wrap(spacing: 14, runSpacing: 14, children: [
+              for (final entry in _highlightPalette.entries)
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pop(context);
+                    _applyHighlight(entry.key);
+                  },
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: entry.value,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                    ),
+                  ),
+                ),
+            ]),
+            if (hasHighlight) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _removeHighlight();
+                },
+                icon: const Icon(Icons.format_color_reset_rounded),
+                label: Text(_t(lang, 'Remove highlight', 'ማድመቅ አስወግድ')),
+              ),
+            ],
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _applyHighlight(String color) async {
+    final chosen = _selectedVerses;
+    final language = _isAmharic(_primary) ? 'am' : 'en';
+    for (final dv in chosen) {
+      final ref = _refFor(dv);
+      try {
+        // Replace any existing highlight on this verse first.
+        final existing = _highlightIdByRef[ref];
+        if (existing != null) {
+          await widget.apiClient.deleteBibleHighlight(token: widget.token!, highlightId: existing);
+        }
+        final created = await widget.apiClient.createBibleHighlight(
+            token: widget.token!, reference: ref, verseText: dv.text, color: color, note: '', language: language);
+        _highlightColorByRef[ref] = color;
+        _highlightIdByRef[ref] = created.id;
+      } catch (_) {}
+    }
+    if (mounted) setState(_selected.clear);
+  }
+
+  Future<void> _removeHighlight() async {
+    for (final dv in _selectedVerses) {
+      final ref = _refFor(dv);
+      final id = _highlightIdByRef[ref];
+      if (id == null) continue;
+      try {
+        await widget.apiClient.deleteBibleHighlight(token: widget.token!, highlightId: id);
+      } catch (_) {}
+      _highlightColorByRef.remove(ref);
+      _highlightIdByRef.remove(ref);
+    }
+    if (mounted) setState(_selected.clear);
   }
 
   void _toast(String message) {

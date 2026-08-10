@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/api_client.dart';
 import 'data/call_controller.dart';
 import 'data/session_store.dart';
+import 'data/theme_controller.dart';
 import 'features/home/home_shell.dart';
 import 'features/onboarding/onboarding_flow.dart';
 import 'i18n/app_i18n.dart';
@@ -33,13 +34,28 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
   late final CallController _callController = CallController(apiClient: _apiClient);
 
   AppLanguage _language = AppLanguage.english;
-  ThemeMode _themeMode = ThemeMode.system;
+  final ThemeController _theme = ThemeController.instance;
   _LaunchStage _stage = _LaunchStage.loading;
 
   @override
   void initState() {
     super.initState();
+    // The theme can be changed from anywhere (settings, the Bible reader's
+    // day/night shortcut); rebuild + persist whenever it does.
+    _theme.mode.addListener(_onThemeChanged);
     _restorePreferences();
+  }
+
+  void _onThemeChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _persistPreference(
+        'pref_theme_mode',
+        switch (_theme.mode.value) {
+          ThemeMode.light => 'light',
+          ThemeMode.dark => 'dark',
+          ThemeMode.system => 'system',
+        });
   }
 
   // Language, theme and launch stage survive restarts; best-effort so a
@@ -54,14 +70,15 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
         stage = _LaunchStage.onboarding;
       }
       if (!mounted) return;
+      _theme.mode.value = switch (theme) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        'system' => ThemeMode.system,
+        _ => _theme.mode.value,
+      };
       setState(() {
         if (language == 'am') _language = AppLanguage.amharic;
         if (language == 'en') _language = AppLanguage.english;
-        _themeMode = switch (theme) {
-          'light' => ThemeMode.light,
-          'dark' => ThemeMode.dark,
-          _ => _themeMode,
-        };
         _stage = stage;
       });
     } catch (_) {
@@ -103,6 +120,7 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
 
   @override
   void dispose() {
+    _theme.mode.removeListener(_onThemeChanged);
     _callController.dispose();
     super.dispose();
   }
@@ -115,18 +133,8 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
         'pref_language', language == AppLanguage.amharic ? 'am' : 'en');
   }
 
-  void _setThemeMode(ThemeMode mode) {
-    setState(() {
-      _themeMode = mode;
-    });
-    _persistPreference(
-        'pref_theme_mode',
-        switch (mode) {
-          ThemeMode.light => 'light',
-          ThemeMode.dark => 'dark',
-          ThemeMode.system => 'system',
-        });
-  }
+  // Persistence + rebuild happen in _onThemeChanged when the controller fires.
+  void _setThemeMode(ThemeMode mode) => _theme.mode.value = mode;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +156,7 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
       darkTheme: AppTheme.dark(
         useEthiopic: _language == AppLanguage.amharic,
       ),
-      themeMode: _themeMode,
+      themeMode: _theme.mode.value,
       home: switch (_stage) {
         _LaunchStage.loading => const Scaffold(
             backgroundColor: Color(0xFF06342C),
@@ -162,7 +170,7 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
           ),
         _LaunchStage.preferences => LanguageThemeScreen(
             language: _language,
-            themeMode: _themeMode,
+            themeMode: _theme.mode.value,
             onLanguageChanged: _setLanguage,
             onThemeModeChanged: _setThemeMode,
             onDone: _finishPreferences,
@@ -179,7 +187,7 @@ class _ChristianYouthSuperAppState extends State<ChristianYouthSuperApp> {
         _LaunchStage.home => HomeShell(
             language: _language,
             onLanguageChanged: _setLanguage,
-            themeMode: _themeMode,
+            themeMode: _theme.mode.value,
             onThemeModeChanged: _setThemeMode,
             apiClient: _apiClient,
             callController: _callController,
