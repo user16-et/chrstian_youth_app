@@ -174,9 +174,19 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
         }
       }
     }
+    // Reopen in the translation the user last chose, so the reader (and the
+    // search that inherits from it) stay on AMH/KJV across sessions instead of
+    // resetting to the caller's default.
+    final savedVersion = await BibleVersionPref.load();
+    if (savedVersion != null && _versions.any((v) => v['code'] == savedVersion)) {
+      _primary = savedVersion;
+    }
     if (!_versions.any((v) => v['code'] == _primary) && _versions.isNotEmpty) {
       _primary = '${_versions.first['code']}';
     }
+    // Keep the saved version in step with what the reader is actually showing,
+    // so search opened from anywhere defaults to the same AMH/KJV.
+    unawaited(BibleVersionPref.save(_primary));
     _book = _books.firstWhere(
       (b) => '${b['name']}'.toLowerCase() == widget.initialBook.toLowerCase(),
       orElse: () => _books.isNotEmpty ? _books.first : <String, dynamic>{},
