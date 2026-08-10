@@ -419,13 +419,11 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                             color: colors.primary, fontWeight: FontWeight.w700, fontSize: 12 * _font, height: 1.6)),
                     TextSpan(text: dv.text, style: TextStyle(fontSize: 17 * _font, height: 1.6)),
                   ]),
-                  textAlign: TextAlign.justify,
                 ),
                 if (parallel)
                   Padding(
                     padding: const EdgeInsets.only(top: 4, left: 2),
                     child: Text(secondaryText.isEmpty ? '—' : secondaryText,
-                        textAlign: TextAlign.justify,
                         style: TextStyle(
                             fontSize: 16 * _font,
                             height: 1.5,
