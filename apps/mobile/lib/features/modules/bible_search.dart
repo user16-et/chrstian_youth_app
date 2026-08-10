@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/bible_version_pref.dart';
 import '../../i18n/app_i18n.dart';
 
 /// Scope a Bible search to the whole canon, the book the reader is currently in,
@@ -41,7 +42,7 @@ class BibleSearchScreen extends StatefulWidget {
 class _BibleSearchScreenState extends State<BibleSearchScreen> {
   final TextEditingController _controller = TextEditingController();
   Timer? _debounce;
-  late String _version;
+  String _version = 'amh';
   late BibleSearchScope _scope;
   Map<String, dynamic>? _pickedBook;
   Future<List<BibleSearchResultItem>>? _future;
@@ -53,14 +54,29 @@ class _BibleSearchScreenState extends State<BibleSearchScreen> {
   @override
   void initState() {
     super.initState();
-    _version = widget.initialVersion ??
-        (_en ? 'kjv' : 'amh');
-    if (!widget.versions.any((v) => v['code'] == _version) && widget.versions.isNotEmpty) {
-      _version = '${widget.versions.first['code']}';
-    }
     _scope = widget.currentBook != null ? BibleSearchScope.thisBook : BibleSearchScope.whole;
     _controller.text = widget.initialQuery;
+    // The search version follows the Bible translation the user chose (passed in
+    // from the reader, else the last-selected one) — never the app UI language.
+    final passed = widget.initialVersion;
+    if (passed != null && passed.isNotEmpty) {
+      _version = _validVersion(passed);
+      if (widget.initialQuery.trim().isNotEmpty) _runSearch();
+    } else {
+      _loadPersistedVersion();
+    }
+  }
+
+  Future<void> _loadPersistedVersion() async {
+    final persisted = await BibleVersionPref.load();
+    if (!mounted) return;
+    setState(() => _version = _validVersion(persisted ?? _version));
     if (widget.initialQuery.trim().isNotEmpty) _runSearch();
+  }
+
+  String _validVersion(String code) {
+    if (code.isNotEmpty && widget.versions.any((v) => v['code'] == code)) return code;
+    return widget.versions.isNotEmpty ? '${widget.versions.first['code']}' : code;
   }
 
   @override

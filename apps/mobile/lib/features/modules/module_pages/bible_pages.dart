@@ -1271,7 +1271,9 @@ class _BibleScreenState extends State<BibleScreen> {
                     token: widget.session?.token,
                     versions: _list(ecosystem, 'versions'),
                     books: _list(ecosystem, 'books'),
-                    initialVersion: _readerVersion,
+                    // null => the search screen uses the last-selected Bible
+                    // translation, not the app UI language.
+                    initialVersion: null,
                   ),
                 )),
               ),

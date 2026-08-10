@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/bible_local_store.dart';
+import '../../data/bible_version_pref.dart';
 import '../../data/theme_controller.dart';
 import '../../i18n/app_i18n.dart';
 import 'bible_search.dart';
@@ -636,6 +637,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                 Navigator.pop(context);
                 if (code != _primary) {
                   setState(() { _primary = code; if (_secondary == code) _secondary = null; });
+                  BibleVersionPref.save(code); // search + other surfaces follow this
                   _loadChapter();
                 }
               },

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
+import '../../data/bible_version_pref.dart';
 import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
 import 'discover_pages.dart';
@@ -160,10 +161,12 @@ class _YouthHubScreenState extends State<YouthHubScreen> {
       });
       return;
     }
+    // Follow the last-selected Bible translation, not the app UI language.
+    final version = await BibleVersionPref.load() ?? 'amh';
+    if (!mounted) return;
     setState(() {
       _searchFuture = widget.apiClient.searchBible(query,
-          token: widget.session?.token,
-          version: _en ? 'kjv' : 'amh');
+          token: widget.session?.token, version: version);
     });
     await _searchFuture;
   }
