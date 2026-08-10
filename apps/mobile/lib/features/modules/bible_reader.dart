@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -10,6 +12,7 @@ import '../../data/bible_local_store.dart';
 import '../../data/theme_controller.dart';
 import '../../i18n/app_i18n.dart';
 import 'bible_search.dart';
+import 'verse_card.dart';
 
 // Verse highlight colors (name stored server-side, tint used to render).
 const Map<String, Color> _highlightPalette = {
@@ -781,6 +784,10 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                 icon: const Icon(Icons.brush_rounded),
                 onPressed: _openHighlightPicker),
             IconButton(
+                tooltip: _t(lang, 'Share as card', 'እንደ ካርድ አጋራ'),
+                icon: const Icon(Icons.card_giftcard_rounded),
+                onPressed: _shareAsCard),
+            IconButton(
                 tooltip: _t(lang, 'Copy', 'ቅዳ'),
                 icon: const Icon(Icons.copy_rounded),
                 onPressed: _copySelection),
@@ -812,6 +819,61 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     final params = ShareParams(text: _selectionText(), subject: _selectionReference());
     await SharePlus.instance.share(params);
     if (mounted) setState(_selected.clear);
+  }
+
+  // Preview the selected verse(s) as a styled card, then share it as an image
+  // through the OS sheet (user picks where). Text fallback if capture fails.
+  Future<void> _shareAsCard() async {
+    if (_selected.isEmpty) return;
+    final reference = _selectionReference();
+    final text = _selectedVerses.map((dv) => dv.text).join(' ');
+    final cardKey = GlobalKey();
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: RepaintBoundary(
+                key: cardKey,
+                child: VerseCard(reference: reference, text: text),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  await _captureAndShareCard(cardKey, reference, text);
+                  if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+                },
+                icon: const Icon(Icons.ios_share_rounded),
+                label: Text(_t(lang, 'Share image', 'ምስል አጋራ')),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (mounted) setState(_selected.clear);
+  }
+
+  Future<void> _captureAndShareCard(GlobalKey key, String reference, String text) async {
+    try {
+      final boundary = key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) throw StateError('no boundary');
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) throw StateError('no bytes');
+      final file = XFile.fromData(data.buffer.asUint8List(), mimeType: 'image/png', name: 'verse-card.png');
+      await SharePlus.instance.share(ShareParams(files: [file], text: '$reference\n$text'));
+    } catch (_) {
+      await SharePlus.instance.share(ShareParams(text: '$reference\n$text', subject: reference));
+    }
   }
 
   bool get _signedIn => widget.token != null && widget.token!.isNotEmpty;
