@@ -281,13 +281,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   children: [
                     Row(
                       children: [
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor:
-                              Theme.of(context).colorScheme.surface,
-                          child: Icon(Icons.auto_awesome_rounded,
-                              color: Theme.of(context).colorScheme.primary),
-                        ),
+                        UserAvatar(name: _post.author, radius: 22),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(

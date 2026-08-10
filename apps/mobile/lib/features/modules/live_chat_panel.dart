@@ -9,6 +9,7 @@ import '../../data/call_client.dart';
 import '../../data/call_controller.dart';
 import '../../data/live_chat_client.dart';
 import '../../i18n/app_i18n.dart';
+import '../widgets/user_avatar.dart';
 import 'call_log_bubble.dart';
 import 'user_profile_sheet.dart';
 
@@ -933,15 +934,26 @@ class _MessageBubble extends StatelessWidget {
                   if (!mine && author.isNotEmpty) ...[
                     GestureDetector(
                       onTap: onAuthorTap,
-                      child: Text(
-                        author,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.primary,
-                          fontWeight: FontWeight.w700,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        UserAvatar(
+                          name: author,
+                          imageUrl: message['profileImage']?.toString(),
+                          seed: message['authorId']?.toString(),
+                          radius: 9,
                         ),
-                      ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            author,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: colors.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ]),
                     ),
                     const SizedBox(height: 3),
                   ],
