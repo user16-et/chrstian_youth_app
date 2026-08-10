@@ -395,7 +395,7 @@ class _BelieverJourneyScreenState extends State<BelieverJourneyScreen> {
                 .map((item) => ListTile(
                       title: Text('${item['title']}'),
                       subtitle: Text(
-                          '${item['seller_name']} • ETB ${(item['price_cents'] as num) / 100}'),
+                          '${item['sellerName'] ?? ''} • ETB ${((item['priceCents'] as num?) ?? 0) / 100}'),
                       trailing: FilledButton.tonal(
                           onPressed: _busy
                               ? null

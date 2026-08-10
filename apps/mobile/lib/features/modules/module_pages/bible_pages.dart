@@ -102,6 +102,7 @@ class _BibleScreenState extends State<BibleScreen> {
   int _selectedVerseIndex = 0;
   String? _verseLang; // null = follow app language; else 'en' / 'am'
   String _selectedHighlightColor = 'gold';
+  final GlobalKey _verseCardKey = GlobalKey(); // captured to share as an image
   final String _readerVersion = 'amh';
   final String _readerBook = 'Matthew';
   final int _readerChapter = 1;
@@ -1156,6 +1157,29 @@ class _BibleScreenState extends State<BibleScreen> {
     });
   }
 
+  // A "verse card" is a shareable image of the styled daily-verse card. Capture
+  // the on-screen card to a PNG and hand it to the OS share sheet so the user
+  // decides where it goes. Falls back to plain text if the capture fails.
+  Future<void> _shareVerseCard(String reference, String text) async {
+    try {
+      final boundary =
+          _verseCardKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) throw StateError('no boundary');
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) throw StateError('no bytes');
+      final file = XFile.fromData(
+        data.buffer.asUint8List(),
+        mimeType: 'image/png',
+        name: 'verse-card.png',
+      );
+      await SharePlus.instance.share(ShareParams(files: [file], text: '$reference\n$text'));
+    } catch (_) {
+      await SharePlus.instance
+          .share(ShareParams(text: '$reference\n$text', subject: reference));
+    }
+  }
+
   List<Map<String, dynamic>> _list(Map<String, dynamic> data, String key) {
     return ((data[key] as List<dynamic>?) ?? const <dynamic>[])
         .whereType<Map<String, dynamic>>()
@@ -1290,11 +1314,14 @@ class _BibleScreenState extends State<BibleScreen> {
                       ),
                     ),
                   if (selectedItem.hasAmharic) const SizedBox(height: 10),
-                  _FullVerseCard(
-                    colors: colors,
-                    reference: selRef,
-                    text: selText,
-                    theme: selectedItem.theme,
+                  RepaintBoundary(
+                    key: _verseCardKey,
+                    child: _FullVerseCard(
+                      colors: colors,
+                      reference: selRef,
+                      text: selText,
+                      theme: selectedItem.theme,
+                    ),
                   ),
                   const SizedBox(height: 14),
                   Row(
@@ -1357,14 +1384,10 @@ class _BibleScreenState extends State<BibleScreen> {
                         child: _VerseActionButton(
                           icon: Icons.ios_share_rounded,
                           label: _tr('Share', 'አጋራ'),
-                          onTap: _busy
-                              ? null
-                              : () => _bibleAction((token) =>
-                                  widget.apiClient.shareBibleVerse(
-                                      token: token,
-                                      reference: selRef,
-                                      verseText: selText,
-                                      channel: 'story')),
+                          // Hand the verse to the OS share sheet so the user
+                          // picks where it goes (no auto-post to their story).
+                          onTap: () => SharePlus.instance.share(
+                              ShareParams(text: '$selRef\n$selText', subject: selRef)),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1372,14 +1395,8 @@ class _BibleScreenState extends State<BibleScreen> {
                         child: _VerseActionButton(
                           icon: Icons.card_giftcard_rounded,
                           label: _tr('Verse card', 'ካርድ'),
-                          onTap: _busy
-                              ? null
-                              : () => _bibleAction((token) =>
-                                  widget.apiClient.createVerseCard(
-                                      token: token,
-                                      reference: selRef,
-                                      verseText: selText,
-                                      language: language.code)),
+                          // Share the styled card as an image via the OS sheet.
+                          onTap: () => _shareVerseCard(selRef, selText),
                         ),
                       ),
                     ],
