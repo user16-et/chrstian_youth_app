@@ -104,10 +104,11 @@ class _BelieverJourneyScreenState extends State<BelieverJourneyScreen> {
                   profile['onboarding_complete'] == true) ...[
                 _summary(profile, data),
                 const SizedBox(height: 18),
-                _plans((data['plans'] as List).cast<Map<String, dynamic>>()),
+                _plans((data['plans'] as List? ?? const [])
+                    .cast<Map<String, dynamic>>()),
                 const SizedBox(height: 18),
-                _courses(
-                    (data['courses'] as List).cast<Map<String, dynamic>>()),
+                _courses((data['courses'] as List? ?? const [])
+                    .cast<Map<String, dynamic>>()),
                 const SizedBox(height: 18),
                 _marketplace(),
               ],
@@ -337,7 +338,7 @@ class _BelieverJourneyScreenState extends State<BelieverJourneyScreen> {
               Text((profile['interests'] as List? ?? []).join('  •  ')),
               const SizedBox(height: 12),
               Text(
-                  '${(data['badges'] as List).length} badges  •  ${(data['friends'] as List).length} friendship requests  •  ${(data['orders'] as List).length} orders'),
+                  '${(data['badges'] as List? ?? const []).length} badges  •  ${(data['friends'] as List? ?? const []).length} friendship requests  •  ${(data['orders'] as List? ?? const []).length} orders'),
             ])),
       );
 
@@ -395,7 +396,7 @@ class _BelieverJourneyScreenState extends State<BelieverJourneyScreen> {
                 .map((item) => ListTile(
                       title: Text('${item['title']}'),
                       subtitle: Text(
-                          '${item['sellerName'] ?? ''} • ETB ${((item['priceCents'] as num?) ?? 0) / 100}'),
+                          '${item['sellerName'] ?? ''} • ETB ${(num.tryParse('${item['priceCents'] ?? 0}') ?? 0) / 100}'),
                       trailing: FilledButton.tonal(
                           onPressed: _busy
                               ? null
