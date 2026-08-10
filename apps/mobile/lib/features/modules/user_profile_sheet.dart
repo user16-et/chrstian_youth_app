@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../widgets/full_image_view.dart';
+import '../widgets/user_avatar.dart';
 
 /// Opens a reusable, social-media-style profile card for any user. Wire this to
 /// every clickable name/avatar.
@@ -86,13 +88,6 @@ class _FollowListScreenState extends State<FollowListScreen> {
     }
   }
 
-  String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
-    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -117,13 +112,12 @@ class _FollowListScreenState extends State<FollowListScreen> {
                       return ListTile(
                         onTap: () => showUserProfileSheet(context,
                             apiClient: widget.apiClient, userId: id, token: widget.token),
-                        leading: CircleAvatar(
-                          backgroundColor: colors.surfaceContainerHighest,
-                          backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
-                          child: avatar.isEmpty
-                              ? Text(_initials('${u['fullName'] ?? ''}'),
-                                  style: TextStyle(color: colors.onSurfaceVariant))
-                              : null,
+                        leading: UserAvatar(
+                          name: '${u['fullName'] ?? ''}',
+                          imageUrl: avatar,
+                          seed: id,
+                          radius: 20,
+                          viewable: true,
                         ),
                         title: Text('${u['fullName'] ?? 'Member'}', style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: '${u['username'] ?? ''}'.isEmpty ? null : Text('@${u['username']}'),
@@ -260,16 +254,21 @@ class _UserProfileSheetState extends State<_UserProfileSheet> {
               Positioned(
                 left: 20,
                 bottom: -36,
-                child: CircleAvatar(
-                  radius: 44,
-                  backgroundColor: colors.surface,
+                child: GestureDetector(
+                  onTap: _avatar.isEmpty
+                      ? null
+                      : () => FullImageView.open(context, _avatar),
                   child: CircleAvatar(
-                    radius: 40,
-                    backgroundColor: colors.surfaceContainerHighest,
-                    backgroundImage: _avatar.isNotEmpty ? NetworkImage(_avatar) : null,
-                    child: _avatar.isEmpty
-                        ? Text(_initials(name), style: TextStyle(fontSize: 26, color: colors.onSurfaceVariant))
-                        : null,
+                    radius: 44,
+                    backgroundColor: colors.surface,
+                    child: CircleAvatar(
+                      radius: 40,
+                      backgroundColor: colors.surfaceContainerHighest,
+                      backgroundImage: _avatar.isNotEmpty ? NetworkImage(_avatar) : null,
+                      child: _avatar.isEmpty
+                          ? Text(_initials(name), style: TextStyle(fontSize: 26, color: colors.onSurfaceVariant))
+                          : null,
+                    ),
                   ),
                 ),
               ),

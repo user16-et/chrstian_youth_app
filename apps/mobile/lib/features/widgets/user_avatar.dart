@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'full_image_view.dart';
+
 /// A user's avatar, shown consistently everywhere. If [imageUrl] is present it
 /// shows the photo; otherwise it falls back to the person's initials on a
 /// deterministic color — so every user always has a recognizable avatar, even
-/// without an uploaded picture.
+/// without an uploaded picture. Set [viewable] to open the full-size photo when
+/// tapped.
 class UserAvatar extends StatelessWidget {
   const UserAvatar({
     super.key,
@@ -11,12 +14,14 @@ class UserAvatar extends StatelessWidget {
     this.imageUrl,
     this.seed,
     this.radius = 20,
+    this.viewable = false,
   });
 
   final String name;
   final String? imageUrl;
   final String? seed; // stable color source (e.g. user id); defaults to name
   final double radius;
+  final bool viewable; // tap to view the full image (only when a photo exists)
 
   // Calm, legible background tints (white text sits well on all of these).
   static const List<Color> _palette = [
@@ -58,17 +63,22 @@ class UserAvatar extends StatelessWidget {
         fontSize: radius * 0.8,
       ),
     );
+    final hasImage = imageUrl != null && imageUrl!.isNotEmpty;
     // foregroundImage overlays the initials when it loads, and the initials
     // remain visible if the URL is empty or fails.
-    return CircleAvatar(
+    final avatar = CircleAvatar(
       radius: radius,
       backgroundColor: background,
-      foregroundImage: (imageUrl != null && imageUrl!.isNotEmpty)
-          ? NetworkImage(imageUrl!)
-          : null,
-      onForegroundImageError:
-          (imageUrl != null && imageUrl!.isNotEmpty) ? (_, __) {} : null,
+      foregroundImage: hasImage ? NetworkImage(imageUrl!) : null,
+      onForegroundImageError: hasImage ? (_, __) {} : null,
       child: label,
     );
+    if (viewable && hasImage) {
+      return GestureDetector(
+        onTap: () => FullImageView.open(context, imageUrl!),
+        child: avatar,
+      );
+    }
+    return avatar;
   }
 }

@@ -2292,31 +2292,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
                                                 _openUserProfile(user),
                                             child: Row(
                                               children: [
-                                                CircleAvatar(
+                                                UserAvatar(
+                                                  name: user.fullName,
+                                                  imageUrl: user.profileImage,
+                                                  seed: user.id,
                                                   radius: 22,
-                                                  backgroundColor: Theme.of(
-                                                          context)
-                                                      .colorScheme
-                                                      .surfaceContainerHighest,
-                                                  backgroundImage: user
-                                                          .profileImage
-                                                          .isNotEmpty
-                                                      ? NetworkImage(
-                                                          user.profileImage)
-                                                      : null,
-                                                  child: user.profileImage
-                                                          .isEmpty
-                                                      ? Text(
-                                                          user.fullName
-                                                                  .isNotEmpty
-                                                              ? user.fullName[0]
-                                                                  .toUpperCase()
-                                                              : '?',
-                                                          style: Theme.of(
-                                                                  context)
-                                                              .textTheme
-                                                              .titleMedium)
-                                                      : null,
+                                                  viewable: true,
                                                 ),
                                                 const SizedBox(width: 12),
                                                 Expanded(
@@ -2519,13 +2500,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(children: [
-        CircleAvatar(
+        UserAvatar(
+          name: name,
+          imageUrl: photo,
+          seed: userId.isNotEmpty ? userId : id,
           radius: 22,
-          backgroundColor: colors.surfaceContainerHighest,
-          backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
-          child: photo.isEmpty
-              ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?')
-              : null,
+          viewable: true,
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -2589,11 +2569,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(children: [
-                      CircleAvatar(
+                      UserAvatar(
+                        name: '${f['fullName'] ?? ''}',
+                        imageUrl: '${f['profileImage'] ?? ''}',
+                        seed: '${f['id'] ?? f['userId'] ?? ''}',
                         radius: 22,
-                        backgroundColor: colors.surfaceContainerHighest,
-                        backgroundImage: '${f['profileImage'] ?? ''}'.isNotEmpty ? NetworkImage('${f['profileImage']}') : null,
-                        child: '${f['profileImage'] ?? ''}'.isEmpty ? Text('${f['fullName'] ?? '?'}'.isNotEmpty ? '${f['fullName']}'[0].toUpperCase() : '?') : null,
+                        viewable: true,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
