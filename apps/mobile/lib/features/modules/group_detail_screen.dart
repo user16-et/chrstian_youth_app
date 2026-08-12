@@ -10,6 +10,7 @@ import '../../data/call_controller.dart';
 import '../../data/group_socket_client.dart';
 import '../../data/image_upload.dart';
 import '../../i18n/app_i18n.dart';
+import '../widgets/user_avatar.dart';
 import 'user_profile_sheet.dart';
 
 bool _en(AppLanguage l) => l == AppLanguage.english;
@@ -451,6 +452,12 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
                 ),
               ]),
         actions: [
+          if (!_loading && _readingPlan != null)
+            IconButton(
+              tooltip: _t(lang, 'Study notes', 'የጥናት ማስታወሻ'),
+              icon: const Icon(Icons.sticky_note_2_rounded),
+              onPressed: _openStudyNotes,
+            ),
           if (!_loading && _isMember)
             IconButton(
               tooltip: _t(lang, 'Start audio meeting', 'የድምፅ ስብሰባ ጀምር'),
@@ -484,6 +491,22 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   }
 
   // Reading-plan banner shown at the top of a reading group's chat.
+  Future<void> _openStudyNotes() async {
+    final token = _token;
+    if (token.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _StudyNotesSheet(
+        apiClient: widget.apiClient,
+        token: token,
+        groupId: widget.groupId,
+        language: lang,
+      ),
+    );
+  }
+
   Widget _readingBanner(ColorScheme colors, ReadingGroupPlan plan) {
     final done = plan.todayDone;
     final complete = plan.isComplete;
@@ -1821,6 +1844,213 @@ class _CreatePollSheetState extends State<_CreatePollSheet> {
             child: Text(_t(lang, 'Post poll', 'ጥያቄ ለጥፍ')),
           ),
         ),
+      ]),
+    );
+  }
+}
+
+/// Shared study notes for a reading group: members post short insights (with an
+/// optional verse reference) that persist and are visible to everyone. Distinct
+/// from the ephemeral group chat.
+class _StudyNotesSheet extends StatefulWidget {
+  const _StudyNotesSheet({
+    required this.apiClient,
+    required this.token,
+    required this.groupId,
+    required this.language,
+  });
+
+  final ApiClient apiClient;
+  final String token;
+  final String groupId;
+  final AppLanguage language;
+
+  @override
+  State<_StudyNotesSheet> createState() => _StudyNotesSheetState();
+}
+
+class _StudyNotesSheetState extends State<_StudyNotesSheet> {
+  final TextEditingController _reference = TextEditingController();
+  final TextEditingController _note = TextEditingController();
+  List<Map<String, dynamic>> _notes = const [];
+  bool _loading = true;
+  bool _sending = false;
+  String _error = '';
+
+  bool get _en => widget.language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _reference.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final notes = await widget.apiClient.fetchReadingGroupNotes(widget.token, widget.groupId);
+      if (mounted) setState(() { _notes = notes; _loading = false; });
+    } catch (error) {
+      if (mounted) {
+        setState(() { _error = error.toString().replaceFirst('HttpException: ', ''); _loading = false; });
+      }
+    }
+  }
+
+  Future<void> _send() async {
+    final text = _note.text.trim();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      final created = await widget.apiClient.addReadingGroupNote(
+        widget.token,
+        widget.groupId,
+        note: text,
+        reference: _reference.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _notes = [created, ..._notes];
+        _sending = false;
+      });
+      _note.clear();
+      _reference.clear();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.8,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Row(children: [
+              Icon(Icons.sticky_note_2_rounded, color: colors.primary),
+              const SizedBox(width: 8),
+              Text(_t('Study notes', 'የጥናት ማስታወሻ'),
+                  style: Theme.of(context).textTheme.titleLarge),
+            ]),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error.isNotEmpty
+                    ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error)))
+                    : _notes.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(28),
+                              child: Text(
+                                  _t('No study notes yet. Share the first insight 🙏',
+                                      'ገና የጥናት ማስታወሻ የለም። የመጀመሪያውን ግንዛቤ ያካፍሉ 🙏'),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: colors.onSurfaceVariant)),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                            itemCount: _notes.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            itemBuilder: (context, i) => _noteCard(colors, _notes[i]),
+                          ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              child: Column(children: [
+                TextField(
+                  controller: _reference,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    prefixIcon: const Icon(Icons.menu_book_rounded, size: 18),
+                    hintText: _t('Verse (optional), e.g. John 1:1', 'ጥቅስ (አማራጭ)፣ ለምሳሌ ዮሐንስ 1፥1'),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _note,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.newline,
+                      decoration: InputDecoration(
+                        hintText: _t('Share an insight…', 'ግንዛቤ ያካፍሉ…'),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: _sending ? null : _send,
+                    icon: _sending
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.send_rounded),
+                  ),
+                ]),
+              ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _noteCard(ColorScheme colors, Map<String, dynamic> n) {
+    final reference = '${n['reference'] ?? ''}'.trim();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: .4),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          UserAvatar(
+            name: '${n['authorName'] ?? ''}',
+            imageUrl: '${n['profileImage'] ?? ''}',
+            seed: '${n['authorId'] ?? ''}',
+            radius: 14,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text('${n['authorName'] ?? ''}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          if (reference.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: colors.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(reference,
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: colors.onPrimaryContainer)),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        Text('${n['note'] ?? ''}', style: const TextStyle(height: 1.35)),
       ]),
     );
   }

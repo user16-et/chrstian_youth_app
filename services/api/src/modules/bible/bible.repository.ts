@@ -471,6 +471,47 @@ export class BibleRepository {
     return result.rows[0];
   }
 
+  private async isReadingGroupMember(userId: string, groupId: string) {
+    const result = await this.db.query(
+      "SELECT 1 FROM group_memberships WHERE group_id=$1 AND user_id=$2 AND status='active'",
+      [groupId, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Shared study notes for a reading group — members only.
+  async listReadingGroupNotes(userId: string, groupId: string) {
+    if (!(await this.isReadingGroupMember(userId, groupId))) return [];
+    const result = await this.db.query(
+      `SELECT n.id, n.reference, n.note, n.created_at AS "createdAt",
+              u.id AS "authorId", u.full_name AS "authorName",
+              COALESCE(NULLIF(u.profile_image,''),'') AS "profileImage"
+       FROM reading_group_notes n JOIN users u ON u.id = n.user_id
+       WHERE n.group_id = $1
+       ORDER BY n.created_at DESC
+       LIMIT 100`,
+      [groupId],
+    );
+    return result.rows;
+  }
+
+  async addReadingGroupNote(userId: string, groupId: string, input: Record<string, unknown>) {
+    if (!(await this.isReadingGroupMember(userId, groupId))) return null;
+    const result = await this.db.query(
+      `WITH inserted AS (
+         INSERT INTO reading_group_notes (group_id, user_id, reference, note)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, user_id, reference, note, created_at
+       )
+       SELECT i.id, i.reference, i.note, i.created_at AS "createdAt",
+              u.id AS "authorId", u.full_name AS "authorName",
+              COALESCE(NULLIF(u.profile_image,''),'') AS "profileImage"
+       FROM inserted i JOIN users u ON u.id = i.user_id`,
+      [groupId, userId, String(input.reference ?? ''), String(input.note ?? '')],
+    );
+    return result.rows[0] ?? null;
+  }
+
   // ---- Reading groups (backed by the shared groups system) ----
   // A reading group is a group (category='bible_study') bound to a reading plan
   // (groups.reading_plan_id). Members read the plan together while using the

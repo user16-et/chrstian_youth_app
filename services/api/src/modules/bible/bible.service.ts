@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { UserRepository } from '../../common/user.repository';
 import { NotificationsService } from '../platform/notifications.service';
@@ -122,6 +122,20 @@ export class BibleService {
   async addGroupStudyNote(token: string, studyId: string, input: Record<string, unknown>) {
     const actor = await this.requireActor(token);
     return this.bibleRepository.addGroupStudyNote(actor.id, studyId, input);
+  }
+
+  async listReadingGroupNotes(token: string, groupId: string) {
+    const actor = await this.requireActor(token);
+    return this.bibleRepository.listReadingGroupNotes(actor.id, groupId);
+  }
+
+  async addReadingGroupNote(token: string, groupId: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    const note = String(input.note ?? '').trim();
+    if (!note) throw new BadRequestException('note_required');
+    const created = await this.bibleRepository.addReadingGroupNote(actor.id, groupId, { reference: input.reference, note });
+    if (!created) throw new ForbiddenException('not_a_group_member');
+    return created;
   }
 
   async listStudyGroups(token: string) {

@@ -1605,6 +1605,28 @@ class ApiClient {
         headers: {'Authorization': 'Bearer $token'});
   }
 
+  /// Shared study notes for a reading group (members only).
+  Future<List<Map<String, dynamic>>> fetchReadingGroupNotes(
+      String token, String groupId) async {
+    final response = await _getJson('/bible/reading-groups/$groupId/notes',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> addReadingGroupNote(
+    String token,
+    String groupId, {
+    required String note,
+    String reference = '',
+  }) async {
+    final response = await _postJson(
+      '/bible/reading-groups/$groupId/notes',
+      {'note': note, 'reference': reference},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return Map<String, dynamic>.from(response as Map);
+  }
+
   /// The reading-plan state for a group's in-chat banner (null if not a
   /// reading group).
   Future<ReadingGroupPlan?> fetchReadingGroupPlan(

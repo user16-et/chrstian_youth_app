@@ -177,6 +177,24 @@ export class BibleController {
   }
 
   @ApiBearerAuth()
+  @ApiOperation({ summary: "List a reading group's shared study notes" })
+  @Get('/bible/reading-groups/:id/notes')
+  listReadingGroupNotes(@Headers('authorization') authorization?: string, @Param('id') groupId?: string) {
+    return this.bibleService.listReadingGroupNotes(requireBearerToken(authorization), groupId ?? '');
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Add a shared study note to a reading group' })
+  @Post('/bible/reading-groups/:id/notes')
+  addReadingGroupNote(
+    @Headers('authorization') authorization?: string,
+    @Param('id') groupId?: string,
+    @Body() body?: Record<string, unknown>,
+  ) {
+    return this.bibleService.addReadingGroupNote(requireBearerToken(authorization), groupId ?? '', body ?? {});
+  }
+
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get the reading-plan progress for a reading group' })
   @Get('/bible/reading-groups/:id/plan')
   readingGroupPlan(@Headers('authorization') authorization?: string, @Param('id') groupId?: string) {

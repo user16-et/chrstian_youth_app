@@ -129,4 +129,33 @@ describe('Bible study features (integration)', () => {
       expect(hit?.bookAm).toBe(bookNameAm);
     });
   });
+
+  // Shared study notes on a reading group — the collaborative piece that made
+  // the study group actually functional.
+  describe('reading group notes', () => {
+    let groupId: string;
+
+    beforeAll(async () => {
+      const group = await repo.createReadingGroup(user.id, { name: 'Notes Group', readings: ['John 1'] });
+      groupId = group.id as string;
+    });
+
+    afterAll(async () => {
+      await testPool.query('DELETE FROM reading_group_notes WHERE group_id = $1', [groupId]);
+      await testPool.query('DELETE FROM group_memberships WHERE group_id = $1', [groupId]);
+      await testPool.query('DELETE FROM groups WHERE id = $1', [groupId]);
+    });
+
+    it('lets a member add and list notes, and blocks non-members', async () => {
+      const note = await repo.addReadingGroupNote(user.id, groupId, { reference: 'John 1:1', note: 'The Word was God' });
+      expect(note).toMatchObject({ reference: 'John 1:1', note: 'The Word was God', authorId: user.id });
+
+      const list = await repo.listReadingGroupNotes(user.id, groupId);
+      expect(list.some((n) => n.id === note.id)).toBe(true);
+
+      // A non-member can neither post nor read.
+      expect(await repo.addReadingGroupNote(other.id, groupId, { note: 'sneaky' })).toBeNull();
+      expect(await repo.listReadingGroupNotes(other.id, groupId)).toEqual([]);
+    });
+  });
 });
