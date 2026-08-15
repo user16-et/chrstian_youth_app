@@ -386,9 +386,10 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
               final body = '${story['body'] ?? story['caption'] ?? ''}';
               final views = story['viewCount'] ?? 0;
               final bgHex = '${story['background'] ?? ''}';
-              final bg = bgHex.startsWith('#') && bgHex.length == 7
-                  ? Color(int.parse('FF${bgHex.substring(1)}', radix: 16))
+              final bgValue = bgHex.startsWith('#') && bgHex.length == 7
+                  ? int.tryParse('FF${bgHex.substring(1)}', radix: 16)
                   : null;
+              final bg = bgValue == null ? null : Color(bgValue);
               return InkWell(
                 borderRadius: BorderRadius.circular(16),
                 onTap: _openMyStories,
@@ -545,8 +546,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
       (Icons.place_rounded, _t('City', 'ከተማ'), '${identity['city'] ?? ''}'),
       (Icons.work_rounded, _t('Occupation', 'ሙያ'), '${identity['occupation'] ?? ''}'),
       (Icons.church_rounded, _t('Church', 'ቤተ ክርስቲያን'), churchName),
-      (Icons.interests_rounded, _t('Interests', 'ፍላጎቶች'), '${identity['interests'] ?? ''}'),
-      (Icons.volunteer_activism_rounded, _t('Service areas', 'የአገልግሎት ዘርፎች'), '${identity['serviceAreas'] ?? ''}'),
+      (Icons.interests_rounded, _t('Interests', 'ፍላጎቶች'), _displayList(identity['interests'])),
+      (Icons.volunteer_activism_rounded, _t('Service areas', 'የአገልግሎት ዘርፎች'), _displayList(identity['serviceAreas'])),
       (Icons.timelapse_rounded, _t('Years in faith', 'በእምነት ዓመታት'), '${identity['yearsInFaith'] ?? ''}'),
     ].where((r) => r.$3.trim().isNotEmpty && r.$3 != 'null' && r.$3 != '0').toList();
     final testimony = '${identity['testimony'] ?? ''}';
@@ -577,6 +578,19 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
         _empty(Icons.person_rounded,
             _t('Nothing here yet — tap Edit to tell your story.', 'እስካሁን ምንም የለም — ታሪክዎን ለመንገር «አርትዕ» ይንኩ።')),
     ]);
+  }
+
+  // Postgres text[] fields (interests, service areas) arrive as JSON lists.
+  // Render them as a comma-joined string; a raw List.toString() would leak
+  // brackets like "[Music, Youth]" (or "[]" when empty) into the UI.
+  String _displayList(dynamic value) {
+    if (value is List) {
+      return value
+          .map((e) => '$e'.trim())
+          .where((s) => s.isNotEmpty)
+          .join(', ');
+    }
+    return '${value ?? ''}';
   }
 
   Widget _empty(IconData icon, String message) {

@@ -60,9 +60,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (token == null || token.isEmpty) {
       return;
     }
-    final profile = await widget.apiClient.me(token);
-    final memberships = await widget.apiClient.fetchMyChurchMemberships(token);
-    final dashboard = await widget.apiClient.fetchProfileDashboard(token);
+    final UserProfile? profile;
+    final List<ChurchMembershipItem> memberships;
+    final Map<String, dynamic> dashboard;
+    try {
+      profile = await widget.apiClient.me(token);
+      memberships = await widget.apiClient.fetchMyChurchMemberships(token);
+      dashboard = await widget.apiClient.fetchProfileDashboard(token);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+      return;
+    }
     if (!mounted) {
       return;
     }
@@ -127,8 +139,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+    final currentPassword = current.text;
+    final newPassword = next.text;
+    final confirmPassword = confirm.text;
+    current.dispose();
+    next.dispose();
+    confirm.dispose();
     if (ok != true) return;
-    if (next.text != confirm.text) {
+    if (currentPassword.isEmpty || newPassword.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(en
+                ? 'Enter your current and new password.'
+                : 'የአሁኑን እና አዲሱን የይለፍ ቃል ያስገቡ።')));
+      }
+      return;
+    }
+    if (newPassword != confirmPassword) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content:
@@ -140,22 +167,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       await widget.apiClient.changePassword(
         token: token,
-        currentPassword: current.text,
-        newPassword: next.text,
-        confirmPassword: confirm.text,
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
       );
-      if (!mounted) return;
-      widget.onAuthChanged(null);
-      await widget.onDataChanged();
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(en
-              ? 'Password changed. Sign in again.'
-              : 'የይለፍ ቃል ተቀይሯል። እንደገና ይግቡ።')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _busy = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+      return;
     }
+    if (!mounted) return;
+    widget.onAuthChanged(null);
+    await widget.onDataChanged();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(en
+            ? 'Password changed. Sign in again.'
+            : 'የይለፍ ቃል ተቀይሯል። እንደገና ይግቡ።')));
   }
 
   // Persists a freshly uploaded profile or cover photo, then refreshes so the
@@ -201,12 +235,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (token == null || token.isEmpty) {
       return;
     }
+    final en = widget.language == AppLanguage.english;
+    if (_fullNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(en ? 'Name cannot be empty.' : 'ስም ባዶ መሆን አይችልም።')));
+      return;
+    }
     setState(() {
       _busy = true;
     });
     try {
       await widget.apiClient.updateProfileDashboard(token, {
-        'fullName': _fullNameController.text,
+        'fullName': _fullNameController.text.trim(),
         'language': _profileLanguage,
         'bio': _bioController.text,
         'city': _cityController.text,
@@ -223,6 +263,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       widget.onAuthChanged(
           AuthResult(token: token, user: _profile ?? widget.session!.user));
       await widget.onDataChanged();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(en ? 'Profile saved.' : 'መገለጫ ተቀምጧል።')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
     } finally {
       if (mounted) {
         setState(() {
