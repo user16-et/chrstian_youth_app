@@ -364,6 +364,12 @@ export class UserRepository implements OnModuleInit {
       filters.push(selfParam
         ? `(COALESCE(ps.discoverable,true) OR EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id=$${selfParam} AND f.following_id=u.id))`
         : 'COALESCE(ps.discoverable,true)');
+      // Someone who blocked the viewer should not surface in their directory —
+      // they can't be interacted with and don't want to be found. (Users the
+      // viewer blocked stay visible so they remain reachable to unblock.)
+      if (selfParam) {
+        filters.push(`NOT EXISTS(SELECT 1 FROM user_blocks b WHERE b.blocker_id=u.id AND b.blocked_id=$${selfParam})`);
+      }
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     const limit = Math.min(Math.max(input.limit ?? 25, 1), 100);

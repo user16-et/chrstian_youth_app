@@ -47,7 +47,12 @@ export class JourneyService {
   async friend(token: string, id: string) { const actor = await this.actor(token); const result = await this.journey.friendRequest(actor.id, id); if (!result) throw new BadRequestException('invalid_friend_request'); return result; }
   async updateFriend(token: string, id: string, status: string) {
     if (!['accepted', 'declined'].includes(status)) throw new BadRequestException('invalid_friend_request_status');
-    return this.journey.updateFriendRequest((await this.actor(token)).id, id, status);
+    // Only the receiver of a still-pending request matches; a null result means
+    // the request is gone or the caller isn't the receiver — surface that instead
+    // of reporting a false success to the client.
+    const result = await this.journey.updateFriendRequest((await this.actor(token)).id, id, status);
+    if (!result) throw new NotFoundException('friend_request_not_found');
+    return result;
   }
   async withdrawFriend(token: string, id: string) {
     const result = await this.journey.withdrawFriendRequest((await this.actor(token)).id, id);

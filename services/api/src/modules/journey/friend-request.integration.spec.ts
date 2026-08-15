@@ -82,4 +82,24 @@ describe('JourneyRepository.friendRequest (integration)', () => {
     const result = await repo.friendRequest(a.id, a.id);
     expect(result).toBeNull();
   });
+
+  it('only the receiver can accept a request; others get null', async () => {
+    const req = await repo.friendRequest(a.id, b.id); // a -> b, pending
+    // The sender (a) cannot accept their own request.
+    expect(await repo.updateFriendRequest(a.id, req.id, 'accepted')).toBeNull();
+    // A stranger cannot accept it either.
+    const c = await createUser();
+    try {
+      expect(await repo.updateFriendRequest(c.id, req.id, 'accepted')).toBeNull();
+    } finally {
+      await deleteUsers(c.id);
+    }
+    // The receiver (b) can.
+    const accepted = await repo.updateFriendRequest(b.id, req.id, 'accepted');
+    expect(accepted).toMatchObject({ id: req.id, status: 'accepted' });
+  });
+
+  it('returns null when the request id does not exist', async () => {
+    expect(await repo.updateFriendRequest(b.id, '00000000-0000-0000-0000-000000000000', 'accepted')).toBeNull();
+  });
 });
