@@ -306,4 +306,32 @@ export class BibleController {
   deleteNote(@Headers('authorization') authorization?: string, @Param('id') noteId?: string) {
     return this.bibleService.deleteNote(requireBearerToken(authorization), noteId ?? '');
   }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "List the authenticated user's personal study notes" })
+  @Get('/bible/study-notes')
+  listStudyNotes(@Headers('authorization') authorization?: string) {
+    return this.bibleService.listStudyNotes(requireBearerToken(authorization));
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a personal study note' })
+  @Post('/bible/study-notes')
+  createStudyNote(@Headers('authorization') authorization?: string, @Body() body?: Record<string, unknown>) {
+    return this.bibleService.createStudyNote(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update a personal study note (edit or pin)' })
+  @Patch('/bible/study-notes/:id')
+  updateStudyNote(@Headers('authorization') authorization?: string, @Param('id') noteId?: string, @Body() body?: Record<string, unknown>) {
+    return this.bibleService.updateStudyNote(requireBearerToken(authorization), noteId ?? '', body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a personal study note' })
+  @Delete('/bible/study-notes/:id')
+  deleteStudyNote(@Headers('authorization') authorization?: string, @Param('id') noteId?: string) {
+    return this.bibleService.deleteStudyNote(requireBearerToken(authorization), noteId ?? '');
+  }
 }

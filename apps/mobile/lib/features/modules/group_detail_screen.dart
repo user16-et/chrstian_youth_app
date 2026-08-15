@@ -620,11 +620,25 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
             Padding(padding: const EdgeInsets.all(20), child: Text('${_detail['description']}')),
           const SizedBox(height: 80),
           Center(
-            child: Text(
-                _isChannel
-                    ? _t(lang, 'No posts yet.', 'ገና ልጥፍ የለም።')
-                    : _t(lang, 'No messages yet. Say hello 👋', 'ገና መልእክት የለም። ሰላም በሉ 👋'),
-                style: TextStyle(color: colors.onSurfaceVariant)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(children: [
+                Icon(_isChannel ? Icons.campaign_rounded : Icons.forum_rounded,
+                    size: 40, color: colors.onSurfaceVariant),
+                const SizedBox(height: 10),
+                Text(
+                    _isChannel
+                        ? _t(lang, 'No posts yet.', 'ገና ልጥፍ የለም።')
+                        // A reading group IS a full group chat — make that clear
+                        // so members don't think the plan banner is all there is.
+                        : _readingPlan != null
+                            ? _t(lang, 'This is your group chat. Discuss today\'s reading together 💬',
+                                'ይህ የቡድን ውይይታችሁ ነው። የዛሬውን ንባብ አብራችሁ ተወያዩ 💬')
+                            : _t(lang, 'No messages yet. Say hello 👋', 'ገና መልእክት የለም። ሰላም በሉ 👋'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: colors.onSurfaceVariant)),
+              ]),
+            ),
           ),
         ]),
       );

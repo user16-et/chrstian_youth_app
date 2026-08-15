@@ -982,6 +982,75 @@ export class BibleRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
+  // ---- Personal study notes (free-form study journal) ----
+
+  async listStudyNotes(userId: string) {
+    const result = await this.db.query(
+      `SELECT id, user_id, title, content, reference, pinned, language, created_at, updated_at
+       FROM bible_study_notes
+       WHERE user_id = $1
+       ORDER BY pinned DESC, updated_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => this.mapStudyNoteView(row));
+  }
+
+  async createStudyNote(input: { userId: string; title: string; content: string; reference?: string; language?: 'en' | 'am' }) {
+    const now = new Date().toISOString();
+    const result = await this.db.query(
+      `INSERT INTO bible_study_notes (id, user_id, title, content, reference, language, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6)
+       RETURNING id, user_id, title, content, reference, pinned, language, created_at, updated_at`,
+      [input.userId, input.title, input.content, input.reference ?? '', input.language ?? 'en', now],
+    );
+    return this.mapStudyNoteView(result.rows[0]);
+  }
+
+  async updateStudyNote(input: { noteId: string; userId: string; title?: string; content?: string; reference?: string; pinned?: boolean; language?: 'en' | 'am' }) {
+    // COALESCE keeps unspecified fields; ownership is enforced in the WHERE.
+    const result = await this.db.query(
+      `UPDATE bible_study_notes
+       SET title = COALESCE($3, title),
+           content = COALESCE($4, content),
+           reference = COALESCE($5, reference),
+           pinned = COALESCE($6, pinned),
+           language = COALESCE($7, language),
+           updated_at = $8
+       WHERE id = $1 AND user_id = $2
+       RETURNING id, user_id, title, content, reference, pinned, language, created_at, updated_at`,
+      [
+        input.noteId,
+        input.userId,
+        input.title ?? null,
+        input.content ?? null,
+        input.reference ?? null,
+        input.pinned ?? null,
+        input.language ?? null,
+        new Date().toISOString(),
+      ],
+    );
+    return result.rowCount === 0 ? null : this.mapStudyNoteView(result.rows[0]);
+  }
+
+  async deleteStudyNote(noteId: string, userId: string) {
+    const result = await this.db.query('DELETE FROM bible_study_notes WHERE id = $1 AND user_id = $2 RETURNING id', [noteId, userId]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private mapStudyNoteView(row: Record<string, unknown>) {
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      title: String(row.title),
+      content: String(row.content),
+      reference: String(row.reference ?? ''),
+      pinned: row.pinned === true,
+      language: row.language === 'am' ? 'am' : 'en',
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
   private mapBibleDailyVerseView(row: Record<string, unknown>): BibleDailyVerseViewRecord {
     return {
       id: String(row.id),

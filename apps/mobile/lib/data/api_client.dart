@@ -1970,6 +1970,62 @@ class ApiClient {
         .toList();
   }
 
+  // ---- Personal study notes (free-form study journal) ----
+
+  Future<List<BibleStudyNoteItem>> fetchStudyNotes(String token) async {
+    final response = await _getJson(
+      '/bible/study-notes',
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return (response as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(BibleStudyNoteItem.fromJson)
+        .toList();
+  }
+
+  Future<BibleStudyNoteItem> createStudyNote({
+    required String token,
+    required String title,
+    required String content,
+    String reference = '',
+    String language = 'en',
+  }) async {
+    final response = await _postJson(
+      '/bible/study-notes',
+      {'title': title, 'content': content, 'reference': reference, 'language': language},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return BibleStudyNoteItem.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<BibleStudyNoteItem> updateStudyNote({
+    required String token,
+    required String noteId,
+    String? title,
+    String? content,
+    String? reference,
+    bool? pinned,
+  }) async {
+    final body = <String, dynamic>{};
+    if (title != null) body['title'] = title;
+    if (content != null) body['content'] = content;
+    if (reference != null) body['reference'] = reference;
+    if (pinned != null) body['pinned'] = pinned;
+    final response = await _patchJson(
+      '/bible/study-notes/$noteId',
+      body,
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return BibleStudyNoteItem.fromJson(response as Map<String, dynamic>);
+  }
+
+  Future<void> deleteStudyNote({required String token, required String noteId}) async {
+    await _deleteJson(
+      '/bible/study-notes/$noteId',
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
   Future<List<PrayerJournalItem>> fetchPrayerJournal(String token) async {
     final response = await _getJson(
       '/prayer/journal',

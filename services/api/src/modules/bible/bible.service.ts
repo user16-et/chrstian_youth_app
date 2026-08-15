@@ -46,6 +46,61 @@ export class BibleService {
     return this.requireActor(token).then((actor) => this.bibleRepository.listBibleNotes(actor.id));
   }
 
+  // ---- Personal study notes (free-form study journal) ----
+
+  listStudyNotes(token: string) {
+    return this.requireActor(token).then((actor) => this.bibleRepository.listStudyNotes(actor.id));
+  }
+
+  async createStudyNote(token: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    const title = String(input.title ?? '').trim();
+    const content = String(input.content ?? input.note ?? '').trim();
+    if (!title) throw new BadRequestException('study_note_title_required');
+    if (!content) throw new BadRequestException('study_note_content_required');
+    return this.bibleRepository.createStudyNote({
+      userId: actor.id,
+      title,
+      content,
+      reference: String(input.reference ?? '').trim(),
+      language: input.language === 'am' ? 'am' : 'en',
+    });
+  }
+
+  async updateStudyNote(token: string, noteId: string, input: Record<string, unknown>) {
+    const actor = await this.requireActor(token);
+    if (!noteId) throw new BadRequestException('note_id_required');
+    // Only pass through fields the caller actually sent, so COALESCE keeps the rest.
+    const patch: { noteId: string; userId: string; title?: string; content?: string; reference?: string; pinned?: boolean; language?: 'en' | 'am' } = {
+      noteId,
+      userId: actor.id,
+    };
+    if (input.title !== undefined) {
+      const title = String(input.title ?? '').trim();
+      if (!title) throw new BadRequestException('study_note_title_required');
+      patch.title = title;
+    }
+    if (input.content !== undefined || input.note !== undefined) {
+      const content = String(input.content ?? input.note ?? '').trim();
+      if (!content) throw new BadRequestException('study_note_content_required');
+      patch.content = content;
+    }
+    if (input.reference !== undefined) patch.reference = String(input.reference ?? '').trim();
+    if (input.pinned !== undefined) patch.pinned = input.pinned === true;
+    if (input.language !== undefined) patch.language = input.language === 'am' ? 'am' : 'en';
+    const updated = await this.bibleRepository.updateStudyNote(patch);
+    if (!updated) throw new NotFoundException('study_note_not_found');
+    return updated;
+  }
+
+  async deleteStudyNote(token: string, noteId: string) {
+    const actor = await this.requireActor(token);
+    if (!noteId) throw new BadRequestException('note_id_required');
+    const removed = await this.bibleRepository.deleteStudyNote(noteId, actor.id);
+    if (!removed) throw new NotFoundException('study_note_not_found');
+    return { id: noteId, deleted: true };
+  }
+
   listDailyVerses() {
     return this.bibleRepository.listDailyVerses();
   }

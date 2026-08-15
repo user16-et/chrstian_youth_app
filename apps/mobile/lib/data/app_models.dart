@@ -1242,6 +1242,44 @@ class BibleNoteItem {
   }
 }
 
+/// A free-form personal study note (study journal), distinct from the
+/// verse-anchored [BibleNoteItem]: a title, the study content, an optional
+/// passage reference, and a pinned flag for key insights.
+class BibleStudyNoteItem {
+  const BibleStudyNoteItem({
+    required this.id,
+    required this.title,
+    required this.content,
+    required this.reference,
+    required this.pinned,
+    required this.language,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String content;
+  final String reference;
+  final bool pinned;
+  final String language;
+  final String createdAt;
+  final String updatedAt;
+
+  factory BibleStudyNoteItem.fromJson(Map<String, dynamic> json) {
+    return BibleStudyNoteItem(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      content: json['content'] as String? ?? '',
+      reference: json['reference'] as String? ?? '',
+      pinned: json['pinned'] == true,
+      language: json['language'] as String? ?? 'en',
+      createdAt: json['createdAt'] as String? ?? '',
+      updatedAt: json['updatedAt'] as String? ?? '',
+    );
+  }
+}
+
 class StoryItem {
   const StoryItem({
     required this.id,

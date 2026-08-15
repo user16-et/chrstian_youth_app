@@ -779,6 +779,17 @@ class _BibleScreenState extends State<BibleScreen> {
         .then((_) => _refreshHub());
   }
 
+  void _openStudyJournal() {
+    if (!_requireLogin()) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => StudyNotesScreen(
+        language: widget.language,
+        apiClient: widget.apiClient,
+        session: widget.session,
+      ),
+    ));
+  }
+
   Future<void> _joinStudyGroup(BibleStudyGroupItem group) async {
     if (!_requireLogin()) return;
     await _runAction(() async {
@@ -1453,6 +1464,30 @@ class _BibleScreenState extends State<BibleScreen> {
                       ],
                     ),
                   ],
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // Personal study journal — free-form notes for solo study or to
+              // write up after a physical group study.
+              _SectionCard(
+                title: _tr('Study journal', 'የጥናት ማስታወሻ'),
+                children: [
+                  Text(
+                    _tr(
+                        'Your personal study notes — jot down what you learn as you read, or capture notes from a study you did together in person.',
+                        'የግል የጥናት ማስታወሻዎ — ሲያነቡ የተማሩትን ይጻፉ፣ ወይም በአካል አብራችሁ ያጠናችሁትን ይመዝግቡ።'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonalIcon(
+                      onPressed: _openStudyJournal,
+                      icon: const Icon(Icons.edit_note_rounded),
+                      label: Text(_tr('Open study journal', 'የጥናት ማስታወሻ ክፈት')),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 18),

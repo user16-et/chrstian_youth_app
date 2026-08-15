@@ -20,6 +20,7 @@ import 'church_detail_page.dart';
 import 'courtship_swipe.dart';
 import 'bible_reader.dart';
 import 'bible_search.dart';
+import 'bible_study_notes_screen.dart';
 import 'group_detail_screen.dart';
 import 'likes_you.dart';
 import 'matches_inbox.dart';
