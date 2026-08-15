@@ -70,7 +70,9 @@ export class JourneyService {
   }
   async replyStory(token: string, id: string, body: string) {
     if (!body.trim()) throw new BadRequestException('body_required');
-    return this.journey.replyStory((await this.actor(token)).id, id, body.trim());
+    const reply = await this.journey.replyStory((await this.actor(token)).id, id, body.trim());
+    if (!reply) throw new NotFoundException('story_not_found');
+    return reply;
   }
   async listings(token: string | null, filters: Record<string, unknown>) {
     const viewer = token ? await this.actor(token).catch(() => null) : null;

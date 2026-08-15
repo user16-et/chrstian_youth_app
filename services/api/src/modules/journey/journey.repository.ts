@@ -179,7 +179,16 @@ export class JourneyRepository {
   }
 
   replyStory(userId: string, storyId: string, body: string) {
-    return this.pool.query(`INSERT INTO story_replies (story_id,author_id,body) VALUES ($1,$2,$3) RETURNING *`, [storyId, userId, body]).then((r) => r.rows[0]);
+    // Guard the FK: insert only when the story exists so a bad/deleted id gives
+    // a clean not-found (null) instead of a 500 foreign-key violation.
+    return this.pool
+      .query(
+        `INSERT INTO story_replies (story_id,author_id,body)
+         SELECT $1,$2,$3 WHERE EXISTS (SELECT 1 FROM stories WHERE id=$1)
+         RETURNING *`,
+        [storyId, userId, body],
+      )
+      .then((r) => r.rows[0] ?? null);
   }
 
   // Browse listings with search + filters. viewerId (optional) marks favourites.

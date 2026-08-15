@@ -599,10 +599,15 @@ export class EngagementService {
 
   async createStory(token: string, input: CreateStoryDto) {
     const actor = await this.requireActor(token);
+    // The DTO's MinLength runs before trimming, so a whitespace-only title/body
+    // ("   ") slips through — reject it here and store the trimmed text.
+    const title = input.title.trim();
+    const body = input.body.trim();
+    if (!title || !body) throw new BadRequestException('story_title_and_body_required');
     return this.testimonyStoriesRepository.createStory({
       authorId: actor.id,
-      title: input.title,
-      body: input.body,
+      title,
+      body,
       language: input.language,
     });
   }

@@ -1038,8 +1038,15 @@ class _StoriesScreenState extends State<StoriesScreen> {
     );
     controller.dispose();
     if (reply == null || reply.isEmpty) return;
-    await widget.apiClient.replyToStory(token, story.id, reply);
-    if (mounted) setState(() => _status = 'Story reply sent.');
+    try {
+      await widget.apiClient.replyToStory(token, story.id, reply);
+      if (mounted) setState(() => _status = 'Story reply sent.');
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
   }
 
   @override
