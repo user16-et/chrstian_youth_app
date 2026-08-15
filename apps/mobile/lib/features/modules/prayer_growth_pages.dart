@@ -5,7 +5,9 @@ import '../../data/app_models.dart';
 import '../../data/date_format.dart';
 import '../../i18n/app_i18n.dart';
 
-class PrayerChainsScreen extends StatefulWidget {
+/// Standalone screen kept for existing entry points; the body now lives in
+/// [PrayerCirclesTab] so the merged Prayer hub can host it as a tab.
+class PrayerChainsScreen extends StatelessWidget {
   const PrayerChainsScreen({super.key, required this.language, required this.apiClient, required this.session});
 
   final AppLanguage language;
@@ -13,10 +15,28 @@ class PrayerChainsScreen extends StatefulWidget {
   final AuthResult? session;
 
   @override
-  State<PrayerChainsScreen> createState() => _PrayerChainsScreenState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(AppStrings.of(language, 'prayer_chains'))),
+      body: PrayerCirclesTab(language: language, apiClient: apiClient, session: session),
+    );
+  }
 }
 
-class _PrayerChainsScreenState extends State<PrayerChainsScreen> {
+/// The prayer-circles (chains) directory as an embeddable body — no Scaffold —
+/// so it can be shown both standalone and as a tab in the Prayer hub.
+class PrayerCirclesTab extends StatefulWidget {
+  const PrayerCirclesTab({super.key, required this.language, required this.apiClient, required this.session});
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+
+  @override
+  State<PrayerCirclesTab> createState() => _PrayerCirclesTabState();
+}
+
+class _PrayerCirclesTabState extends State<PrayerCirclesTab> {
   late Future<List<PrayerChainItem>> _chainsFuture;
 
   @override
@@ -36,61 +56,58 @@ class _PrayerChainsScreenState extends State<PrayerChainsScreen> {
   @override
   Widget build(BuildContext context) {
     final language = widget.language;
-    return Scaffold(
-      appBar: AppBar(title: Text(AppStrings.of(language, 'prayer_chains'))),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20),
-          children: [
-            _HeaderCard(
-              title: AppStrings.of(language, 'prayer_chains'),
-              subtitle: AppStrings.of(language, 'prayer_chain_directory'),
-              accent: Colors.teal,
-            ),
-            const SizedBox(height: 16),
-            FutureBuilder<List<PrayerChainItem>>(
-              future: _chainsFuture,
-              builder: (context, snapshot) {
-                final chains = snapshot.data ?? const <PrayerChainItem>[];
-                if (snapshot.connectionState == ConnectionState.waiting && chains.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 24),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (chains.isEmpty) {
-                  return _EmptyCard(message: AppStrings.of(language, 'no_prayer_chains'));
-                }
-                return Column(
-                  children: [
-                    for (final chain in chains)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _ChainCard(
-                          chain: chain,
-                          language: language,
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => PrayerChainScreen(
-                                  language: language,
-                                  apiClient: widget.apiClient,
-                                  session: widget.session,
-                                  chain: chain,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                  ],
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        children: [
+          _HeaderCard(
+            title: AppStrings.of(language, 'prayer_chains'),
+            subtitle: AppStrings.of(language, 'prayer_chain_directory'),
+            accent: Colors.teal,
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<List<PrayerChainItem>>(
+            future: _chainsFuture,
+            builder: (context, snapshot) {
+              final chains = snapshot.data ?? const <PrayerChainItem>[];
+              if (snapshot.connectionState == ConnectionState.waiting && chains.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.only(top: 24),
+                  child: Center(child: CircularProgressIndicator()),
                 );
-              },
-            ),
-          ],
-        ),
+              }
+              if (chains.isEmpty) {
+                return _EmptyCard(message: AppStrings.of(language, 'no_prayer_chains'));
+              }
+              return Column(
+                children: [
+                  for (final chain in chains)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _ChainCard(
+                        chain: chain,
+                        language: language,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => PrayerChainScreen(
+                                language: language,
+                                apiClient: widget.apiClient,
+                                session: widget.session,
+                                chain: chain,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }

@@ -69,9 +69,17 @@ export class JourneyRepository {
       ON CONFLICT DO NOTHING RETURNING post_id`, [userId, postId]).then((r) => ({ saved: r.rowCount === 1 }));
   }
 
-  pray(userId: string, requestId: string) {
-    return this.pool.query(`INSERT INTO prayer_commitments (user_id,prayer_request_id) VALUES ($1,$2)
-      ON CONFLICT DO NOTHING RETURNING prayer_request_id`, [userId, requestId]).then((r) => ({ prayed: true, created: r.rowCount === 1 }));
+  async pray(userId: string, requestId: string) {
+    // Guard the FK so praying for a missing/deleted request is a clean not-found
+    // (null) rather than a 500 foreign-key violation.
+    const exists = await this.pool.query('SELECT 1 FROM prayer_requests WHERE id=$1', [requestId]);
+    if (exists.rowCount === 0) return null;
+    const inserted = await this.pool.query(
+      `INSERT INTO prayer_commitments (user_id,prayer_request_id) VALUES ($1,$2)
+       ON CONFLICT DO NOTHING RETURNING prayer_request_id`,
+      [userId, requestId],
+    );
+    return { prayed: true, created: inserted.rowCount === 1 };
   }
 
   enrollPlan(userId: string, planId: string) {

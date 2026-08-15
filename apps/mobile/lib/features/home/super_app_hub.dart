@@ -308,7 +308,7 @@ class _SuperAppHomeState extends State<SuperAppHome> {
 
   void _openPrayer(BuildContext context) {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => PrayerChainsScreen(
+      builder: (_) => PrayerWallScreen(
           language: language, apiClient: apiClient, session: session),
     ));
   }
@@ -899,10 +899,10 @@ class PillarDetailScreen extends StatelessWidget {
                   session: session,
                   onDataChanged: onDataChanged)),
           _x(
-              en ? 'Prayer network' : 'የጸሎት መረብ',
+              en ? 'Prayer' : 'ጸሎት',
               en
-                  ? 'Requests, journals, chains and growth'
-                  : 'ጥያቄዎች፣ ማስታወሻ፣ ሰንሰለቶች እና እድገት',
+                  ? 'Prayer requests and prayer circles'
+                  : 'የጸሎት ጥያቄዎች እና የጸሎት ክበቦች',
               Icons.volunteer_activism_rounded,
               () => PrayerWallScreen(
                   language: language, apiClient: apiClient, session: session)),
@@ -913,12 +913,6 @@ class PillarDetailScreen extends StatelessWidget {
                   : 'የቤተ ክርስቲያን እና የአገልግሎት ውይይት',
               Icons.forum_rounded,
               () => ChatScreen(
-                  language: language, apiClient: apiClient, session: session)),
-          _x(
-              en ? 'Prayer circles' : 'የጸሎት ክበቦች',
-              en ? 'Chains and accountability spaces' : 'ሰንሰለቶች እና ተጠያቂነት',
-              Icons.hub_rounded,
-              () => PrayerChainsScreen(
                   language: language, apiClient: apiClient, session: session)),
         ],
       AppPillar.relationships => [

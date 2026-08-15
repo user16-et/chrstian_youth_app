@@ -122,10 +122,12 @@ export class EngagementService {
     if (!members.some((member) => member.userId === actor.id)) {
       throw new BadRequestException('prayer_chain_membership_required');
     }
+    const body = String(input.body ?? '').trim();
+    if (!body) throw new BadRequestException('prayer_chain_post_body_required');
     return this.prayerRepository.createPrayerChainPost({
       chainId,
       userId: actor.id,
-      body: input.body,
+      body,
     });
   }
 

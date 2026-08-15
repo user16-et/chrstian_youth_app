@@ -35,7 +35,11 @@ export class JourneyService {
   async dashboard(token: string) { return this.journey.dashboard((await this.actor(token)).id); }
   async onboard(token: string, body: any) { return this.journey.completeOnboarding((await this.actor(token)).id, body); }
   async savePost(token: string, id: string) { return this.journey.toggleSave((await this.actor(token)).id, id); }
-  async pray(token: string, id: string) { return this.journey.pray((await this.actor(token)).id, id); }
+  async pray(token: string, id: string) {
+    const result = await this.journey.pray((await this.actor(token)).id, id);
+    if (!result) throw new NotFoundException('prayer_request_not_found');
+    return result;
+  }
   async enrollPlan(token: string, id: string) { return this.journey.enrollPlan((await this.actor(token)).id, id); }
   async checkinPlan(token: string, id: string) {
     const actor = await this.actor(token);

@@ -1111,9 +1111,37 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
   @override
   Widget build(BuildContext context) {
     final language = widget.language;
-    return Scaffold(
-      appBar: AppBar(title: Text(AppStrings.of(language, 'prayer_wall'))),
-      body: RefreshIndicator(
+    final en = language == AppLanguage.english;
+    // Merged Prayer hub: the requests wall and the prayer circles (chains) that
+    // used to be two separate places now live as two tabs.
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(en ? 'Prayer' : 'ጸሎት'),
+          bottom: TabBar(
+            tabs: [
+              Tab(text: en ? 'Requests' : 'ጥያቄዎች'),
+              Tab(text: en ? 'Circles' : 'ክበቦች'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _requestsTab(context),
+            PrayerCirclesTab(
+                language: language,
+                apiClient: widget.apiClient,
+                session: widget.session),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _requestsTab(BuildContext context) {
+    final language = widget.language;
+    return RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -1153,29 +1181,9 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
                       Text(AppStrings.of(language, 'anonymous_prayer_hint')),
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    FilledButton(
-                        onPressed: _busy ? null : _share,
-                        child: Text(AppStrings.of(language, 'share_prayer'))),
-                    OutlinedButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => PrayerChainsScreen(
-                                language: language,
-                                apiClient: widget.apiClient,
-                                session: widget.session),
-                          ),
-                        );
-                      },
-                      child:
-                          Text(AppStrings.of(language, 'open_prayer_chains')),
-                    ),
-                  ],
-                ),
+                FilledButton(
+                    onPressed: _busy ? null : _share,
+                    child: Text(AppStrings.of(language, 'share_prayer'))),
                 if (_status.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(_status, maxLines: 3, overflow: TextOverflow.ellipsis),
@@ -1224,9 +1232,7 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
               ],
             ),
           ],
-        ),
-      ),
-    );
+        ));
   }
 }
 
