@@ -5,6 +5,10 @@ import { NotificationsService } from '../platform/notifications.service';
 import { GroupRealtime } from './group-realtime.service';
 import { GroupRepository, GroupRecord } from './group.repository';
 
+// The reactions the app offers on group posts; anything else is rejected so the
+// stored set stays clean (mirrors the main feed's allowlist).
+const GROUP_POST_REACTIONS = ['❤️', '🔥', '😊', '🙌', '🙏', '🎉', '👍', '😢'];
+
 @Injectable()
 export class GroupsService {
   constructor(
@@ -211,7 +215,10 @@ export class GroupsService {
 
   async likePost(token: string, groupId: string, postId: string, like: boolean, reaction = '👍') {
     const user = await this.requirePostMember(token, groupId, postId);
-    return like ? this.groups.likePost(postId, user.id, reaction) : this.groups.unlikePost(postId, user.id);
+    if (!like) return this.groups.unlikePost(postId, user.id);
+    const value = String(reaction ?? '').trim() || '👍';
+    if (!GROUP_POST_REACTIONS.includes(value)) throw new BadRequestException('invalid_reaction');
+    return this.groups.likePost(postId, user.id, value);
   }
 
   async listPostComments(token: string, groupId: string, postId: string) {

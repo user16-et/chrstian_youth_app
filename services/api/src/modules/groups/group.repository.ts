@@ -475,7 +475,34 @@ export class GroupRepository {
   }
 
   async leaveGroup(userId: string, groupId: string) {
-    await this.db.query('DELETE FROM group_memberships WHERE group_id = $1 AND user_id = $2', [groupId, userId]);
+    // If the owner leaves, hand ownership to a successor so the group is never
+    // orphaned (no manager left, and there is no delete/transfer endpoint).
+    // Prefer an existing admin, otherwise the earliest-joined active member.
+    const client = await this.db.connect();
+    try {
+      await client.query('BEGIN');
+      const roleRes = await client.query('SELECT role FROM group_memberships WHERE group_id=$1 AND user_id=$2', [groupId, userId]);
+      const wasOwner = roleRes.rows[0]?.role === 'owner';
+      await client.query('DELETE FROM group_memberships WHERE group_id = $1 AND user_id = $2', [groupId, userId]);
+      if (wasOwner) {
+        await client.query(
+          `UPDATE group_memberships SET role='owner'
+           WHERE group_id=$1 AND user_id = (
+             SELECT user_id FROM group_memberships
+             WHERE group_id=$1 AND status='active'
+             ORDER BY (role='admin') DESC, joined_at ASC
+             LIMIT 1
+           )`,
+          [groupId],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
     return { groupId, userId, action: 'left' };
   }
 

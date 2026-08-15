@@ -65,4 +65,60 @@ describe('Group directory & membership (integration)', () => {
     const mine = await repo.listUserGroupMemberships(member.id);
     expect(mine.some((m) => m.groupId === publicGroup)).toBe(false);
   });
+
+  describe('owner succession on leave', () => {
+    let group: string;
+    let owner: TestUser;
+    let admin: TestUser;
+    let plain: TestUser;
+
+    async function seatRole(userId: string, role: string, joinedAt: string) {
+      await testPool.query(
+        `INSERT INTO group_memberships (group_id, user_id, role, status, joined_at) VALUES ($1,$2,$3,'active',$4)`,
+        [group, userId, role, joinedAt],
+      );
+    }
+    const roleOf = (userId: string) =>
+      testPool
+        .query('SELECT role FROM group_memberships WHERE group_id=$1 AND user_id=$2', [group, userId])
+        .then((r) => r.rows[0]?.role ?? null);
+
+    beforeEach(async () => {
+      group = await makeGroup('Succession', 'public', 'public');
+      owner = await createUser();
+      admin = await createUser();
+      plain = await createUser();
+    });
+
+    afterEach(async () => {
+      await testPool.query('DELETE FROM group_memberships WHERE group_id=$1', [group]);
+      await deleteUsers(owner.id, admin.id, plain.id);
+      await testPool.query('DELETE FROM groups WHERE id=$1', [group]);
+    });
+
+    it('promotes an existing admin when the owner leaves', async () => {
+      await seatRole(owner.id, 'owner', '2026-01-01');
+      await seatRole(plain.id, 'member', '2026-01-02'); // earlier member, but not admin
+      await seatRole(admin.id, 'admin', '2026-01-03');
+      await repo.leaveGroup(owner.id, group);
+      expect(await roleOf(admin.id)).toBe('owner');
+      expect(await roleOf(plain.id)).toBe('member');
+      expect(await roleOf(owner.id)).toBeNull();
+    });
+
+    it('promotes the earliest-joined member when there is no admin', async () => {
+      await seatRole(owner.id, 'owner', '2026-01-01');
+      await seatRole(plain.id, 'member', '2026-01-02'); // earliest remaining
+      await seatRole(admin.id, 'member', '2026-01-05');
+      await repo.leaveGroup(owner.id, group);
+      expect(await roleOf(plain.id)).toBe('owner');
+    });
+
+    it('leaves the group ownerless-safe (empty) when the owner is the last member', async () => {
+      await seatRole(owner.id, 'owner', '2026-01-01');
+      await repo.leaveGroup(owner.id, group);
+      const remaining = await testPool.query('SELECT count(*)::int AS n FROM group_memberships WHERE group_id=$1', [group]);
+      expect(remaining.rows[0].n).toBe(0);
+    });
+  });
 });

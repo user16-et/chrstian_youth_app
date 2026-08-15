@@ -863,12 +863,47 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
   Future<void> _toggleLike(Map<String, dynamic> post) async {
     final id = '${post['id']}';
     final liked = post['likedByMe'] == true;
-    _updatePost(id, (p) => {...p, 'likedByMe': !liked, 'likeCount': _asInt(p['likeCount']) + (liked ? -1 : 1)});
+    final prevReaction = '${post['myReaction'] ?? ''}';
+    final counts = <String, int>{};
+    final rc = post['reactionCounts'];
+    if (rc is Map) rc.forEach((k, v) => counts['$k'] = (v as num).toInt());
+    if (liked) {
+      // Unlike deletes the like row (which holds the reaction), so clear the
+      // emoji reaction and its tally too — not just likedByMe/likeCount.
+      if (prevReaction.isNotEmpty) {
+        final n = (counts[prevReaction] ?? 1) - 1;
+        if (n <= 0) {
+          counts.remove(prevReaction);
+        } else {
+          counts[prevReaction] = n;
+        }
+      }
+      _updatePost(id, (p) => {
+            ...p,
+            'likedByMe': false,
+            'myReaction': '',
+            'reactionCounts': counts,
+            'likeCount': _asInt(p['likeCount']) > 0 ? _asInt(p['likeCount']) - 1 : 0,
+          });
+    } else {
+      // A plain like is stored as a 👍 reaction on the server; mirror that so
+      // the button and the reaction tally match what a reload returns.
+      counts['👍'] = (counts['👍'] ?? 0) + 1;
+      _updatePost(id, (p) => {
+            ...p,
+            'likedByMe': true,
+            'myReaction': '👍',
+            'reactionCounts': counts,
+            'likeCount': _asInt(p['likeCount']) + 1,
+          });
+    }
     try {
       await widget.apiClient.likeGroupPost(_token, widget.groupId, id, !liked);
     } catch (error) {
-      _updatePost(id, (p) => {...p, 'likedByMe': liked, 'likeCount': _asInt(p['likeCount']) + (liked ? 1 : -1)});
-      if (mounted) _toast(_clean(error));
+      if (mounted) {
+        _toast(_clean(error));
+        await _load();
+      }
     }
   }
 
