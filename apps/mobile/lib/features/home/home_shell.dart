@@ -45,6 +45,9 @@ class _HomeShellState extends State<HomeShell> {
   late Future<DashboardSnapshot> _snapshotFuture;
   AuthResult? _session;
   Timer? _sessionRefreshTimer;
+  // Bumped whenever the unread notification count may have changed, so the
+  // header bell refetches on demand rather than on every rebuild.
+  int _notificationsTick = 0;
 
   @override
   void initState() {
@@ -216,8 +219,9 @@ class _HomeShellState extends State<HomeShell> {
             themeMode: widget.themeMode,
             onThemeModeChanged: widget.onThemeModeChanged,
             onLanguageChanged: widget.onLanguageChanged,
+            notificationsTick: _notificationsTick,
             onNotificationsChanged: () {
-              if (mounted) setState(() {});
+              if (mounted) setState(() => _notificationsTick++);
             },
           ),
           body: _AppBackdrop(
@@ -371,6 +375,7 @@ class _AppHeader extends StatelessWidget implements PreferredSizeWidget {
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.onLanguageChanged,
+    required this.notificationsTick,
     required this.onNotificationsChanged,
   });
 
@@ -380,6 +385,7 @@ class _AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final ValueChanged<AppLanguage> onLanguageChanged;
+  final int notificationsTick;
   final VoidCallback onNotificationsChanged;
 
   @override
@@ -428,66 +434,12 @@ class _AppHeader extends StatelessWidget implements PreferredSizeWidget {
                     token: session?.token)),
           ),
         ),
-        FutureBuilder<int>(
-          future: session?.token == null || session!.token.isEmpty
-              ? Future.value(0)
-              : apiClient.fetchUnreadNotificationCount(session!.token),
-          builder: (context, snapshot) {
-            final unread = snapshot.data ?? 0;
-            return IconButton(
-              tooltip: AppStrings.of(language, 'notifications'),
-              icon: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Icons.notifications_none_rounded),
-                  if (unread > 0)
-                    Positioned(
-                      right: -4,
-                      top: -5,
-                      child: Container(
-                        constraints:
-                            const BoxConstraints(minWidth: 17, minHeight: 17),
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.coral,
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Text(
-                          unread > 99 ? '99+' : unread.toString(),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              onPressed: () {
-                final token = session?.token;
-                if (token == null || token.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content:
-                          Text(AppStrings.of(language, 'login_required'))));
-                  return;
-                }
-                Navigator.of(context)
-                    .push<bool>(
-                  MaterialPageRoute(
-                      builder: (_) => NotificationsScreen(
-                          language: language,
-                          apiClient: apiClient,
-                          token: token,
-                          session: session)),
-                )
-                    .then((changed) {
-                  if (changed == true) onNotificationsChanged();
-                });
-              },
-            );
-          },
+        _NotificationBell(
+          language: language,
+          apiClient: apiClient,
+          session: session,
+          refreshTick: notificationsTick,
+          onChanged: onNotificationsChanged,
         ),
         PopupMenuButton<ThemeMode>(
           tooltip: en ? 'Theme' : 'ገጽታ',
@@ -534,6 +486,121 @@ class _AppHeader extends StatelessWidget implements PreferredSizeWidget {
         ),
         const SizedBox(width: 8),
       ],
+    );
+  }
+}
+
+/// The header notification bell. Caches its own unread count and only refetches
+/// when [refreshTick] changes (or the signed-in user changes) — not on every
+/// AppBar rebuild — so switching tabs or toggling the theme costs no network.
+class _NotificationBell extends StatefulWidget {
+  const _NotificationBell({
+    required this.language,
+    required this.apiClient,
+    required this.session,
+    required this.refreshTick,
+    required this.onChanged,
+  });
+
+  final AppLanguage language;
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final int refreshTick;
+  final VoidCallback onChanged;
+
+  @override
+  State<_NotificationBell> createState() => _NotificationBellState();
+}
+
+class _NotificationBellState extends State<_NotificationBell> {
+  int _unread = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NotificationBell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTick != widget.refreshTick ||
+        oldWidget.session?.token != widget.session?.token) {
+      _fetch();
+    }
+  }
+
+  Future<void> _fetch() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      if (mounted && _unread != 0) setState(() => _unread = 0);
+      return;
+    }
+    try {
+      final count = await widget.apiClient.fetchUnreadNotificationCount(token);
+      if (mounted && count != _unread) setState(() => _unread = count);
+    } catch (_) {
+      // Keep the last known count rather than flashing the badge away.
+    }
+  }
+
+  Future<void> _open() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(AppStrings.of(widget.language, 'login_required'))));
+      return;
+    }
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => NotificationsScreen(
+            language: widget.language,
+            apiClient: widget.apiClient,
+            token: token,
+            session: widget.session),
+      ),
+    );
+    // Refresh the count on return whether or not the screen reported a change:
+    // new notifications may have arrived while it was open.
+    if (mounted) await _fetch();
+    if (changed == true) widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unread = _unread;
+    return IconButton(
+      tooltip: AppStrings.of(widget.language, 'notifications'),
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Icon(Icons.notifications_none_rounded),
+          if (unread > 0)
+            Positioned(
+              right: -4,
+              top: -5,
+              child: Container(
+                constraints:
+                    const BoxConstraints(minWidth: 17, minHeight: 17),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.coral,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  unread > 99 ? '99+' : unread.toString(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      onPressed: _open,
     );
   }
 }

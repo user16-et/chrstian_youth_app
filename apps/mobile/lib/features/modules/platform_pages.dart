@@ -170,39 +170,81 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  late Future<List<NotificationItem>> _notifications;
+  List<NotificationItem> _items = const [];
+  bool _loading = true;
+  bool _hasError = false;
   bool _changed = false;
 
   @override
   void initState() {
     super.initState();
-    _reload();
+    _load();
   }
 
-  void _reload() {
-    _notifications = widget.apiClient.fetchNotifications(widget.token);
+  Future<void> _load() async {
+    try {
+      final items = await widget.apiClient.fetchNotifications(widget.token);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+        _hasError = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        // Keep any previously loaded items visible; only show the error state
+        // when we have nothing to show.
+        _hasError = _items.isEmpty;
+      });
+    }
   }
+
+  // Returns a copy of the notification flagged as read, so the list can update
+  // in place without another network round trip.
+  NotificationItem _asRead(NotificationItem n) => NotificationItem(
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        body: n.body,
+        targetType: n.targetType,
+        targetId: n.targetId,
+        readAt: n.readAt ?? DateTime.now().toUtc().toIso8601String(),
+        createdAt: n.createdAt,
+        actorId: n.actorId,
+      );
 
   Future<void> _markAllRead() async {
-    await widget.apiClient.markAllNotificationsRead(widget.token);
+    if (_items.every((n) => n.isRead)) return;
+    final previous = _items;
+    setState(() => _items = _items.map(_asRead).toList());
     _changed = true;
-    if (!mounted) return;
-    setState(() {
-      _reload();
-    });
+    try {
+      await widget.apiClient.markAllNotificationsRead(widget.token);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _items = previous);
+        _toastError(error);
+      }
+    }
   }
 
   Future<void> _markRead(NotificationItem item) async {
     if (item.isRead) return;
-    await widget.apiClient.markNotificationRead(
-      token: widget.token,
-      notificationId: item.id,
-    );
+    final previous = _items;
+    setState(() => _items =
+        _items.map((n) => n.id == item.id ? _asRead(n) : n).toList());
     _changed = true;
-    if (!mounted) return;
-    setState(() {
-      _reload();
-    });
+    try {
+      await widget.apiClient.markNotificationRead(
+        token: widget.token,
+        notificationId: item.id,
+      );
+    } catch (error) {
+      // Revert the read state; the tap may still navigate to the target.
+      if (mounted) setState(() => _items = previous);
+    }
   }
 
   bool _isType(NotificationItem item, List<String> types) =>
@@ -406,33 +448,38 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             title: Text(t(widget.language, 'notifications')),
             actions: [
               TextButton(
-                onPressed: _markAllRead,
+                onPressed:
+                    _items.any((n) => !n.isRead) ? _markAllRead : null,
                 child: Text(t(widget.language, 'mark_all_read')),
               ),
             ],
           ),
-          body: FutureBuilder<List<NotificationItem>>(
-            future: _notifications,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
+          body: Builder(
+            builder: (context) {
+              if (_loading && _items.isEmpty) {
                 return const Center(child: CircularProgressIndicator());
               }
-              if (snapshot.hasError) {
+              if (_hasError && _items.isEmpty) {
                 return Center(
                     child: Text(t(widget.language, 'notifications_failed')));
               }
-              final items = snapshot.data ?? const [];
-              if (items.isEmpty) {
-                return Center(
-                    child: Text(t(widget.language, 'no_notifications')));
+              if (_items.isEmpty) {
+                return RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 120),
+                      Center(
+                          child:
+                              Text(t(widget.language, 'no_notifications'))),
+                    ],
+                  ),
+                );
               }
+              final items = _items;
               return RefreshIndicator(
-                onRefresh: () async {
-                  setState(() {
-                    _reload();
-                  });
-                  await _notifications;
-                },
+                onRefresh: _load,
                 child: ListView.builder(
                   padding: const EdgeInsets.all(12),
                   itemCount: items.length,
