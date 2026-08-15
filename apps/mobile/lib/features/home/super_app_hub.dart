@@ -906,14 +906,6 @@ class PillarDetailScreen extends StatelessWidget {
               Icons.volunteer_activism_rounded,
               () => PrayerWallScreen(
                   language: language, apiClient: apiClient, session: session)),
-          _x(
-              en ? 'Messaging' : 'መልዕክት',
-              en
-                  ? 'Church and ministry conversations'
-                  : 'የቤተ ክርስቲያን እና የአገልግሎት ውይይት',
-              Icons.forum_rounded,
-              () => ChatScreen(
-                  language: language, apiClient: apiClient, session: session)),
         ],
       AppPillar.relationships => [
           _x(

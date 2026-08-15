@@ -1781,35 +1781,6 @@ class ModuleStatusItem {
   }
 }
 
-class ChatMessageItem {
-  const ChatMessageItem({
-    required this.id,
-    required this.room,
-    required this.authorId,
-    required this.authorFullName,
-    required this.body,
-    required this.createdAt,
-  });
-
-  final String id;
-  final String room;
-  final String authorId;
-  final String authorFullName;
-  final String body;
-  final String createdAt;
-
-  factory ChatMessageItem.fromJson(Map<String, dynamic> json) {
-    return ChatMessageItem(
-      id: json['id'] as String? ?? '',
-      room: json['room'] as String? ?? 'general',
-      authorId: json['authorId'] as String? ?? '',
-      authorFullName: json['authorFullName'] as String? ?? '',
-      body: json['body'] as String? ?? '',
-      createdAt: json['createdAt'] as String? ?? '',
-    );
-  }
-}
-
 /// One page of the community feed plus the cursor to fetch the next page.
 class FeedPage {
   const FeedPage({required this.items, required this.nextCursor});

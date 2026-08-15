@@ -2427,33 +2427,6 @@ class ApiClient {
     return CourtshipInterestItem.fromJson(response as Map<String, dynamic>);
   }
 
-  Future<ModuleStatusItem> fetchChatStatus() async {
-    final response = await _getJson('/chat/status');
-    return ModuleStatusItem.fromJson(response as Map<String, dynamic>);
-  }
-
-  Future<List<ChatMessageItem>> fetchChatMessages(
-      {String room = 'general'}) async {
-    final response = await _getJson('/chat/messages?room=$room');
-    return (response as List<dynamic>)
-        .cast<Map<String, dynamic>>()
-        .map(ChatMessageItem.fromJson)
-        .toList();
-  }
-
-  Future<ChatMessageItem> sendChatMessage({
-    required String token,
-    required String body,
-    String room = 'general',
-  }) async {
-    final response = await _postJson(
-      '/chat/messages?room=$room',
-      {'body': body},
-      headers: {'Authorization': 'Bearer $token'},
-    );
-    return ChatMessageItem.fromJson(response as Map<String, dynamic>);
-  }
-
   Future<ModuleStatusItem> fetchModerationStatus() async {
     final response = await _getJson('/moderation/status');
     return ModuleStatusItem.fromJson(response as Map<String, dynamic>);
