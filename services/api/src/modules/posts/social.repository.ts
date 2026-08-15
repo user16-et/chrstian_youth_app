@@ -56,6 +56,7 @@ export interface PostCommentViewRecord {
   id: string;
   postId: string;
   authorId: string;
+  parentId: string | null;
   authorName: string;
   body: string;
   createdAt: string;
@@ -148,7 +149,10 @@ export class SocialRepository {
               COALESCE((SELECT json_object_agg(reaction,total) FROM (SELECT reaction,count(*)::int total FROM post_reactions WHERE post_id=p.id GROUP BY reaction) r), '{}'::json) AS reaction_counts,
               COALESCE((SELECT reaction FROM post_reactions WHERE post_id=p.id AND $1::uuid IS NOT NULL AND user_id=$1), '') AS my_reaction,
               COALESCE(fe.created_at,p.created_at) AS feed_created_at,
-              p.created_at,p.like_count,p.comment_count,p.share_count,
+              p.created_at,
+              (SELECT count(*)::int FROM post_likes WHERE post_id=p.id) AS like_count,
+              (SELECT count(*)::int FROM post_comments WHERE post_id=p.id) AS comment_count,
+              (SELECT count(*)::int FROM post_shares WHERE post_id=p.id) AS share_count,
               CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id=p.id AND pl.user_id=$1) THEN true ELSE false END AS liked_by_me,
               CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$1) THEN true ELSE false END AS saved_by_me,
               CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$1 AND uf.following_id=p.author_id) THEN true ELSE false END AS author_followed_by_me
@@ -179,7 +183,10 @@ export class SocialRepository {
               p.post_type,p.media_urls,p.media_type,p.repost_of,(SELECT count(*)::int FROM posts rp WHERE rp.repost_of=p.id AND rp.removed_at IS NULL) AS repost_count,
               COALESCE((SELECT json_object_agg(reaction,total) FROM (SELECT reaction,count(*)::int total FROM post_reactions WHERE post_id=p.id GROUP BY reaction) r), '{}'::json) AS reaction_counts,
               COALESCE((SELECT reaction FROM post_reactions WHERE post_id=p.id AND $5::uuid IS NOT NULL AND user_id=$5), '') AS my_reaction,p.created_at AS feed_created_at,
-              p.created_at,p.like_count,p.comment_count,p.share_count,
+              p.created_at,
+              (SELECT count(*)::int FROM post_likes WHERE post_id=p.id) AS like_count,
+              (SELECT count(*)::int FROM post_comments WHERE post_id=p.id) AS comment_count,
+              (SELECT count(*)::int FROM post_shares WHERE post_id=p.id) AS share_count,
               CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id=p.id AND pl.user_id=$5) THEN true ELSE false END AS liked_by_me,
               CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM post_saves ps WHERE ps.post_id=p.id AND ps.user_id=$5) THEN true ELSE false END AS saved_by_me,
               CASE WHEN $5::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM user_follows uf WHERE uf.follower_id=$5 AND uf.following_id=p.author_id) THEN true ELSE false END AS author_followed_by_me
@@ -264,7 +271,7 @@ export class SocialRepository {
 
   async listPostComments(postId: string) {
     const result = await this.db.query(
-      `SELECT c.id, c.post_id, c.author_id, u.full_name AS author_name, c.body, c.created_at
+      `SELECT c.id, c.post_id, c.author_id, c.parent_id, u.full_name AS author_name, c.body, c.created_at
        FROM post_comments c
        JOIN users u ON u.id = c.author_id
        WHERE c.post_id = $1 AND c.removed_at IS NULL
@@ -361,6 +368,7 @@ export class SocialRepository {
       id: String(row.id),
       postId: String(row.post_id),
       authorId: String(row.author_id),
+      parentId: row.parent_id ? String(row.parent_id) : null,
       authorName: String(row.author_name),
       body: String(row.body),
       createdAt: this.iso(row.created_at),

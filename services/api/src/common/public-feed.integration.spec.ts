@@ -64,4 +64,19 @@ describe('SocialRepository.listPublicFeedPage (integration)', () => {
     const ids = await feedIdsFor(viewer.id);
     expect(ids).not.toContain(postIds.friend);
   });
+
+  it('reports live like/comment/share counts, not the stale denormalized columns', async () => {
+    // Engagement is inserted directly WITHOUT touching posts.like_count etc., so
+    // this only passes if the feed computes counts live.
+    await testPool.query('INSERT INTO post_likes (id, post_id, user_id) VALUES (gen_random_uuid(), $1, $2)', [postIds.friend, viewer.id]);
+    await testPool.query('INSERT INTO post_comments (id, post_id, author_id, body) VALUES (gen_random_uuid(), $1, $2, $3)', [postIds.friend, viewer.id, 'nice']);
+    await testPool.query('INSERT INTO post_shares (id, post_id, user_id) VALUES (gen_random_uuid(), $1, $2)', [postIds.friend, viewer.id]);
+
+    const page = await repo.listPublicFeedPage({ viewerId: viewer.id, limit: 100 });
+    const post = page.find((e) => e.post.id === postIds.friend)!.post;
+    expect(post.likeCount).toBe(1);
+    expect(post.commentCount).toBe(1);
+    expect(post.shareCount).toBe(1);
+    expect(post.likedByMe).toBe(true);
+  });
 });

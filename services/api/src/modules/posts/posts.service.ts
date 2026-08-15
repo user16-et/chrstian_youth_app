@@ -6,6 +6,10 @@ import { postgresPoolConfig } from '../../common/postgres';
 import { QueueProducer } from '../../common/queue.producer';
 import { UserRepository } from '../../common/user.repository';
 
+// The reactions the app offers; anything else is rejected so stored reactions
+// stay a clean, known set.
+const POST_REACTIONS = ['❤️', '🔥', '😊', '🙌', '🙏', '🎉', '👍', '😢'];
+
 @Injectable()
 export class PostsService {
   private readonly socialPool = new Pool(postgresPoolConfig('api-posts-service'));
@@ -145,35 +149,63 @@ export class PostsService {
 
   async react(actorToken: string, postId: string, reaction: string) {
     const actor = await this.requireActor(actorToken);
-    const inserted = await this.socialPool.query('INSERT INTO post_reactions(post_id,user_id,reaction) VALUES($1,$2,$3) ON CONFLICT(post_id,user_id) DO NOTHING RETURNING reaction', [postId,actor.id,reaction]);
+    const value = String(reaction ?? '').trim();
+    // Empty / "none" clears the viewer's reaction (toggle off).
+    if (value === '' || value.toLowerCase() === 'none') {
+      const removed = await this.socialPool.query('DELETE FROM post_reactions WHERE post_id=$1 AND user_id=$2 RETURNING reaction', [postId, actor.id]);
+      if ((removed.rowCount ?? 0) > 0) void this.queues.engagementCounts({ postId, metric: 'reaction', delta: -1 });
+      return { postId, reaction: '' };
+    }
+    if (!POST_REACTIONS.includes(value)) throw new BadRequestException('invalid_reaction');
+    const inserted = await this.socialPool.query('INSERT INTO post_reactions(post_id,user_id,reaction) VALUES($1,$2,$3) ON CONFLICT(post_id,user_id) DO NOTHING RETURNING reaction', [postId, actor.id, value]);
     if ((inserted.rowCount ?? 0) > 0) {
       void this.queues.engagementCounts({ postId, metric: 'reaction', delta: 1 });
       return { postId, reaction: inserted.rows[0]?.reaction };
     }
-    const updated = await this.socialPool.query('UPDATE post_reactions SET reaction=$3,created_at=now() WHERE post_id=$1 AND user_id=$2 RETURNING reaction', [postId,actor.id,reaction]);
+    const updated = await this.socialPool.query('UPDATE post_reactions SET reaction=$3,created_at=now() WHERE post_id=$1 AND user_id=$2 RETURNING reaction', [postId, actor.id, value]);
     return { postId, reaction: updated.rows[0]?.reaction };
   }
 
   async reply(actorToken: string, postId: string, commentId: string, body: string) {
     const actor = await this.requireActor(actorToken);
-    const result = await this.socialPool.query('INSERT INTO post_comments(post_id,author_id,body,parent_id) VALUES($1,$2,$3,$4) RETURNING id,body,created_at AS createdAt', [postId,actor.id,body.trim(),commentId]);
+    const text = String(body ?? '').trim();
+    if (!text) throw new BadRequestException('body_required');
+    // The parent comment must belong to this post (and not be deleted).
+    const parent = await this.socialPool.query('SELECT 1 FROM post_comments WHERE id=$1 AND post_id=$2 AND removed_at IS NULL', [commentId, postId]);
+    if ((parent.rowCount ?? 0) === 0) throw new NotFoundException('comment_not_found');
+    const result = await this.socialPool.query(
+      `WITH inserted AS (
+         INSERT INTO post_comments(post_id,author_id,body,parent_id) VALUES($1,$2,$3,$4) RETURNING id,post_id,author_id,parent_id,body,created_at
+       )
+       SELECT i.id,i.post_id AS "postId",i.author_id AS "authorId",i.parent_id AS "parentId",u.full_name AS "authorName",i.body,i.created_at AS "createdAt"
+       FROM inserted i JOIN users u ON u.id=i.author_id`,
+      [postId, actor.id, text, commentId],
+    );
     void this.queues.engagementCounts({ postId, metric: 'comment', delta: 1 });
     return result.rows[0];
   }
 
   async repost(actorToken: string, postId: string, caption: string, language: string) {
     const actor = await this.requireActor(actorToken);
-    const result = await this.socialPool.query("INSERT INTO posts(author_id,body,language,post_type,repost_of) SELECT $2,$3,$4, 'repost',$1 FROM posts WHERE id=$1 RETURNING id", [postId,actor.id,caption,language]);
-    if (result.rows[0]?.id) {
-      void this.queues.engagementCounts({ postId, metric: 'repost', delta: 1 });
-      void this.queues.feedFanout({ postId: result.rows[0].id, authorId: actor.id, scope: 'public' });
-    }
-    return { id: result.rows[0]?.id, repostOf: postId };
+    // Only repost a post that still exists and isn't removed.
+    const result = await this.socialPool.query("INSERT INTO posts(author_id,body,language,post_type,repost_of) SELECT $2,$3,$4, 'repost',$1 FROM posts WHERE id=$1 AND removed_at IS NULL RETURNING id", [postId, actor.id, caption, language]);
+    const id = result.rows[0]?.id;
+    if (!id) throw new NotFoundException('post_not_found');
+    void this.queues.engagementCounts({ postId, metric: 'repost', delta: 1 });
+    void this.queues.feedFanout({ postId: id, authorId: actor.id, scope: 'public' });
+    return { id, repostOf: postId };
   }
 
   async vote(actorToken: string, postId: string, optionIndex: number) {
     const actor = await this.requireActor(actorToken);
-    await this.socialPool.query('INSERT INTO post_poll_votes(post_id,user_id,option_index) VALUES($1,$2,$3) ON CONFLICT(post_id,user_id) DO UPDATE SET option_index=EXCLUDED.option_index,created_at=now()', [postId,actor.id,optionIndex]);
+    // The post must actually have a poll, and the option must be in range.
+    const poll = await this.socialPool.query('SELECT options FROM post_polls WHERE post_id=$1', [postId]);
+    if ((poll.rowCount ?? 0) === 0) throw new BadRequestException('not_a_poll');
+    const options = Array.isArray(poll.rows[0].options) ? (poll.rows[0].options as unknown[]) : [];
+    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= options.length) {
+      throw new BadRequestException('invalid_option');
+    }
+    await this.socialPool.query('INSERT INTO post_poll_votes(post_id,user_id,option_index) VALUES($1,$2,$3) ON CONFLICT(post_id,user_id) DO UPDATE SET option_index=EXCLUDED.option_index,created_at=now()', [postId, actor.id, optionIndex]);
     return { postId, optionIndex };
   }
 
