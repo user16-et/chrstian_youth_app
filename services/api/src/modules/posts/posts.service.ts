@@ -73,6 +73,16 @@ export class PostsService {
     if (!input.body.trim()) {
       throw new BadRequestException('body_required');
     }
+    // A poll must ship a question and at least two non-empty options, otherwise
+    // it would persist as a poll-typed post with no votable options.
+    if (input.postType === 'poll') {
+      const options = (input.pollOptions ?? []).map((o) => o.trim()).filter((o) => o.length > 0);
+      if (!input.pollQuestion?.trim() || options.length < 2) {
+        throw new BadRequestException('poll_requires_question_and_options');
+      }
+      input.pollQuestion = input.pollQuestion.trim();
+      input.pollOptions = options;
+    }
 
     const post = await this.social.createPost({
       authorId: actor.id,

@@ -383,7 +383,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             "❤️",
                             "🔥",
                             "🙌",
-                            "💡"
+                            "🎉"
                           ])
                             Padding(
                                 padding: const EdgeInsets.only(right: 8),

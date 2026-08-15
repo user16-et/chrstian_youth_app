@@ -444,6 +444,9 @@ class _FeedScreenState extends State<FeedScreen> {
     final current = _effective(item);
     final counts = Map<String, int>.from(current.reactionCounts);
     final prev = current.myReaction;
+    // Re-tapping the current reaction toggles it off; the API treats 'none' as
+    // a clear. Otherwise it switches (or sets) the reaction.
+    final next = prev == emoji ? '' : emoji;
     if (prev.isNotEmpty) {
       final n = (counts[prev] ?? 1) - 1;
       if (n <= 0) {
@@ -452,10 +455,10 @@ class _FeedScreenState extends State<FeedScreen> {
         counts[prev] = n;
       }
     }
-    if (prev != emoji) counts[emoji] = (counts[emoji] ?? 0) + 1;
-    setState(() => _feedOverrides[item.id] = current.copyWith(myReaction: emoji, reactionCounts: counts));
+    if (next.isNotEmpty) counts[next] = (counts[next] ?? 0) + 1;
+    setState(() => _feedOverrides[item.id] = current.copyWith(myReaction: next, reactionCounts: counts));
     try {
-      await widget.apiClient.reactToPost(token, item.id, emoji);
+      await widget.apiClient.reactToPost(token, item.id, next.isEmpty ? 'none' : next);
     } catch (error) {
       if (mounted) {
         setState(() => _feedOverrides[item.id] = current);
@@ -492,6 +495,19 @@ class _FeedScreenState extends State<FeedScreen> {
     if (token == null || token.isEmpty) {
       promptSignIn(context, widget.language);
       return;
+    }
+
+    if (_postType == 'poll') {
+      final pollOptions = _pollOptionsController.text
+          .split(',')
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
+      if (_pollQuestionController.text.trim().isEmpty || pollOptions.length < 2) {
+        setState(() => _status =
+            'A poll needs a question and at least two options (comma-separated).');
+        return;
+      }
     }
 
     final success = await _runAction(() async {
