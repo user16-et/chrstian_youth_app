@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
-import { randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from 'crypto';
 import { Pool, type PoolClient } from 'pg';
 import { loadConfig } from './config';
 import { postgresPoolConfig } from './postgres';
@@ -424,6 +424,13 @@ export class UserRepository implements OnModuleInit {
   }
 
   // Active sessions (devices) for the user, current one flagged.
+  // An opaque, stable identifier for a session that reveals nothing about the
+  // token itself (the token doubles as the bearer credential, so exposing even
+  // a prefix of it would leak part of a live secret).
+  private sessionShortId(token: string) {
+    return createHash('sha256').update(String(token)).digest('hex').slice(0, 16);
+  }
+
   async listSessions(userId: string, currentToken: string) {
     const result = await this.pool.query(
       `SELECT token, device_name AS "deviceName", ip_address AS "ipAddress",
@@ -432,9 +439,8 @@ export class UserRepository implements OnModuleInit {
        ORDER BY (token=$2) DESC, last_seen_at DESC NULLS LAST, created_at DESC`,
       [userId, currentToken],
     );
-    // Never expose the raw token; identify a session by a short opaque id.
     return result.rows.map((row) => ({
-      id: String(row.token).slice(0, 8),
+      id: this.sessionShortId(row.token),
       deviceName: row.deviceName ?? '',
       ipAddress: row.ipAddress ?? '',
       createdAt: row.createdAt,
@@ -444,9 +450,17 @@ export class UserRepository implements OnModuleInit {
   }
 
   async revokeSessionByShortId(userId: string, shortId: string) {
+    // Resolve the opaque id back to a token in the user's own session set, then
+    // revoke by exact token — never trust a client-supplied token substring.
+    const active = await this.pool.query(
+      'SELECT token FROM sessions WHERE user_id=$1 AND revoked_at IS NULL',
+      [userId],
+    );
+    const match = active.rows.find((row) => this.sessionShortId(row.token) === shortId);
+    if (!match) return false;
     const result = await this.pool.query(
-      'UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND left(token::text,8)=$2 AND revoked_at IS NULL RETURNING token',
-      [userId, shortId],
+      'UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND token=$2 AND revoked_at IS NULL',
+      [userId, match.token],
     );
     return (result.rowCount ?? 0) > 0;
   }

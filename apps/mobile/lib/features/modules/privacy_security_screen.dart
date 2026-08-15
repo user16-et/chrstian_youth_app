@@ -108,10 +108,51 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
   }
 
   Future<void> _unmute(String userId) async {
+    if (userId.isEmpty) return;
     try {
       await widget.apiClient.unmuteUser(widget.token, userId);
       await _load();
-    } catch (_) {}
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
+  }
+
+  Future<void> _unblock(String userId) async {
+    if (userId.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(_tr(lang, 'Unblock this person?', 'ይህን ሰው ክልከላ ይነሳ?')),
+        content: Text(_tr(
+            lang,
+            'They will be able to find and message you again.',
+            'እንደገና እርስዎን ማግኘት እና መልእክት መላክ ይችላሉ።')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(_tr(lang, 'Cancel', 'ተወው'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(_tr(lang, 'Unblock', 'ክልከላ አንሳ'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.apiClient.unblockUser(token: widget.token, userId: userId);
+      await _load();
+      if (mounted) {
+        setState(() => _status = _tr(lang, 'Unblocked.', 'ክልከላ ተነስቷል።'));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
   }
 
   @override
@@ -120,7 +161,10 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
       appBar: AppBar(title: Text(_tr(lang, 'Privacy & Security', 'ግላዊነት እና ደህንነት'))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               children: [
                 if (_status.isNotEmpty) ...[
@@ -156,9 +200,13 @@ class _PrivacySecurityScreenState extends State<PrivacySecurityScreen> {
                 _peopleCard(_tr(lang, 'Muted', 'ጸጥ የተደረጉ'), _muted,
                     action: (u) => TextButton(onPressed: () => _unmute('${u['id']}'), child: Text(_tr(lang, 'Unmute', 'ጸጥታ አንሳ')))),
                 const SizedBox(height: 12),
-                _peopleCard(_tr(lang, 'Blocked', 'የታገዱ'), _blocked),
+                _peopleCard(_tr(lang, 'Blocked', 'የታገዱ'), _blocked,
+                    action: (u) => TextButton(
+                        onPressed: () => _unblock('${u['id']}'),
+                        child: Text(_tr(lang, 'Unblock', 'ክልከላ አንሳ')))),
                 if (_saving) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
               ],
+            ),
             ),
     );
   }
