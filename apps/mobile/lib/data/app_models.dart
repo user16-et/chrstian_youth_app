@@ -1972,6 +1972,7 @@ class PostCommentItem {
     required this.authorName,
     required this.body,
     required this.createdAt,
+    this.parentId,
   });
 
   final String id;
@@ -1981,7 +1982,11 @@ class PostCommentItem {
   final String body;
   final String createdAt;
 
+  /// Id of the comment this one replies to, or null for a top-level comment.
+  final String? parentId;
+
   factory PostCommentItem.fromJson(Map<String, dynamic> json) {
+    final parent = json['parentId'] as String?;
     return PostCommentItem(
       id: json['id'] as String? ?? '',
       postId: json['postId'] as String? ?? '',
@@ -1989,6 +1994,7 @@ class PostCommentItem {
       authorName: json['authorName'] as String? ?? '',
       body: json['body'] as String? ?? '',
       createdAt: json['createdAt'] as String? ?? '',
+      parentId: (parent == null || parent.isEmpty) ? null : parent,
     );
   }
 }

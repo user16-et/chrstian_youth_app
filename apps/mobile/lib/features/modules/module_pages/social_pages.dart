@@ -205,6 +205,97 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }, successMessage: 'Reply posted.');
   }
 
+  /// Groups a flat comment list into top-level comments each followed by their
+  /// replies (nested to a single visual level). A reply whose parent chain
+  /// leads to a root is bucketed under that root; a reply whose parent is
+  /// missing (e.g. deleted) falls back to rendering as a root so it still shows.
+  List<Widget> _buildCommentTiles(
+      List<PostCommentItem> comments, AppLanguage language) {
+    final byId = {for (final c in comments) c.id: c};
+    String rootOf(PostCommentItem c) {
+      var current = c;
+      final seen = <String>{};
+      while (current.parentId != null &&
+          byId.containsKey(current.parentId) &&
+          seen.add(current.id)) {
+        current = byId[current.parentId]!;
+      }
+      return current.id;
+    }
+
+    final roots = <PostCommentItem>[];
+    final repliesByRoot = <String, List<PostCommentItem>>{};
+    for (final comment in comments) {
+      final parentId = comment.parentId;
+      if (parentId == null || !byId.containsKey(parentId)) {
+        roots.add(comment);
+      } else {
+        repliesByRoot.putIfAbsent(rootOf(comment), () => []).add(comment);
+      }
+    }
+
+    final tiles = <Widget>[];
+    for (final root in roots) {
+      tiles.add(_commentTile(root, language, isReply: false));
+      for (final reply in repliesByRoot[root.id] ?? const []) {
+        tiles.add(_commentTile(reply, language, isReply: true));
+      }
+    }
+    return tiles;
+  }
+
+  Widget _commentTile(PostCommentItem comment, AppLanguage language,
+      {required bool isReply}) {
+    final tile = Card(
+      color: isReply
+          ? Theme.of(context).colorScheme.surfaceContainerHighest
+          : null,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _MiniCard(
+              icon: isReply ? Icons.subdirectory_arrow_right_rounded
+                  : Icons.forum_rounded,
+              title: comment.authorName,
+              body: comment.body,
+              trailing: Text(
+                comment.createdAt.isEmpty ? '' : _shortDate(comment.createdAt),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _replyControllerFor(comment.id),
+              decoration: const InputDecoration(
+                labelText: 'Reply',
+                isDense: true,
+              ),
+              minLines: 1,
+              maxLines: 2,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.tonalIcon(
+                onPressed: _busy ? null : () => _replyToComment(comment),
+                icon: const Icon(Icons.reply_rounded),
+                label: const Text('Reply'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Padding(
+      // Replies are indented under their parent to signal the thread nesting.
+      padding: EdgeInsets.only(bottom: 10, left: isReply ? 24 : 0),
+      child: tile,
+    );
+  }
+
   Future<void> _votePoll(int optionIndex) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) {
@@ -260,6 +351,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         future: _commentsFuture,
         builder: (context, snapshot) {
           final comments = snapshot.data ?? const <PostCommentItem>[];
+          final loadingComments =
+              snapshot.connectionState == ConnectionState.waiting &&
+                  comments.isEmpty;
+          final commentTiles = _buildCommentTiles(comments, language);
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
@@ -467,8 +562,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               _SectionCard(
                 title:
                     '${AppStrings.of(language, 'post_comments')} (${comments.length})',
-                children: snapshot.connectionState == ConnectionState.waiting &&
-                        comments.isEmpty
+                children: loadingComments
                     ? const [
                         Padding(
                             padding: EdgeInsets.only(top: 24),
@@ -476,59 +570,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ]
                     : comments.isEmpty
                         ? [Text(AppStrings.of(language, 'no_comments_yet'))]
-                        : [
-                            for (final comment in comments)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: Card(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(14),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        _MiniCard(
-                                          icon: Icons.forum_rounded,
-                                          title: comment.authorName,
-                                          body: comment.body,
-                                          trailing: Text(
-                                            comment.createdAt.isEmpty
-                                                ? ''
-                                                : _shortDate(comment.createdAt),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        TextField(
-                                          controller:
-                                              _replyControllerFor(comment.id),
-                                          decoration: const InputDecoration(
-                                            labelText: 'Reply',
-                                            isDense: true,
-                                          ),
-                                          minLines: 1,
-                                          maxLines: 2,
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Align(
-                                          alignment: Alignment.centerRight,
-                                          child: FilledButton.tonalIcon(
-                                            onPressed: _busy
-                                                ? null
-                                                : () =>
-                                                    _replyToComment(comment),
-                                            icon:
-                                                const Icon(Icons.reply_rounded),
-                                            label: const Text('Reply'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
+                        : commentTiles,
               ),
             ],
           );
