@@ -1882,6 +1882,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
   String? _busyUserId;
   int _offset = 0;
 
+  String _tr(String en, String am) =>
+      widget.language == AppLanguage.english ? en : am;
+
   @override
   void initState() {
     super.initState();
@@ -1921,7 +1924,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _offset = nextOffset < 0 ? 0 : nextOffset;
       _usersFuture = _loadUsers(offset: _offset);
     });
-    await _usersFuture;
+    // The FutureBuilder renders the result; swallow so a failed pull-to-refresh
+    // isn't an unhandled exception.
+    try {
+      await _usersFuture;
+    } catch (_) {}
   }
 
   void _onSearchChanged(String value) {
@@ -1953,7 +1960,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     await _runAction(
         userId,
         () => widget.apiClient.unfollowUser(token: token, userId: userId),
-        'Unfollowed.');
+        _tr('Unfollowed.', 'ተከታይነት ተቋርጧል።'));
   }
 
   Future<void> _block(String userId) async {
@@ -1977,7 +1984,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     await _runAction(
         userId,
         () => widget.apiClient.unblockUser(token: token, userId: userId),
-        'Unblocked.');
+        _tr('Unblocked.', 'ክልከላ ተነስቷል።'));
   }
 
   Future<void> _friend(String userId) async {
@@ -1989,7 +1996,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     await _runAction(
         userId,
         () => widget.apiClient.sendFriendRequest(token, userId),
-        'Friend request sent.');
+        _tr('Friend request sent.', 'የጓደኝነት ጥያቄ ተልኳል።'));
   }
 
   Future<void> _acceptFromDirectory(UserDirectoryItem user) async {
@@ -1999,7 +2006,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
         user.id,
         () => widget.apiClient
             .updateFriendRequest(token, user.friendRequestId, 'accepted'),
-        'Connected 🤝');
+        _tr('Connected 🤝', 'ተገናኝታችኋል 🤝'));
     await _refreshRequests();
     await _refreshFriends();
   }
@@ -2011,14 +2018,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
       return;
     }
     if (user.friendRequestId.isEmpty) {
-      setState(() => _status = 'Friend request was not found.');
+      setState(() =>
+          _status = _tr('Friend request was not found.', 'የጓደኝነት ጥያቄ አልተገኘም።'));
       return;
     }
     await _runAction(
         user.id,
         () =>
             widget.apiClient.withdrawFriendRequest(token, user.friendRequestId),
-        'Friend request withdrawn.');
+        _tr('Friend request withdrawn.', 'የጓደኝነት ጥያቄ ተነስቷል።'));
   }
 
   Future<void> _runAction(String userId, Future<dynamic> Function() action,
@@ -2660,8 +2668,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _refreshFriends() async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) return;
-    setState(() => _friendsFuture = widget.apiClient.fetchFriends(token));
-    await _friendsFuture;
+    final f = widget.apiClient.fetchFriends(token);
+    setState(() => _friendsFuture = f);
+    try {
+      await f;
+    } catch (_) {}
   }
 
   Future<void> _respondRequest(String requestId, String status) async {
