@@ -165,7 +165,11 @@ class _ChurchDetailScreenState extends State<ChurchDetailScreen> {
 
   Future<void> _refresh() async {
     setState(_reload);
-    await _future;
+    // The FutureBuilder renders the result; swallow so a failed pull-to-refresh
+    // isn't an unhandled exception.
+    try {
+      await _future;
+    } catch (_) {}
   }
 
   Widget _loaded(Map<String, dynamic> profile) {
@@ -1449,6 +1453,7 @@ class _EventDetailSheetState extends State<_EventDetailSheet> {
         ],
       ),
     );
+    codeC.dispose();
     if (code == null || code.isEmpty) return;
     setState(() => _busy = true);
     try {
@@ -3021,6 +3026,15 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
         ),
       ),
     );
+    final nameText = name.text.trim();
+    final cityText = city.text.trim();
+    final addressText = address.text.trim();
+    final phoneText = phone.text.trim();
+    name.dispose();
+    city.dispose();
+    address.dispose();
+    phone.dispose();
+    username.dispose();
     if (ok != true) return;
     await _adminRun(
       () => widget.apiClient.createChurchContent(
@@ -3028,10 +3042,10 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
         widget.churchId,
         'branches',
         {
-          'name': name.text.trim(),
-          'city': city.text.trim(),
-          'address': address.text.trim(),
-          'phone': phone.text.trim(),
+          'name': nameText,
+          'city': cityText,
+          'address': addressText,
+          'phone': phoneText,
           if (selectedUser != null) 'adminUserId': selectedUser!.id,
         },
       ),
@@ -3141,6 +3155,7 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
         ),
       ),
     );
+    username.dispose();
     if (ok != true || branchId.isEmpty || selectedUser == null) return;
     await _adminRun(
       () => widget.apiClient.assignBranchAdmin(
@@ -3390,6 +3405,7 @@ class _ChurchAdminScreenState extends State<ChurchAdminScreen> {
       ),
     );
     final exactUsername = username.text.trim().toLowerCase();
+    username.dispose();
     if (ok != true || ministryId.isEmpty || exactUsername.isEmpty) return;
     try {
       final targetUser =
