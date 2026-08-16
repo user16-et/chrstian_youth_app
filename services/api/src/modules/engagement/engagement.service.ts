@@ -683,11 +683,16 @@ export class EngagementService {
     return { id, status: 'deleted' };
   }
 
-  async endorseTalent(token: string, talentUserId: string) {
+  async endorseTalent(token: string, talentUserId: string, note = '') {
     const actor = await this.requireActor(token);
     // You can't endorse your own talent — it would inflate your own count.
     if (actor.id === talentUserId) throw new ForbiddenException('cannot_endorse_self');
-    return this.talentRepository.endorseTalent(actor.id, talentUserId);
+    const trimmed = String(note ?? '').trim().slice(0, 500);
+    return this.talentRepository.endorseTalent(actor.id, talentUserId, trimmed);
+  }
+
+  async listTalentEndorsements(userId: string) {
+    return this.talentRepository.listTalentEndorsements(userId);
   }
 
   async unendorseTalent(token: string, talentUserId: string) {

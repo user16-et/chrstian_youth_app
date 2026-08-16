@@ -1553,6 +1553,29 @@ class TalentProfileItem {
   }
 }
 
+class TalentEndorsementItem {
+  const TalentEndorsementItem({
+    required this.endorserId,
+    required this.endorserName,
+    required this.note,
+    required this.createdAt,
+  });
+
+  final String endorserId;
+  final String endorserName;
+  final String note;
+  final String createdAt;
+
+  factory TalentEndorsementItem.fromJson(Map<String, dynamic> json) {
+    return TalentEndorsementItem(
+      endorserId: json['endorserId'] as String? ?? '',
+      endorserName: json['endorserName'] as String? ?? '',
+      note: json['note'] as String? ?? '',
+      createdAt: json['createdAt'] as String? ?? '',
+    );
+  }
+}
+
 class TalentCompetitionItem {
   const TalentCompetitionItem({
     required this.id,

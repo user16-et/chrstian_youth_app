@@ -125,13 +125,28 @@ export class TalentRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async endorseTalent(endorserId: string, talentUserId: string) {
+  async endorseTalent(endorserId: string, talentUserId: string, note = '') {
     if (endorserId === talentUserId) return { endorsed: false };
     await this.pool.query(
-      `INSERT INTO talent_endorsements (talent_user_id, endorser_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [talentUserId, endorserId],
+      `INSERT INTO talent_endorsements (talent_user_id, endorser_id, note)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (talent_user_id, endorser_id) DO UPDATE SET note = EXCLUDED.note`,
+      [talentUserId, endorserId, note],
     );
     return { endorsed: true };
+  }
+
+  // Endorsements with the endorser's name + written testimonial (if any),
+  // newest first — those with a note shown as testimonials in the UI.
+  async listTalentEndorsements(talentUserId: string) {
+    const result = await this.pool.query(
+      `SELECT te.endorser_id AS "endorserId", u.full_name AS "endorserName", te.note, te.created_at AS "createdAt"
+       FROM talent_endorsements te JOIN users u ON u.id = te.endorser_id
+       WHERE te.talent_user_id = $1
+       ORDER BY (te.note <> '') DESC, te.created_at DESC`,
+      [talentUserId],
+    );
+    return result.rows;
   }
 
   async unendorseTalent(endorserId: string, talentUserId: string) {

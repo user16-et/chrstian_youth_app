@@ -578,8 +578,14 @@ export class EngagementController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Endorse a talent' })
   @Post('/talent/profiles/:userId/endorse')
-  endorseTalent(@Headers('authorization') authorization: string | undefined, @Param('userId') userId: string) {
-    return this.engagementService.endorseTalent(requireBearerToken(authorization), userId);
+  endorseTalent(@Headers('authorization') authorization: string | undefined, @Param('userId') userId: string, @Body() body?: { note?: string }) {
+    return this.engagementService.endorseTalent(requireBearerToken(authorization), userId, body?.note ?? '');
+  }
+
+  @ApiOperation({ summary: 'List a talent’s endorsements (with testimonials)' })
+  @Get('/talent/profiles/:userId/endorsements')
+  talentEndorsements(@Param('userId') userId: string) {
+    return this.engagementService.listTalentEndorsements(userId);
   }
 
   @ApiBearerAuth()

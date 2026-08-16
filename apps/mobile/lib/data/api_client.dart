@@ -1564,12 +1564,22 @@ class ApiClient {
   }
 
   Future<void> endorseTalent(String token, String userId,
-      {required bool endorse}) {
+      {required bool endorse, String note = ''}) {
     return endorse
-        ? _postJson('/talent/profiles/$userId/endorse', const {},
+        ? _postJson('/talent/profiles/$userId/endorse', {'note': note},
             headers: {'Authorization': 'Bearer $token'})
         : _deleteJson('/talent/profiles/$userId/endorse',
             headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<List<TalentEndorsementItem>> fetchTalentEndorsements(String userId,
+      {String? token}) async {
+    final response = await _getJson('/talent/profiles/$userId/endorsements',
+        headers: _bearer(token));
+    return (response as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(TalentEndorsementItem.fromJson)
+        .toList();
   }
 
   Future<TalentProfileItem?> fetchTalentMe(String token) async {

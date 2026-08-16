@@ -530,9 +530,37 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
 
   Future<void> _toggleEndorse(TalentProfileItem profile) async {
     if (!_requireLogin()) return;
+    final endorse = !profile.endorsedByMe;
+    var note = '';
+    if (endorse) {
+      // Offer an optional written testimonial with the endorsement.
+      final controller = TextEditingController();
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(_t('Endorse ${profile.displayName}', '${profile.displayName}ን አጽድቅ')),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            maxLength: 500,
+            decoration: InputDecoration(
+                hintText: _t('Add a testimonial (optional) — how have they blessed you?',
+                    'ምስክርነት ያክሉ (አማራጭ) — እንዴት ባርከዋል?')),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_t('Cancel', 'ተወው'))),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(_t('Endorse', 'አጽድቅ'))),
+          ],
+        ),
+      );
+      note = controller.text.trim();
+      controller.dispose();
+      if (ok != true) return;
+    }
     try {
       await widget.apiClient.endorseTalent(widget.session!.token, profile.userId,
-          endorse: !profile.endorsedByMe);
+          endorse: endorse, note: note);
       await _refresh();
     } catch (error) {
       if (mounted) {
@@ -550,6 +578,8 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
         profile: profile,
         language: widget.language,
         isMe: profile.userId == widget.session?.user.id,
+        apiClient: widget.apiClient,
+        token: widget.session?.token,
         onEndorse: () async {
           Navigator.pop(context);
           await _toggleEndorse(profile);
@@ -1385,12 +1415,16 @@ class _TalentDetailSheet extends StatelessWidget {
     required this.language,
     required this.isMe,
     required this.onEndorse,
+    required this.apiClient,
+    this.token,
   });
 
   final TalentProfileItem profile;
   final AppLanguage language;
   final bool isMe;
   final VoidCallback onEndorse;
+  final ApiClient apiClient;
+  final String? token;
 
   bool get _en => language == AppLanguage.english;
   String _t(String en, String am) => _en ? en : am;
@@ -1447,6 +1481,13 @@ class _TalentDetailSheet extends StatelessWidget {
             const SizedBox(height: 10),
             for (final item in profile.showcase) _showcaseTile(context, item),
           ],
+          const SizedBox(height: 18),
+          _TalentTestimonials(
+            apiClient: apiClient,
+            token: token,
+            userId: profile.userId,
+            language: language,
+          ),
           if (profile.contactInfo.isNotEmpty) ...[
             const SizedBox(height: 18),
             Card(
@@ -1511,6 +1552,78 @@ class _TalentDetailSheet extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+/// Loads and shows a talent's written endorsements (testimonials).
+class _TalentTestimonials extends StatefulWidget {
+  const _TalentTestimonials({
+    required this.apiClient,
+    required this.token,
+    required this.userId,
+    required this.language,
+  });
+
+  final ApiClient apiClient;
+  final String? token;
+  final String userId;
+  final AppLanguage language;
+
+  @override
+  State<_TalentTestimonials> createState() => _TalentTestimonialsState();
+}
+
+class _TalentTestimonialsState extends State<_TalentTestimonials> {
+  List<TalentEndorsementItem> _items = const [];
+  bool _loading = true;
+
+  bool get _en => widget.language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final r = await widget.apiClient
+          .fetchTalentEndorsements(widget.userId, token: widget.token);
+      if (mounted) setState(() { _items = r; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const SizedBox.shrink();
+    // Only show entries that carry a written testimonial.
+    final withNotes = _items.where((e) => e.note.trim().isNotEmpty).toList();
+    if (withNotes.isEmpty) return const SizedBox.shrink();
+    final colors = Theme.of(context).colorScheme;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(_t('Testimonials', 'ምስክርነቶች'),
+          style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 10),
+      for (final e in withNotes)
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('“${e.note}”', style: const TextStyle(fontStyle: FontStyle.italic)),
+            const SizedBox(height: 6),
+            Text('— ${e.endorserName}',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: colors.onSurfaceVariant)),
+          ]),
+        ),
+    ]);
   }
 }
 
