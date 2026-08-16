@@ -38,7 +38,11 @@ class _EventsScreenState extends State<EventsScreen>
   Future<void> _refresh() async {
     final future = widget.apiClient.fetchEventsHome(widget.session?.token);
     setState(() => _future = future);
-    await future;
+    // The FutureBuilder renders the result; swallow so a failed pull-to-refresh
+    // isn't an unhandled exception.
+    try {
+      await future;
+    } catch (_) {}
   }
 
   @override
@@ -155,6 +159,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   bool _busy = false;
   String _status = '';
 
+  String _tr(String en, String am) =>
+      widget.language == AppLanguage.english ? en : am;
+
   @override
   void initState() {
     super.initState();
@@ -170,16 +177,22 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final detailFuture = widget.apiClient
         .fetchEventDetail(widget.event.id, widget.session?.token);
     if (!mounted) {
-      await future;
-      await detailFuture;
+      try {
+        await future;
+        await detailFuture;
+      } catch (_) {}
       return;
     }
     setState(() {
       _registrationsFuture = future;
       _detailFuture = detailFuture;
     });
-    await future;
-    await detailFuture;
+    // FutureBuilders render loading/data; swallow so a failed pull-to-refresh
+    // doesn't raise an unhandled exception.
+    try {
+      await future;
+      await detailFuture;
+    } catch (_) {}
   }
 
   Future<void> _register() async {
@@ -213,20 +226,20 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   Future<void> _save() async => _tokenAction(
       (token) =>
           widget.apiClient.saveEvent(token: token, eventId: widget.event.id),
-      'Saved event');
+      _tr('Saved event', 'ዝግጅት ተቀምጧል'));
   Future<void> _volunteer() async => _tokenAction(
       (token) => widget.apiClient.applyEventVolunteer(
           token: token,
           eventId: widget.event.id,
           role: 'media',
           note: 'I can serve with media, registration or logistics.'),
-      'Volunteer application sent');
+      _tr('Volunteer application sent', 'የበፈቃደኝነት ማመልከቻ ተልኳል'));
   Future<void> _task() async => _tokenAction(
       (token) => widget.apiClient.createEventTask(
           token: token,
           eventId: widget.event.id,
           title: 'Prepare event follow-up'),
-      'Task created');
+      _tr('Task created', 'ተግባር ተፈጥሯል'));
   Future<void> _discussion() async => _tokenAction(
       (token) => widget.apiClient.createEventDiscussion(
           token: token,
@@ -234,7 +247,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           title: 'Questions and coordination',
           body:
               'Let us coordinate transport, prayer and volunteer needs here.'),
-      'Discussion created');
+      _tr('Discussion created', 'ውይይት ተፈጥሯል'));
   Future<void> _feedback() async => _tokenAction(
       (token) => widget.apiClient.submitEventFeedback(
           token: token,
@@ -242,7 +255,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           rating: 5,
           body:
               'Meaningful event with strong worship, teaching and fellowship.'),
-      'Feedback sent');
+      _tr('Feedback sent', 'አስተያየት ተልኳል'));
 
   Future<void> _tokenAction(
       Future<dynamic> Function(String token) action, String success) async {
