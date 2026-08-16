@@ -6,6 +6,7 @@ import '../../data/api_client.dart';
 import '../../data/call_client.dart';
 import '../../data/call_controller.dart';
 import '../../data/e2ee/e2ee_manager.dart';
+import '../../data/e2ee/e2ee_safety_number.dart';
 import '../../data/relationship_chat_client.dart';
 import '../../i18n/app_i18n.dart';
 import 'call_log_bubble.dart';
@@ -486,6 +487,95 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     }
   }
 
+  // Show the safety number so the two people can confirm out-of-band that no
+  // one swapped their keys (defeats an active man-in-the-middle).
+  Future<void> _showSafetyNumber() async {
+    final number = await _e2ee.safetyNumber(widget.token, widget.partnerId);
+    if (!mounted) return;
+    if (number == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_tr(lang,
+              'Encryption keys aren’t available for this match yet.',
+              'ለዚህ ተዛማጅ የምስጠራ ቁልፎች ገና የሉም።'))));
+      return;
+    }
+    final prior = await _e2ee.verifiedNumber(widget.partnerId);
+    if (!mounted) return;
+    final changed = prior != null && prior != number;
+    var verified = prior == number;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheet) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_tr(lang, 'Verify encryption', 'ምስጠራ አረጋግጥ'),
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(
+                  _tr(lang,
+                      'Compare this number with ${widget.partnerName} in person or on a call. If it matches on both phones, your chat is private end-to-end.',
+                      'ይህን ቁጥር ከ${widget.partnerName} ጋር በአካል ወይም በጥሪ ያነጻጽሩ። በሁለቱም ስልኮች ላይ ከተመሳሰለ ውይይታችሁ ሙሉ በሙሉ የተመሰጠረ ነው።'),
+                  style: Theme.of(context).textTheme.bodyMedium),
+              if (changed) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Text(
+                      _tr(lang,
+                          'The safety number changed. This can happen if they reinstalled the app — but verify it again to be safe.',
+                          'የደህንነት ቁጥሩ ተቀይሯል። መተግበሪያውን እንደገና ከጫኑ ሊሆን ይችላል — ለጥንቃቄ እንደገና ያረጋግጡ።'),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer)),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(14)),
+                child: SelectableText(
+                  E2eeSafetyNumber.format(number),
+                  style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 18, letterSpacing: 1, height: 1.6),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: verified
+                    ? OutlinedButton.icon(
+                        onPressed: () async {
+                          await _e2ee.clearVerified(widget.partnerId);
+                          setSheet(() => verified = false);
+                        },
+                        icon: const Icon(Icons.verified_rounded),
+                        label: Text(_tr(lang, 'Verified — tap to clear', 'ተረጋግጧል — ለማጽዳት ይንኩ')),
+                      )
+                    : FilledButton.icon(
+                        onPressed: () async {
+                          await _e2ee.markVerified(widget.partnerId, number);
+                          setSheet(() => verified = true);
+                        },
+                        icon: const Icon(Icons.check_rounded),
+                        label: Text(_tr(lang, 'Mark as verified', 'እንደተረጋገጠ ምልክት አድርግ')),
+                      ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   // In-app voice / video call with a match (peer-to-peer, faith-safe).
   Future<void> _startCall(CallMedia media) async {
     final controller = CallScope.maybeOf(context);
@@ -633,10 +723,15 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
           if (widget.partnerId.isNotEmpty)
             PopupMenuButton<String>(
               onSelected: (value) {
+                if (value == 'verify') _showSafetyNumber();
                 if (value == 'report') _report();
                 if (value == 'block') _block();
               },
               itemBuilder: (context) => [
+                PopupMenuItem(value: 'verify', child: Row(children: [
+                  const Icon(Icons.verified_user_outlined, size: 20), const SizedBox(width: 10),
+                  Text(_tr(lang, 'Verify encryption', 'ምስጠራ አረጋግጥ')),
+                ])),
                 PopupMenuItem(value: 'report', child: Row(children: [
                   const Icon(Icons.flag_outlined, size: 20), const SizedBox(width: 10),
                   Text(_tr(lang, 'Report', 'ሪፖርት አድርግ')),

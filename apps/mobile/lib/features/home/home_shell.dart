@@ -119,7 +119,7 @@ class _HomeShellState extends State<HomeShell> {
     if (session != null && session.token.isNotEmpty) {
       unawaited(_pushService.enable(session.token));
       // Publish this device's public E2EE keys + top up prekeys (mobile only).
-      unawaited(_e2ee.ensureRegistered(session.token));
+      unawaited(_e2ee.ensureRegistered(session.token, userId: session.user.id));
     }
     _scheduleSessionRefresh(session);
     unawaited(_refreshDashboard());

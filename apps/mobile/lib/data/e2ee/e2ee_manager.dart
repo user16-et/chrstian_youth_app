@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../api_client.dart';
 import 'e2ee_key_store.dart';
+import 'e2ee_safety_number.dart';
 import 'e2ee_session.dart';
 
 /// Orchestrates 1:1 E2EE sessions on top of [E2eeKeyStore] (this device's keys),
@@ -220,6 +221,39 @@ class E2eeManager {
 
   Future<String?> sentPlaintext(String messageId) =>
       _storage.read(key: 'e2ee.sent.$messageId');
+
+  // ---- Safety-number verification ----
+
+  /// The safety number for a peer, or null if E2EE isn't set up for them yet.
+  /// (Phase 1 single device: uses the peer's first published device.)
+  Future<String?> safetyNumber(String token, String peerUserId) async {
+    if (!supported) return null;
+    try {
+      final myUserId = await _keys.myUserId();
+      if (myUserId == null || myUserId.isEmpty) return null;
+      final devices = await _api.fetchE2eeDevices(token, peerUserId);
+      if (devices.isEmpty) return null;
+      final theirKey = base64Decode('${devices.first['identityKey']}');
+      final myKey = base64Decode(await _keys.identitySignPublicB64());
+      return E2eeSafetyNumber.compute(
+        myIdentityKey: myKey,
+        myUserId: myUserId,
+        theirIdentityKey: theirKey,
+        theirUserId: peerUserId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> markVerified(String peerUserId, String number) =>
+      _storage.write(key: 'e2ee.verified.$peerUserId', value: number);
+
+  Future<String?> verifiedNumber(String peerUserId) =>
+      _storage.read(key: 'e2ee.verified.$peerUserId');
+
+  Future<void> clearVerified(String peerUserId) =>
+      _storage.delete(key: 'e2ee.verified.$peerUserId');
 
   /// Forget all sessions for a conversation (e.g. on leaving/blocking).
   Future<void> clearConversation(String conversationId) async {

@@ -19,10 +19,11 @@ class E2eeRegistration {
 
   /// Register (first run) or replenish (subsequent runs). Safe to call on every
   /// sign-in / app resume.
-  Future<void> ensureRegistered(String token) async {
+  Future<void> ensureRegistered(String token, {String? userId}) async {
     if (!_store.supported || token.isEmpty || _inFlight) return;
     _inFlight = true;
     try {
+      if (userId != null) await _store.saveMyUserId(userId);
       final deviceId = await _store.deviceId();
       final registrationId = await _store.registrationId();
 

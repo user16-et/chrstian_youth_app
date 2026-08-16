@@ -28,6 +28,7 @@ class E2eeKeyStore {
   // Keychain, with the device unlocked).
   static const _storage = FlutterSecureStorage();
 
+  static const _kMyUserId = 'e2ee.myUserId';
   static const _kDeviceId = 'e2ee.deviceId';
   static const _kRegistrationId = 'e2ee.registrationId';
   static const _kIdentitySign = 'e2ee.identity.sign'; // Ed25519 private seed
@@ -52,6 +53,12 @@ class E2eeKeyStore {
   /// Whether this device already has a registered identity.
   Future<bool> get isInitialised async =>
       (await _storage.read(key: _kIdentitySign)) != null;
+
+  Future<void> saveMyUserId(String id) async {
+    if (id.isNotEmpty) await _storage.write(key: _kMyUserId, value: id);
+  }
+
+  Future<String?> myUserId() => _storage.read(key: _kMyUserId);
 
   Future<String> deviceId() async {
     var id = await _storage.read(key: _kDeviceId);
