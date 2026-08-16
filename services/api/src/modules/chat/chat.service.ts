@@ -17,7 +17,13 @@ export class ChatService {
     };
   }
 
-  listMessages(room?: string) {
+  async listMessages(actorToken: string, room?: string) {
+    // Reading the room chat requires a signed-in user (it was previously
+    // world-readable). Send already authenticates the author.
+    const actor = await this.userRepository.authenticate(actorToken);
+    if (!actor) {
+      throw new NotFoundException('authenticated_user_not_found');
+    }
     return this.chat.listChatMessages(room || 'general');
   }
 

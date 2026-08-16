@@ -15,10 +15,11 @@ export class ChatController {
     return this.chatService.status();
   }
 
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'List chat messages' })
   @Get('/messages')
-  messages(@Query('room') room?: string) {
-    return this.chatService.listMessages(room);
+  messages(@Headers('authorization') authorization: string | undefined, @Query('room') room?: string) {
+    return this.chatService.listMessages(requireBearerToken(authorization), room);
   }
 
   @ApiBearerAuth()
