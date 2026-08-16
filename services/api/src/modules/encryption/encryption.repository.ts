@@ -6,6 +6,7 @@ export interface DeviceKeysInput {
   deviceId: string;
   registrationId: number;
   identityKey: string;
+  identityDhKey: string;
   signedPreKeyId: number;
   signedPreKey: string;
   signedPreKeySignature: string;
@@ -16,6 +17,7 @@ export interface PreKeyBundle {
   deviceId: string;
   registrationId: number;
   identityKey: string;
+  identityDhKey: string;
   signedPreKeyId: number;
   signedPreKey: string;
   signedPreKeySignature: string;
@@ -37,17 +39,18 @@ export class EncryptionRepository {
   // Register or refresh a device's identity + signed prekey.
   async upsertDevice(userId: string, input: DeviceKeysInput) {
     await this.db.query(
-      `INSERT INTO e2ee_devices(user_id,device_id,registration_id,identity_key,signed_prekey_id,signed_prekey,signed_prekey_signature,signed_prekey_created_at,updated_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,now(),now())
+      `INSERT INTO e2ee_devices(user_id,device_id,registration_id,identity_key,identity_dh_key,signed_prekey_id,signed_prekey,signed_prekey_signature,signed_prekey_created_at,updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),now())
        ON CONFLICT(user_id,device_id) DO UPDATE SET
          registration_id=EXCLUDED.registration_id,
          identity_key=EXCLUDED.identity_key,
+         identity_dh_key=EXCLUDED.identity_dh_key,
          signed_prekey_id=EXCLUDED.signed_prekey_id,
          signed_prekey=EXCLUDED.signed_prekey,
          signed_prekey_signature=EXCLUDED.signed_prekey_signature,
          signed_prekey_created_at=now(),
          updated_at=now()`,
-      [userId, input.deviceId, input.registrationId, input.identityKey, input.signedPreKeyId, input.signedPreKey, input.signedPreKeySignature],
+      [userId, input.deviceId, input.registrationId, input.identityKey, input.identityDhKey, input.signedPreKeyId, input.signedPreKey, input.signedPreKeySignature],
     );
     return { deviceId: input.deviceId, status: 'registered' as const };
   }
@@ -76,7 +79,7 @@ export class EncryptionRepository {
 
   async listDevices(userId: string) {
     const r = await this.db.query(
-      `SELECT device_id AS "deviceId", registration_id AS "registrationId", identity_key AS "identityKey", updated_at AS "updatedAt"
+      `SELECT device_id AS "deviceId", registration_id AS "registrationId", identity_key AS "identityKey", identity_dh_key AS "identityDhKey", updated_at AS "updatedAt"
        FROM e2ee_devices WHERE user_id=$1 ORDER BY created_at`,
       [userId],
     );
@@ -88,7 +91,7 @@ export class EncryptionRepository {
   // bundle (preKey null) so a session can still start from the signed prekey.
   async fetchBundles(userId: string): Promise<PreKeyBundle[]> {
     const devices = await this.db.query(
-      `SELECT device_id AS "deviceId", registration_id AS "registrationId", identity_key AS "identityKey",
+      `SELECT device_id AS "deviceId", registration_id AS "registrationId", identity_key AS "identityKey", identity_dh_key AS "identityDhKey",
               signed_prekey_id AS "signedPreKeyId", signed_prekey AS "signedPreKey", signed_prekey_signature AS "signedPreKeySignature"
        FROM e2ee_devices WHERE user_id=$1`,
       [userId],
@@ -112,6 +115,7 @@ export class EncryptionRepository {
         deviceId: d.deviceId,
         registrationId: d.registrationId,
         identityKey: d.identityKey,
+        identityDhKey: d.identityDhKey,
         signedPreKeyId: d.signedPreKeyId,
         signedPreKey: d.signedPreKey,
         signedPreKeySignature: d.signedPreKeySignature,

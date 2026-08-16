@@ -2721,6 +2721,42 @@ class ApiClient {
     return response as Map<String, dynamic>;
   }
 
+  // ---- End-to-end encryption key directory ----
+  // The server only ever receives PUBLIC key material.
+
+  Future<dynamic> registerE2eeDevice(String token, Map<String, dynamic> device) {
+    return _putJson('/e2ee/devices/me', device,
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> uploadE2eePreKeys(
+      String token, String deviceId, List<Map<String, dynamic>> preKeys) {
+    return _postJson('/e2ee/prekeys', {'deviceId': deviceId, 'preKeys': preKeys},
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<int> fetchE2eePreKeyCount(String token, String deviceId) async {
+    final response = await _getJson(
+        '/e2ee/prekeys/count?deviceId=${Uri.encodeQueryComponent(deviceId)}',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as Map<String, dynamic>)['count'] as int? ?? 0;
+  }
+
+  // Prekey bundles for every device the user has published (one per device).
+  Future<List<Map<String, dynamic>>> fetchE2eeBundle(
+      String token, String userId) async {
+    final response = await _getJson('/e2ee/bundle/$userId',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchE2eeDevices(
+      String token, String userId) async {
+    final response = await _getJson('/e2ee/devices/$userId',
+        headers: {'Authorization': 'Bearer $token'});
+    return (response as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+  }
+
   Future<List<GlobalSearchResultItem>> globalSearch(String query,
       {String? token}) async {
     final encoded = Uri.encodeQueryComponent(query.trim());

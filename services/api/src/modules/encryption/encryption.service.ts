@@ -29,6 +29,7 @@ export class EncryptionService {
       deviceId: this.str(body.deviceId, 'device_id_required'),
       registrationId: this.int(body.registrationId, 'registration_id_required'),
       identityKey: this.str(body.identityKey, 'identity_key_required'),
+      identityDhKey: this.str(body.identityDhKey, 'identity_dh_key_required'),
       signedPreKeyId: this.int(body.signedPreKeyId, 'signed_prekey_id_required'),
       signedPreKey: this.str(body.signedPreKey, 'signed_prekey_required'),
       signedPreKeySignature: this.str(body.signedPreKeySignature, 'signed_prekey_signature_required'),

@@ -7,6 +7,7 @@ import '../../data/app_models.dart';
 import '../../data/call_controller.dart';
 import '../../data/daily_verse_notifier.dart';
 import '../../data/push_service.dart';
+import '../../data/e2ee/e2ee_registration.dart';
 import '../../data/session_store.dart';
 import '../../i18n/app_i18n.dart';
 import '../../theme/app_theme.dart';
@@ -41,6 +42,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   final SessionStore _sessionStore = SessionStore();
   late final PushService _pushService = PushService(widget.apiClient);
+  late final E2eeRegistration _e2ee = E2eeRegistration(widget.apiClient);
   int _index = 0;
   late Future<DashboardSnapshot> _snapshotFuture;
   AuthResult? _session;
@@ -116,6 +118,8 @@ class _HomeShellState extends State<HomeShell> {
     // configured — see PushService / docs/push-notifications-setup.md).
     if (session != null && session.token.isNotEmpty) {
       unawaited(_pushService.enable(session.token));
+      // Publish this device's public E2EE keys + top up prekeys (mobile only).
+      unawaited(_e2ee.ensureRegistered(session.token));
     }
     _scheduleSessionRefresh(session);
     unawaited(_refreshDashboard());

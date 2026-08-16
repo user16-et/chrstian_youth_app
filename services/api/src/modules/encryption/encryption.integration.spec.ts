@@ -31,6 +31,7 @@ describe('EncryptionRepository key directory (integration)', () => {
     deviceId: 'device-1',
     registrationId: 4242,
     identityKey: 'ikey-base64',
+    identityDhKey: 'idh-base64',
     signedPreKeyId: 1,
     signedPreKey: 'spk-base64',
     signedPreKeySignature: 'sig-base64',
