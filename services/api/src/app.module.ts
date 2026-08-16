@@ -28,6 +28,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { CallsModule } from './modules/calls/calls.module';
 import { StoriesModule } from './modules/stories/stories.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { EncryptionModule } from './modules/encryption/encryption.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 
 @Module({
@@ -56,6 +57,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
     CallsModule,
     StoriesModule,
     SettingsModule,
+    EncryptionModule,
     PaymentsModule,
   ],
   controllers: [HealthController, AppBootstrapController, MetricsController],
