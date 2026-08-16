@@ -1463,6 +1463,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ),
       ),
     );
+    nameC.dispose();
+    descC.dispose();
     if (created == null || !context.mounted) return;
     await widget.onDataChanged();
     if (!context.mounted) return;
@@ -1498,6 +1500,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ],
       ),
     );
+    codeC.dispose();
     if (code == null || code.isEmpty || !context.mounted) return;
     try {
       final res = await widget.apiClient.joinGroupByCode(token, code);
