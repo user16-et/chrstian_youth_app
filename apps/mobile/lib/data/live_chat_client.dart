@@ -76,6 +76,7 @@ class LiveChatClient {
     String attachmentUrl = '',
     String attachmentType = '',
     String? tempId,
+    Map<String, dynamic>? encryption,
   }) {
     _socket?.emit('message:send', {
       'conversationId': conversationId,
@@ -83,6 +84,7 @@ class LiveChatClient {
       'attachmentUrl': attachmentUrl,
       'attachmentType': attachmentType,
       if (tempId != null && tempId.isNotEmpty) 'tempId': tempId,
+      ...?encryption,
     });
   }
 

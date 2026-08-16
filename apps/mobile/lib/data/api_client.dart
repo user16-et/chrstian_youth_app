@@ -3339,11 +3339,12 @@ class ApiClient {
 
   Future<dynamic> sendDirectMessage(
       String token, String conversationId, String body,
-      {String attachmentUrl = '', String attachmentType = ''}) {
+      {String attachmentUrl = '', String attachmentType = '', Map<String, dynamic>? encryption}) {
     return _postJson('/connected-life/conversations/$conversationId/messages', {
       'body': body,
       'attachmentUrl': attachmentUrl,
-      'attachmentType': attachmentType
+      'attachmentType': attachmentType,
+      ...?encryption,
     }, headers: {
       'Authorization': 'Bearer $token'
     });

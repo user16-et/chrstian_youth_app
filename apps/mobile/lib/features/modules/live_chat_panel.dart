@@ -7,6 +7,7 @@ import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/call_client.dart';
 import '../../data/call_controller.dart';
+import '../../data/e2ee/e2ee_manager.dart';
 import '../../data/live_chat_client.dart';
 import '../../i18n/app_i18n.dart';
 import '../widgets/user_avatar.dart';
@@ -61,6 +62,49 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
   final List<Map<String, dynamic>> _messages = [];
   final Set<String> _messageIds = {};
   final List<Map<String, dynamic>> _members = [];
+  late final E2eeManager _e2ee = E2eeManager(widget.apiClient);
+  final Map<String, String> _pendingPlain = {};
+
+  // E2EE only applies to a 1:1 direct conversation (group/church/event chats
+  // stay server-side, moderatable). The recipient is the other member.
+  String? get _recipientUserId {
+    final myId = widget.session?.user.id;
+    if (myId == null) return null;
+    for (final m in _members) {
+      final uid = '${m['userId'] ?? ''}';
+      if (uid.isNotEmpty && uid != myId) return uid;
+    }
+    return (widget.otherUserId?.isNotEmpty ?? false) ? widget.otherUserId : null;
+  }
+
+  bool get _e2eeEligible =>
+      widget.scopeType == 'direct' &&
+      _members.length == 2 &&
+      (_recipientUserId?.isNotEmpty ?? false);
+
+  // Decrypt an encrypted message in place (partner) or restore my own plaintext.
+  Future<void> _resolveEncrypted(Map<String, dynamic> message, {String tempId = ''}) async {
+    final meta = (message['metadata'] as Map?)?.cast<String, dynamic>();
+    if (meta == null || meta['encrypted'] != true) return;
+    final id = '${message['id'] ?? ''}';
+    final myId = widget.session?.user.id ?? '';
+    if ('${message['authorId'] ?? ''}' == myId) {
+      final pending = tempId.isEmpty ? null : _pendingPlain.remove(tempId);
+      if (pending != null) {
+        message['body'] = pending;
+        if (id.isNotEmpty) await _e2ee.rememberSent(id, pending);
+      } else {
+        message['body'] = await _e2ee.sentPlaintext(id) ?? '🔒';
+      }
+      return;
+    }
+    final plain = await _e2ee.decryptMessage(
+      conversationId: _conversationId,
+      senderUserId: '${message['authorId'] ?? ''}',
+      message: message,
+    );
+    message['body'] = plain ?? _t('🔒 Unable to decrypt', '🔒 መፍታት አልተቻለም');
+  }
   CallController? _boundCall;
 
   bool get _en => widget.language == AppLanguage.english;
@@ -99,6 +143,9 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
     try {
       final msgs = await widget.apiClient
           .fetchConversationMessages(session.token, _conversationId, limit: 60);
+      for (final m in msgs) {
+        await _resolveEncrypted(m);
+      }
       if (!mounted) return;
       setState(() {
         for (final m in msgs) {
@@ -230,21 +277,24 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
     return message;
   }
 
-  void _handleLiveMessage(Map<String, dynamic> event) {
+  Future<void> _handleLiveMessage(Map<String, dynamic> event) async {
     if (event['conversationId']?.toString() != _conversationId) return;
     final raw = event['message'];
     if (raw is! Map) return;
     final tempId = event['tempId']?.toString() ?? '';
+    final message = Map<String, dynamic>.from(raw);
+    await _resolveEncrypted(message, tempId: tempId);
+    if (!mounted) return;
     setState(() {
       if (tempId.isNotEmpty) {
-        _messages.removeWhere((message) {
-          final match = message['tempId']?.toString() == tempId ||
-              message['id']?.toString() == tempId;
-          if (match) _messageIds.remove(message['id']?.toString() ?? '');
+        _messages.removeWhere((m) {
+          final match = m['tempId']?.toString() == tempId ||
+              m['id']?.toString() == tempId;
+          if (match) _messageIds.remove(m['id']?.toString() ?? '');
           return match;
         });
       }
-      _addMessage(Map<String, dynamic>.from(raw));
+      _addMessage(message);
     });
     _markLastRead();
     _scrollToBottom();
@@ -328,6 +378,16 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
       return;
     }
     final tempId = 'temp-${DateTime.now().microsecondsSinceEpoch}';
+    // Encrypt end-to-end for a 1:1 direct chat; otherwise send plaintext.
+    final enc = _e2eeEligible
+        ? await _e2ee.encryptMessage(
+            token: session.token,
+            conversationId: _conversationId,
+            recipientUserId: _recipientUserId!,
+            plaintext: body)
+        : null;
+    if (enc != null) _pendingPlain[tempId] = body;
+    final wireBody = enc == null ? body : '';
     setState(() => _sending = true);
     try {
       if (_liveChat.connected) {
@@ -339,21 +399,27 @@ class _LiveChatPanelState extends State<LiveChatPanel> {
             'authorId': session.user.id,
             'authorName': session.user.fullName,
             'authorUsername': session.user.username,
-            'body': body,
+            'body': body, // show my plaintext locally
             'createdAt': DateTime.now().toIso8601String(),
             'clientStatus': 'pending',
           });
         });
         _liveChat.sendMessage(
           conversationId: _conversationId,
-          body: body,
+          body: wireBody,
           tempId: tempId,
+          encryption: enc,
         );
       } else {
         final sent = await widget.apiClient
-            .sendDirectMessage(session.token, _conversationId, body);
+            .sendDirectMessage(session.token, _conversationId, wireBody, encryption: enc);
         if (sent is Map) {
-          setState(() => _addMessage(Map<String, dynamic>.from(sent)));
+          final m = Map<String, dynamic>.from(sent);
+          if (enc != null && m['id'] != null) {
+            await _e2ee.rememberSent('${m['id']}', body);
+            m['body'] = body;
+          }
+          setState(() => _addMessage(m));
         }
       }
       _messageController.clear();
