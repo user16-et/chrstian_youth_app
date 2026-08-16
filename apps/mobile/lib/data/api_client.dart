@@ -996,6 +996,37 @@ class ApiClient {
     );
   }
 
+  Future<dynamic> deletePrayerChain({
+    required String token,
+    required String chainId,
+  }) {
+    return _deleteJson('/prayer/chains/$chainId',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  Future<dynamic> deletePrayerChainPost({
+    required String token,
+    required String chainId,
+    required String postId,
+  }) {
+    return _deleteJson('/prayer/chains/$chainId/posts/$postId',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
+  // Toggle a 🙏 reaction; returns { reacted, reactionCount }.
+  Future<Map<String, dynamic>> reactPrayerChainPost({
+    required String token,
+    required String chainId,
+    required String postId,
+  }) async {
+    final response = await _postJson(
+      '/prayer/chains/$chainId/posts/$postId/react',
+      const {},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return (response as Map).cast<String, dynamic>();
+  }
+
   Future<List<GrowthChallengeItem>> fetchGrowthChallenges({String? token}) async {
     final response =
         await _getJson('/growth/challenges', headers: _bearer(token));

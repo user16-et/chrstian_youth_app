@@ -52,4 +52,42 @@ describe('PrayerRepository circles create/join/leave (integration)', () => {
     // Leaving again is a no-op.
     expect(await repo.leavePrayerChain(joiner.id, id)).toBe(false);
   });
+
+  it('toggles a reaction and reflects reactionCount/reactedByMe per viewer', async () => {
+    const chain = await repo.createPrayerChain(creator.id, { name: 'Watchmen', description: '' });
+    const id = chain!.id;
+    await repo.joinPrayerChain(joiner.id, id);
+    const post = await repo.createPrayerChainPost({ chainId: id, userId: creator.id, body: 'Pray for rain' });
+
+    expect(await repo.togglePrayerChainReaction(post.id, joiner.id)).toEqual({ reacted: true, reactionCount: 1 });
+    const asJoiner = await repo.listPrayerChainPosts(id, joiner.id);
+    expect(asJoiner[0]).toMatchObject({ reactionCount: 1, reactedByMe: true });
+    const asCreator = await repo.listPrayerChainPosts(id, creator.id);
+    expect(asCreator[0]).toMatchObject({ reactionCount: 1, reactedByMe: false });
+    // Anonymous viewer never "reactedByMe".
+    const asAnon = await repo.listPrayerChainPosts(id, null);
+    expect(asAnon[0]).toMatchObject({ reactionCount: 1, reactedByMe: false });
+
+    expect(await repo.togglePrayerChainReaction(post.id, joiner.id)).toEqual({ reacted: false, reactionCount: 0 });
+  });
+
+  it('deletes posts by author or circle creator, and circles by creator only', async () => {
+    const chain = await repo.createPrayerChain(creator.id, { name: 'Elders', description: '' });
+    const id = chain!.id;
+    await repo.joinPrayerChain(joiner.id, id);
+    const joinerPost = await repo.createPrayerChainPost({ chainId: id, userId: joiner.id, body: 'Thank you all' });
+    const creatorPost = await repo.createPrayerChainPost({ chainId: id, userId: creator.id, body: 'Amen' });
+
+    // Author deletes their own post.
+    expect(await repo.deletePrayerChainPost(joinerPost.id, id, joiner.id)).toBe(true);
+    // Non-author, non-owner cannot delete someone else's post.
+    expect(await repo.deletePrayerChainPost(creatorPost.id, id, joiner.id)).toBe(false);
+    // Creator (owner) can delete any post.
+    expect(await repo.deletePrayerChainPost(creatorPost.id, id, creator.id)).toBe(true);
+
+    // Only the creator can delete the circle.
+    expect(await repo.deletePrayerChain(id, joiner.id)).toBe(false);
+    expect(await repo.deletePrayerChain(id, creator.id)).toBe(true);
+    expect(await repo.getPrayerChainById(id)).toBeNull();
+  });
 });

@@ -86,6 +86,8 @@ export interface PrayerChainPostViewRecord {
   userName: string;
   body: string;
   createdAt: string;
+  reactionCount: number;
+  reactedByMe: boolean;
 }
 
 // Prayer domain: prayer requests, personal prayer journal, and prayer chains
@@ -98,6 +100,11 @@ export class PrayerRepository {
     const url = process.env.DATABASE_URL?.trim();
     if (!url) throw new Error('DATABASE_URL is required');
     this.pool = new Pool(postgresPoolConfig('api-prayer-repository', url));
+  }
+
+  private async one(query: string, values: unknown[] = []) {
+    const result = await this.pool.query(query, values);
+    return result.rows[0] ?? null;
   }
 
   async listPrayerRequests() {
@@ -216,16 +223,56 @@ export class PrayerRepository {
     return record;
   }
 
-  async listPrayerChainPosts(chainId: string) {
+  async listPrayerChainPosts(chainId: string, viewerId: string | null = null) {
     const result = await this.pool.query(
-      `SELECT p.id, p.chain_id, p.user_id, u.full_name AS user_name, p.body, p.created_at
+      `SELECT p.id, p.chain_id, p.user_id, u.full_name AS user_name, p.body, p.created_at,
+              (SELECT count(*)::int FROM prayer_chain_post_reactions r WHERE r.post_id = p.id) AS reaction_count,
+              ($2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM prayer_chain_post_reactions r WHERE r.post_id = p.id AND r.user_id = $2)) AS reacted_by_me
        FROM prayer_chain_posts p
        JOIN users u ON u.id = p.user_id
        WHERE p.chain_id = $1
        ORDER BY p.created_at DESC`,
-      [chainId],
+      [chainId, viewerId],
     );
     return result.rows.map((row) => this.mapPrayerChainPostView(row));
+  }
+
+  async deletePrayerChain(chainId: string, userId: string) {
+    // Only the creator can delete; cascades to members, posts and reactions.
+    const result = await this.pool.query(
+      'DELETE FROM prayer_chains WHERE id = $1 AND created_by = $2 RETURNING id',
+      [chainId, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deletePrayerChainPost(postId: string, chainId: string, userId: string) {
+    // Author OR the circle's creator may delete a post.
+    const result = await this.pool.query(
+      `DELETE FROM prayer_chain_posts
+       WHERE id = $1 AND chain_id = $2
+         AND (user_id = $3 OR EXISTS(SELECT 1 FROM prayer_chains c WHERE c.id = $2 AND c.created_by = $3))
+       RETURNING id`,
+      [postId, chainId, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async postInChain(postId: string, chainId: string) {
+    const row = await this.one('SELECT 1 FROM prayer_chain_posts WHERE id = $1 AND chain_id = $2', [postId, chainId]);
+    return row != null;
+  }
+
+  // Toggle the viewer's 🙏 reaction on a post; returns the new state + count.
+  async togglePrayerChainReaction(postId: string, userId: string) {
+    const existing = await this.one('SELECT 1 FROM prayer_chain_post_reactions WHERE post_id = $1 AND user_id = $2', [postId, userId]);
+    if (existing) {
+      await this.pool.query('DELETE FROM prayer_chain_post_reactions WHERE post_id = $1 AND user_id = $2', [postId, userId]);
+    } else {
+      await this.pool.query('INSERT INTO prayer_chain_post_reactions (post_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [postId, userId]);
+    }
+    const count = await this.one('SELECT count(*)::int AS count FROM prayer_chain_post_reactions WHERE post_id = $1', [postId]);
+    return { reacted: !existing, reactionCount: Number(count?.count ?? 0) };
   }
 
   async createPrayerChainPost(input: { chainId: string; userId: string; body: string }) {
@@ -362,6 +409,8 @@ export class PrayerRepository {
       userName: String(row.user_name),
       body: String(row.body),
       createdAt: iso(row.created_at),
+      reactionCount: Number(row.reaction_count ?? 0),
+      reactedByMe: row.reacted_by_me === true,
     };
   }
 }

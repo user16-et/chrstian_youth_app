@@ -125,9 +125,39 @@ export class EngagementService {
     return { chainId, left };
   }
 
-  async listPrayerChainPosts(chainId: string) {
+  async deletePrayerChain(token: string, chainId: string) {
+    const actor = await this.requireActor(token);
     await this.ensurePrayerChainExists(chainId);
-    return this.prayerRepository.listPrayerChainPosts(chainId);
+    const deleted = await this.prayerRepository.deletePrayerChain(chainId, actor.id);
+    if (!deleted) throw new ForbiddenException('only_creator_can_delete_chain');
+    return { chainId, deleted: true };
+  }
+
+  async deletePrayerChainPost(token: string, chainId: string, postId: string) {
+    const actor = await this.requireActor(token);
+    await this.ensurePrayerChainExists(chainId);
+    const deleted = await this.prayerRepository.deletePrayerChainPost(postId, chainId, actor.id);
+    if (!deleted) throw new ForbiddenException('cannot_delete_this_post');
+    return { postId, deleted: true };
+  }
+
+  async reactPrayerChainPost(token: string, chainId: string, postId: string) {
+    const actor = await this.requireActor(token);
+    await this.ensurePrayerChainExists(chainId);
+    const members = await this.prayerRepository.listPrayerChainMembers(chainId);
+    if (!members.some((member) => member.userId === actor.id)) {
+      throw new BadRequestException('prayer_chain_membership_required');
+    }
+    if (!(await this.prayerRepository.postInChain(postId, chainId))) {
+      throw new NotFoundException('prayer_chain_post_not_found');
+    }
+    return this.prayerRepository.togglePrayerChainReaction(postId, actor.id);
+  }
+
+  async listPrayerChainPosts(token: string | null, chainId: string) {
+    await this.ensurePrayerChainExists(chainId);
+    const viewer = token ? await this.authorization.authenticate(token) : null;
+    return this.prayerRepository.listPrayerChainPosts(chainId, viewer?.id ?? null);
   }
 
   async createPrayerChainPost(token: string, chainId: string, input: { body: string }) {

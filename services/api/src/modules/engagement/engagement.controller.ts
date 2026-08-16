@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import { requireBearerToken } from '../../common/request-auth';
+import { parseBearerToken, requireBearerToken } from '../../common/request-auth';
 import { CreateCourtshipInterestDto } from './dto/create-courtship-interest.dto';
 import { CreateMentorshipRequestDto } from './dto/create-mentorship-request.dto';
 import { CreatePaymentRequestDto } from './dto/create-payment-request.dto';
@@ -95,8 +95,29 @@ export class EngagementController {
 
   @ApiOperation({ summary: 'List prayer chain posts' })
   @Get('/prayer/chains/:id/posts')
-  prayerChainPosts(@Param('id') id: string) {
-    return this.engagementService.listPrayerChainPosts(id);
+  prayerChainPosts(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.engagementService.listPrayerChainPosts(parseBearerToken(authorization) ?? null, id);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a prayer chain (creator only)' })
+  @Delete('/prayer/chains/:id')
+  deletePrayerChain(@Headers('authorization') authorization?: string, @Param('id') id?: string) {
+    return this.engagementService.deletePrayerChain(requireBearerToken(authorization), id ?? '');
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a prayer chain post (author or circle creator)' })
+  @Delete('/prayer/chains/:id/posts/:postId')
+  deletePrayerChainPost(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Param('postId') postId: string) {
+    return this.engagementService.deletePrayerChainPost(requireBearerToken(authorization), id, postId);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Toggle a 🙏 reaction on a prayer chain post' })
+  @Post('/prayer/chains/:id/posts/:postId/react')
+  reactPrayerChainPost(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Param('postId') postId: string) {
+    return this.engagementService.reactPrayerChainPost(requireBearerToken(authorization), id, postId);
   }
 
   @ApiBearerAuth()

@@ -220,6 +220,15 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
   late Future<_PrayerChainSnapshot> _snapshotFuture;
   bool _busy = false;
   String _status = '';
+  // Optimistic overrides so reactions/deletes feel instant over the FutureBuilder.
+  final Map<String, PrayerChainPostItem> _postOverride = {};
+  final Set<String> _deletedPosts = {};
+  final Set<String> _busyPosts = {};
+
+  String get _myId => widget.session?.user.id ?? '';
+  bool get _isOwner => _myId.isNotEmpty && widget.chain.createdBy == _myId;
+  PrayerChainPostItem _effective(PrayerChainPostItem post) =>
+      _postOverride[post.id] ?? post;
 
   @override
   void initState() {
@@ -244,11 +253,117 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
   Future<void> _refresh() async {
     final future = _load();
     setState(() {
+      // Fresh server data is authoritative — drop optimistic overrides.
+      _postOverride.clear();
+      _deletedPosts.clear();
       _snapshotFuture = future;
     });
     try {
       await future;
     } catch (_) {}
+  }
+
+  Future<void> _react(PrayerChainPostItem post) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _status = AppStrings.of(widget.language, 'login_required'));
+      return;
+    }
+    if (_busyPosts.contains(post.id)) return;
+    final current = _effective(post);
+    final optimistic = current.copyWith(
+      reactedByMe: !current.reactedByMe,
+      reactionCount: current.reactedByMe
+          ? (current.reactionCount > 0 ? current.reactionCount - 1 : 0)
+          : current.reactionCount + 1,
+    );
+    setState(() {
+      _busyPosts.add(post.id);
+      _postOverride[post.id] = optimistic;
+    });
+    try {
+      final res = await widget.apiClient
+          .reactPrayerChainPost(token: token, chainId: widget.chain.id, postId: post.id);
+      if (mounted) {
+        setState(() => _postOverride[post.id] = current.copyWith(
+              reactedByMe: res['reacted'] == true,
+              reactionCount: (res['reactionCount'] as num?)?.toInt() ?? optimistic.reactionCount,
+            ));
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _postOverride[post.id] = current; // revert
+          _status = error.toString().replaceFirst('HttpException: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busyPosts.remove(post.id));
+    }
+  }
+
+  Future<void> _deletePost(PrayerChainPostItem post) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(en ? 'Delete this post?' : 'ይህ ልጥፍ ይሰረዝ?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(en ? 'Delete' : 'ሰርዝ')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _deletedPosts.add(post.id));
+    try {
+      await widget.apiClient
+          .deletePrayerChainPost(token: token, chainId: widget.chain.id, postId: post.id);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _deletedPosts.remove(post.id); // revert
+          _status = error.toString().replaceFirst('HttpException: ', '');
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteCircle() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(en ? 'Delete this circle?' : 'ይህ ክበብ ይሰረዝ?'),
+        content: Text(en
+            ? 'This permanently removes the circle and all its posts for everyone.'
+            : 'ይህ ክበቡንና ሁሉንም ልጥፎቹን ለሁሉም በቋሚነት ያስወግዳል።'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(en ? 'Delete' : 'ሰርዝ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busy = true);
+    try {
+      await widget.apiClient.deletePrayerChain(token: token, chainId: widget.chain.id);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _join() async {
@@ -353,7 +468,17 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
     final language = widget.language;
     final en = language == AppLanguage.english;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.chain.name)),
+      appBar: AppBar(
+        title: Text(widget.chain.name),
+        actions: [
+          if (_isOwner)
+            IconButton(
+              tooltip: en ? 'Delete circle' : 'ክበብ ሰርዝ',
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: _busy ? null : _deleteCircle,
+            ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<_PrayerChainSnapshot>(
@@ -397,16 +522,29 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
                 _SectionCard(
                   title: AppStrings.of(language, 'prayer_chain_posts'),
                   children: [
-                    if (posts.isEmpty)
+                    if (posts.where((p) => !_deletedPosts.contains(p.id)).isEmpty)
                       Text(AppStrings.of(language, 'no_prayer_chain_posts'))
                     else
                       Column(
                         children: [
-                          for (final post in posts)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _PostCard(author: post.userName, body: post.body, time: relativeTime(post.createdAt)),
-                            ),
+                          for (final raw in posts.where((p) => !_deletedPosts.contains(p.id)))
+                            Builder(builder: (_) {
+                              final post = _effective(raw);
+                              final canDelete = _isOwner || post.userId == _myId;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _PostCard(
+                                  author: post.userName,
+                                  body: post.body,
+                                  time: relativeTime(post.createdAt),
+                                  reactionCount: post.reactionCount,
+                                  reactedByMe: post.reactedByMe,
+                                  onReact: joined ? () => _react(raw) : null,
+                                  onDelete: canDelete ? () => _deletePost(raw) : null,
+                                  prayingLabel: en ? 'Praying' : 'እየጸለይኩ',
+                                ),
+                              );
+                            }),
                         ],
                       ),
                   ],
@@ -754,29 +892,82 @@ class _ChainCard extends StatelessWidget {
 }
 
 class _PostCard extends StatelessWidget {
-  const _PostCard({required this.author, required this.body, required this.time});
+  const _PostCard({
+    required this.author,
+    required this.body,
+    required this.time,
+    this.reactionCount = 0,
+    this.reactedByMe = false,
+    this.onReact,
+    this.onDelete,
+    this.prayingLabel = 'Praying',
+  });
 
   final String author;
   final String body;
   final String time;
+  final int reactionCount;
+  final bool reactedByMe;
+  final VoidCallback? onReact;
+  final VoidCallback? onDelete;
+  final String prayingLabel;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final showFooter = onReact != null || onDelete != null || reactionCount > 0;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(author, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
+          Row(children: [
+            Expanded(
+              child: Text(author, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall),
+            ),
+            if (onDelete != null)
+              InkWell(
+                onTap: onDelete,
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(Icons.delete_outline_rounded, size: 18, color: colors.onSurfaceVariant),
+                ),
+              ),
+          ]),
           const SizedBox(height: 6),
-          Text(body, maxLines: 4, overflow: TextOverflow.ellipsis),
+          Text(body, maxLines: 6, overflow: TextOverflow.ellipsis),
           const SizedBox(height: 6),
           Text(time, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
+          if (showFooter) ...[
+            const SizedBox(height: 6),
+            Row(children: [
+              InkWell(
+                onTap: onReact,
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text('🙏', style: TextStyle(fontSize: reactedByMe ? 17 : 15)),
+                    const SizedBox(width: 6),
+                    Text(
+                      reactionCount > 0 ? '$prayingLabel · $reactionCount' : prayingLabel,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: reactedByMe ? FontWeight.w800 : FontWeight.w500,
+                        color: reactedByMe ? colors.primary : colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ]),
+          ],
         ],
       ),
     );

@@ -601,6 +601,8 @@ class PrayerChainPostItem {
     required this.userName,
     required this.body,
     required this.createdAt,
+    this.reactionCount = 0,
+    this.reactedByMe = false,
   });
 
   final String id;
@@ -609,6 +611,20 @@ class PrayerChainPostItem {
   final String userName;
   final String body;
   final String createdAt;
+  final int reactionCount;
+  final bool reactedByMe;
+
+  PrayerChainPostItem copyWith({int? reactionCount, bool? reactedByMe}) =>
+      PrayerChainPostItem(
+        id: id,
+        chainId: chainId,
+        userId: userId,
+        userName: userName,
+        body: body,
+        createdAt: createdAt,
+        reactionCount: reactionCount ?? this.reactionCount,
+        reactedByMe: reactedByMe ?? this.reactedByMe,
+      );
 
   factory PrayerChainPostItem.fromJson(Map<String, dynamic> json) {
     return PrayerChainPostItem(
@@ -618,6 +634,8 @@ class PrayerChainPostItem {
       userName: json['userName'] as String? ?? '',
       body: json['body'] as String? ?? '',
       createdAt: json['createdAt'] as String? ?? '',
+      reactionCount: (json['reactionCount'] as num?)?.toInt() ?? 0,
+      reactedByMe: json['reactedByMe'] == true,
     );
   }
 }
