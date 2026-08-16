@@ -25,6 +25,29 @@ const List<String> kTalentCategories = [
   'Other',
 ];
 
+// Display label for a talent category. The stored value stays English (the
+// canonical key); only the shown text is localized.
+String talentCategoryLabel(String category, AppLanguage language) {
+  if (language == AppLanguage.english) return category;
+  const am = {
+    'Singing': 'መዝሙር',
+    'Instruments': 'የሙዚቃ መሣሪያዎች',
+    'Worship leading': 'የአምልኮ አመራር',
+    'Preaching & teaching': 'ስብከትና ትምህርት',
+    'Poetry & spoken word': 'ግጥምና ንባብ',
+    'Writing': 'ጽሑፍ',
+    'Photography': 'ፎቶግራፍ',
+    'Videography': 'ቪዲዮግራፊ',
+    'Graphic design': 'ግራፊክ ዲዛይን',
+    'Drama & acting': 'ድራማና ትወና',
+    'Dance': 'ውዝዋዜ',
+    'Media production': 'የሚዲያ ምርት',
+    'Sound & tech': 'ድምጽና ቴክኖሎጂ',
+    'Other': 'ሌላ',
+  };
+  return am[category] ?? category;
+}
+
 IconData talentCategoryIcon(String category) {
   switch (category) {
     case 'Singing':
@@ -669,7 +692,7 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
                   child: Row(children: [
                     Icon(talentCategoryIcon(c), size: 18),
                     const SizedBox(width: 8),
-                    Flexible(child: Text(c, overflow: TextOverflow.ellipsis)),
+                    Flexible(child: Text(talentCategoryLabel(c, widget.language), overflow: TextOverflow.ellipsis)),
                   ])),
           ],
           onChanged: _busy ? null : (v) => setState(() => _category = v ?? _category),
@@ -780,7 +803,7 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
                       avatar: Icon(talentCategoryIcon(c), size: 16),
-                      label: Text(c),
+                      label: Text(talentCategoryLabel(c, widget.language)),
                       selected: _categoryFilter == c,
                       onSelected: (_) => setState(() => _categoryFilter = c),
                     ),
@@ -1063,7 +1086,7 @@ class _CompetitionCard extends StatelessWidget {
           Row(
             children: [
               Expanded(child: Text(competition.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium)),
-              Chip(label: Text(competition.category, maxLines: 1, overflow: TextOverflow.ellipsis)),
+              Chip(label: Text(talentCategoryLabel(competition.category, language), maxLines: 1, overflow: TextOverflow.ellipsis)),
             ],
           ),
           const SizedBox(height: 8),
@@ -1129,7 +1152,7 @@ class _TalentCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleMedium),
                       Text(
-                          [profile.category, profile.churchName, profile.city]
+                          [talentCategoryLabel(profile.category, language), profile.churchName, profile.city]
                               .where((s) => s.isNotEmpty)
                               .join(' • '),
                           maxLines: 1,
@@ -1455,7 +1478,7 @@ class _TalentDetailSheet extends StatelessWidget {
                         ? profile.displayName
                         : profile.fullName,
                     style: Theme.of(context).textTheme.titleLarge),
-                Text(profile.category,
+                Text(talentCategoryLabel(profile.category, language),
                     style: TextStyle(color: colors.onSurfaceVariant)),
               ]),
             ),
