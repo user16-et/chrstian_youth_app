@@ -1608,6 +1608,53 @@ class TalentCompetitionItem {
   }
 }
 
+class TalentCompetitionEntryItem {
+  const TalentCompetitionEntryItem({
+    required this.id,
+    required this.userId,
+    required this.entrantName,
+    required this.title,
+    required this.description,
+    required this.linkUrl,
+    required this.voteCount,
+    required this.votedByMe,
+  });
+
+  final String id;
+  final String userId;
+  final String entrantName;
+  final String title;
+  final String description;
+  final String linkUrl;
+  final int voteCount;
+  final bool votedByMe;
+
+  TalentCompetitionEntryItem copyWith({int? voteCount, bool? votedByMe}) =>
+      TalentCompetitionEntryItem(
+        id: id,
+        userId: userId,
+        entrantName: entrantName,
+        title: title,
+        description: description,
+        linkUrl: linkUrl,
+        voteCount: voteCount ?? this.voteCount,
+        votedByMe: votedByMe ?? this.votedByMe,
+      );
+
+  factory TalentCompetitionEntryItem.fromJson(Map<String, dynamic> json) {
+    return TalentCompetitionEntryItem(
+      id: json['id'] as String? ?? '',
+      userId: json['userId'] as String? ?? '',
+      entrantName: json['entrantName'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      linkUrl: json['linkUrl'] as String? ?? '',
+      voteCount: (json['voteCount'] as num?)?.toInt() ?? 0,
+      votedByMe: json['votedByMe'] == true,
+    );
+  }
+}
+
 class MarketplaceListingItem {
   const MarketplaceListingItem({
     required this.id,

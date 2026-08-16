@@ -1628,12 +1628,39 @@ class ApiClient {
   Future<void> enterTalentCompetition({
     required String token,
     required String competitionId,
+    String title = '',
+    String description = '',
+    String linkUrl = '',
   }) async {
     await _postJson(
       '/talent/competitions/$competitionId/enter',
+      {'title': title, 'description': description, 'linkUrl': linkUrl},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
+  Future<List<TalentCompetitionEntryItem>> fetchTalentCompetitionEntries(
+      String competitionId, {String? token}) async {
+    final response = await _getJson('/talent/competitions/$competitionId/entries',
+        headers: _bearer(token));
+    return (response as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(TalentCompetitionEntryItem.fromJson)
+        .toList();
+  }
+
+  // Toggle your vote; returns { voted, voteCount }.
+  Future<Map<String, dynamic>> voteTalentEntry({
+    required String token,
+    required String competitionId,
+    required String entryId,
+  }) async {
+    final response = await _postJson(
+      '/talent/competitions/$competitionId/entries/$entryId/vote',
       const {},
       headers: {'Authorization': 'Bearer $token'},
     );
+    return (response as Map).cast<String, dynamic>();
   }
 
   Future<List<PaymentPlanItem>> fetchPaymentPlans() async {

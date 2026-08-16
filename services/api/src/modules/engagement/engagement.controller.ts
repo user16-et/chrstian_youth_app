@@ -628,8 +628,21 @@ export class EngagementController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Enter a talent competition' })
   @Post('/talent/competitions/:id/enter')
-  enterTalentCompetition(@Headers('authorization') authorization?: string, @Param('id') id?: string) {
-    return this.engagementService.enterTalentCompetition(requireBearerToken(authorization), id ?? '');
+  enterTalentCompetition(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() body?: { title?: string; description?: string; linkUrl?: string }) {
+    return this.engagementService.enterTalentCompetition(requireBearerToken(authorization), id, body ?? {});
+  }
+
+  @ApiOperation({ summary: 'List entries for a talent competition (ranked by votes)' })
+  @Get('/talent/competitions/:id/entries')
+  talentCompetitionEntries(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.engagementService.listTalentCompetitionEntries(parseBearerToken(authorization) ?? undefined, id);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Toggle your vote on a competition entry' })
+  @Post('/talent/competitions/:id/entries/:entryId/vote')
+  voteTalentEntry(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Param('entryId') entryId: string) {
+    return this.engagementService.voteTalentEntry(requireBearerToken(authorization), id, entryId);
   }
 
   @ApiOperation({ summary: 'List payment plans' })

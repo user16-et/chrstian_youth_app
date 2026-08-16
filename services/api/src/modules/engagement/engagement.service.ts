@@ -717,17 +717,38 @@ export class EngagementService {
     return this.talentRepository.listTalentCompetitions();
   }
 
-  async enterTalentCompetition(token: string, competitionId: string) {
+  async enterTalentCompetition(token: string, competitionId: string, input: { title?: string; description?: string; linkUrl?: string } = {}) {
     const actor = await this.requireActor(token);
     await this.ensureTalentCompetitionExists(competitionId);
     try {
-      return this.talentRepository.enterTalentCompetition({ userId: actor.id, competitionId });
+      return await this.talentRepository.enterTalentCompetition({
+        userId: actor.id,
+        competitionId,
+        title: String(input.title ?? '').trim().slice(0, 200),
+        description: String(input.description ?? '').trim().slice(0, 1000),
+        linkUrl: String(input.linkUrl ?? '').trim().slice(0, 500),
+      });
     } catch (error) {
       if (error instanceof Error && error.message === 'talent_profile_required') {
         throw new BadRequestException('talent_profile_required');
       }
       throw error;
     }
+  }
+
+  async listTalentCompetitionEntries(token: string | undefined, competitionId: string) {
+    await this.ensureTalentCompetitionExists(competitionId);
+    const viewer = token ? await this.authorization.authenticate(token) : null;
+    return this.talentRepository.listTalentCompetitionEntries(competitionId, viewer?.id);
+  }
+
+  async voteTalentEntry(token: string, competitionId: string, entryId: string) {
+    const actor = await this.requireActor(token);
+    await this.ensureTalentCompetitionExists(competitionId);
+    if (!(await this.talentRepository.entryInCompetition(entryId, competitionId))) {
+      throw new NotFoundException('talent_entry_not_found');
+    }
+    return this.talentRepository.voteTalentEntry(entryId, actor.id);
   }
 
   async createStory(token: string, input: CreateStoryDto) {

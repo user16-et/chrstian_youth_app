@@ -480,25 +480,20 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
     }
   }
 
-  Future<void> _enterCompetition(String competitionId) async {
-    if (!_requireLogin()) return;
-    setState(() => _busy = true);
-    try {
-      await widget.apiClient
-          .enterTalentCompetition(token: widget.session!.token, competitionId: competitionId);
-      await _refresh();
-      if (!mounted) return;
-      setState(() => _status = _t('You are entered. Blessings!', 'ገብተዋል። መልካም!'));
-    } catch (error) {
-      if (!mounted) return;
-      final raw = error.toString().replaceFirst('HttpException: ', '');
-      setState(() => _status = raw.contains('talent_profile_required')
-          ? _t('Create your talent profile before entering.',
-              'ከመግባትዎ በፊት የተሰጥኦ መገለጫ ይፍጠሩ።')
-          : raw);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  void _openCompetition(TalentCompetitionItem competition) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CompetitionDetailSheet(
+        apiClient: widget.apiClient,
+        session: widget.session,
+        language: widget.language,
+        competition: competition,
+      ),
+    ).then((_) {
+      if (mounted) _refresh(); // entry counts may have changed
+    });
   }
 
   // ---- Showcase (portfolio) ----
@@ -651,7 +646,7 @@ class _TalentHubScreenState extends State<TalentHubScreen> {
                       _CompetitionCard(
                         competition: c,
                         language: widget.language,
-                        onEnter: _busy ? null : () => _enterCompetition(c.id),
+                        onEnter: () => _openCompetition(c),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -1096,11 +1091,257 @@ class _CompetitionCard extends StatelessWidget {
             children: [
               Chip(label: Text('${t(language, 'deadline')}: ${competition.deadline}')),
               const Spacer(),
-              FilledButton(onPressed: onEnter, child: Text(t(language, 'enter_competition'))),
+              FilledButton(
+                  onPressed: onEnter,
+                  child: Text(language == AppLanguage.english ? 'View & vote' : 'ተመልከት እና ደምጽ ስጥ')),
             ],
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Competition detail: submit/update your entry and vote on entries, ranked by
+/// votes (the live leaderboard / results).
+class _CompetitionDetailSheet extends StatefulWidget {
+  const _CompetitionDetailSheet({
+    required this.apiClient,
+    required this.session,
+    required this.language,
+    required this.competition,
+  });
+
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final AppLanguage language;
+  final TalentCompetitionItem competition;
+
+  @override
+  State<_CompetitionDetailSheet> createState() => _CompetitionDetailSheetState();
+}
+
+class _CompetitionDetailSheetState extends State<_CompetitionDetailSheet> {
+  List<TalentCompetitionEntryItem> _entries = const [];
+  bool _loading = true;
+  final Set<String> _voting = {};
+
+  bool get _en => widget.language == AppLanguage.english;
+  String _t(String en, String am) => _en ? en : am;
+  String get _myId => widget.session?.user.id ?? '';
+  bool get _signedIn => (widget.session?.token ?? '').isNotEmpty;
+
+  TalentCompetitionEntryItem? get _myEntry {
+    for (final e in _entries) {
+      if (e.userId == _myId) return e;
+    }
+    return null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final r = await widget.apiClient
+          .fetchTalentCompetitionEntries(widget.competition.id, token: widget.session?.token);
+      if (mounted) setState(() { _entries = r; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _vote(TalentCompetitionEntryItem entry) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty || _voting.contains(entry.id)) return;
+    final idx = _entries.indexWhere((e) => e.id == entry.id);
+    if (idx < 0) return;
+    final cur = _entries[idx];
+    final optimistic = cur.copyWith(
+      votedByMe: !cur.votedByMe,
+      voteCount: cur.votedByMe ? (cur.voteCount > 0 ? cur.voteCount - 1 : 0) : cur.voteCount + 1,
+    );
+    setState(() { _voting.add(entry.id); _entries = [..._entries]..[idx] = optimistic; });
+    try {
+      final res = await widget.apiClient
+          .voteTalentEntry(token: token, competitionId: widget.competition.id, entryId: entry.id);
+      if (mounted) {
+        final i = _entries.indexWhere((e) => e.id == entry.id);
+        if (i >= 0) {
+          setState(() => _entries = [..._entries]..[i] = cur.copyWith(
+                votedByMe: res['voted'] == true,
+                voteCount: (res['voteCount'] as num?)?.toInt() ?? optimistic.voteCount,
+              ));
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        final i = _entries.indexWhere((e) => e.id == entry.id);
+        if (i >= 0) setState(() => _entries = [..._entries]..[i] = cur);
+      }
+    } finally {
+      if (mounted) setState(() => _voting.remove(entry.id));
+    }
+  }
+
+  Future<void> _submitEntry() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final existing = _myEntry;
+    final titleC = TextEditingController(text: existing?.title ?? '');
+    final descC = TextEditingController(text: existing?.description ?? '');
+    final linkC = TextEditingController(text: existing?.linkUrl ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(existing == null ? _t('Enter competition', 'ወደ ውድድር ግባ') : _t('Update your entry', 'ግቤትህን አሻሽል')),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: titleC, decoration: InputDecoration(labelText: _t('Entry title', 'የግቤት ርዕስ'))),
+            const SizedBox(height: 10),
+            TextField(controller: descC, maxLines: 2, decoration: InputDecoration(labelText: _t('Description (optional)', 'መግለጫ (አማራጭ)'))),
+            const SizedBox(height: 10),
+            TextField(controller: linkC, keyboardType: TextInputType.url, decoration: InputDecoration(labelText: _t('Link to your work (video/audio)', 'የስራህ አገናኝ'))),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_t('Cancel', 'ተወው'))),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(_t('Submit', 'አስገባ'))),
+        ],
+      ),
+    );
+    final title = titleC.text.trim();
+    final description = descC.text.trim();
+    final link = linkC.text.trim();
+    titleC.dispose();
+    descC.dispose();
+    linkC.dispose();
+    if (ok != true) return;
+    try {
+      await widget.apiClient.enterTalentCompetition(
+          token: token, competitionId: widget.competition.id, title: title, description: description, linkUrl: link);
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        final raw = error.toString().replaceFirst('HttpException: ', '');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(raw.contains('talent_profile_required')
+                ? _t('Create your talent profile before entering.', 'ከመግባትዎ በፊት የተሰጥኦ መገለጫ ይፍጠሩ።')
+                : raw)));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: .85,
+      maxChildSize: .95,
+      builder: (context, scroll) => ListView(
+        controller: scroll,
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        children: [
+          Text(widget.competition.title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 6),
+          Text(widget.competition.description),
+          const SizedBox(height: 8),
+          Text('${_t('Deadline', 'የመጨረሻ ቀን')}: ${widget.competition.deadline}',
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12.5)),
+          if (_signedIn) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _submitEntry,
+                icon: const Icon(Icons.emoji_events_rounded, size: 18),
+                label: Text(_myEntry == null
+                    ? _t('Submit your entry', 'ግቤትህን አስገባ')
+                    : _t('Update your entry', 'ግቤትህን አሻሽል')),
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          Text('${_t('Entries', 'ግቤቶች')} (${_entries.length})',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 10),
+          if (_loading)
+            const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+          else if (_entries.isEmpty)
+            Text(_t('No entries yet — be the first to submit!', 'ገና ግቤት የለም — መጀመሪያ ይሁኑ!'),
+                style: TextStyle(color: colors.onSurfaceVariant))
+          else
+            for (var i = 0; i < _entries.length; i++) _entryTile(context, i, _entries[i]),
+        ],
+      ),
+    );
+  }
+
+  Widget _entryTile(BuildContext context, int rank, TalentCompetitionEntryItem entry) {
+    final colors = Theme.of(context).colorScheme;
+    final mine = entry.userId == _myId;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(16),
+        border: mine ? Border.all(color: colors.primary.withValues(alpha: .5)) : null,
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: 26,
+          child: Text('#${rank + 1}',
+              style: TextStyle(fontWeight: FontWeight.w800, color: colors.onSurfaceVariant)),
+        ),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(entry.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(entry.entrantName, style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant)),
+            if (entry.description.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(entry.description, maxLines: 3, overflow: TextOverflow.ellipsis),
+            ],
+            if (entry.linkUrl.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              InkWell(
+                onTap: () async {
+                  final uri = Uri.tryParse(entry.linkUrl);
+                  if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                },
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.play_circle_outline_rounded, size: 15, color: colors.primary),
+                  const SizedBox(width: 4),
+                  Text(_t('Watch / listen', 'ተመልከት / አዳምጥ'),
+                      style: TextStyle(fontSize: 12.5, color: colors.primary)),
+                ]),
+              ),
+            ],
+          ]),
+        ),
+        const SizedBox(width: 8),
+        InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: (_signedIn && !mine) ? () => _vote(entry) : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(entry.votedByMe ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  size: 20, color: entry.votedByMe ? colors.primary : colors.onSurfaceVariant),
+              const SizedBox(height: 2),
+              Text('${entry.voteCount}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: entry.votedByMe ? colors.primary : colors.onSurfaceVariant)),
+            ]),
+          ),
+        ),
+      ]),
     );
   }
 }

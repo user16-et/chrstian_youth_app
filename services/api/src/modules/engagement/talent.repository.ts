@@ -62,6 +62,11 @@ export class TalentRepository {
     this.pool = new Pool(postgresPoolConfig('api-talent-repository', url));
   }
 
+  private async one(query: string, values: unknown[] = []) {
+    const result = await this.pool.query(query, values);
+    return result.rows[0] ?? null;
+  }
+
   private readonly talentSelect = `SELECT t.user_id, u.full_name, t.display_name, t.category, t.church_name, t.city, t.bio, t.contact_info, t.created_at, t.updated_at,
               (SELECT count(*)::int FROM talent_endorsements te WHERE te.talent_user_id=t.user_id) AS endorsement_count,
               CASE WHEN $1::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM talent_endorsements te WHERE te.talent_user_id=t.user_id AND te.endorser_id=$1) THEN true ELSE false END AS endorsed_by_me
@@ -179,7 +184,7 @@ export class TalentRepository {
     return result.rows.map((row) => this.mapTalentCompetitionView(row));
   }
 
-  async enterTalentCompetition(input: { userId: string; competitionId: string }) {
+  async enterTalentCompetition(input: { userId: string; competitionId: string; title?: string; description?: string; linkUrl?: string }) {
     const profile = await this.getTalentProfile(input.userId);
     if (!profile) {
       throw new Error('talent_profile_required');
@@ -193,10 +198,47 @@ export class TalentRepository {
       createdAt: new Date().toISOString(),
     };
     await this.pool.query(
-      'INSERT INTO talent_competition_entries (id, competition_id, user_id, talent_profile_id, status, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (competition_id, user_id) DO UPDATE SET talent_profile_id = EXCLUDED.talent_profile_id, status = EXCLUDED.status, created_at = EXCLUDED.created_at',
-      [record.id, record.competitionId, record.userId, record.talentProfileId, record.status, record.createdAt],
+      `INSERT INTO talent_competition_entries (id, competition_id, user_id, talent_profile_id, status, title, description, link_url, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (competition_id, user_id) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description, link_url = EXCLUDED.link_url, status = EXCLUDED.status`,
+      [record.id, record.competitionId, record.userId, record.talentProfileId, record.status, input.title ?? '', input.description ?? '', input.linkUrl ?? '', record.createdAt],
     );
     return record;
+  }
+
+  // Competition entries with entrant name, submission and vote tallies, ranked
+  // by votes then recency (the "results" / leaderboard).
+  async listTalentCompetitionEntries(competitionId: string, viewerId?: string) {
+    const result = await this.pool.query(
+      `SELECT e.id, e.competition_id AS "competitionId", e.user_id AS "userId", u.full_name AS "entrantName",
+              COALESCE(NULLIF(e.title,''), t.display_name, u.full_name) AS "title", e.description, e.link_url AS "linkUrl", e.created_at AS "createdAt",
+              (SELECT count(*)::int FROM talent_competition_votes v WHERE v.entry_id = e.id) AS "voteCount",
+              ($2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM talent_competition_votes v WHERE v.entry_id = e.id AND v.user_id = $2)) AS "votedByMe"
+       FROM talent_competition_entries e
+       JOIN users u ON u.id = e.user_id
+       LEFT JOIN talent_profiles t ON t.user_id = e.user_id
+       WHERE e.competition_id = $1
+       ORDER BY "voteCount" DESC, e.created_at ASC`,
+      [competitionId, viewerId ?? null],
+    );
+    return result.rows;
+  }
+
+  async entryInCompetition(entryId: string, competitionId: string) {
+    const row = await this.one('SELECT 1 FROM talent_competition_entries WHERE id = $1 AND competition_id = $2', [entryId, competitionId]);
+    return row != null;
+  }
+
+  // Toggle the viewer's vote on an entry (one vote per person per entry).
+  async voteTalentEntry(entryId: string, userId: string) {
+    const existing = await this.one('SELECT 1 FROM talent_competition_votes WHERE entry_id = $1 AND user_id = $2', [entryId, userId]);
+    if (existing) {
+      await this.pool.query('DELETE FROM talent_competition_votes WHERE entry_id = $1 AND user_id = $2', [entryId, userId]);
+    } else {
+      await this.pool.query('INSERT INTO talent_competition_votes (entry_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [entryId, userId]);
+    }
+    const count = await this.one('SELECT count(*)::int AS count FROM talent_competition_votes WHERE entry_id = $1', [entryId]);
+    return { voted: !existing, voteCount: Number(count?.count ?? 0) };
   }
 
   private mapTalentProfileView(row: Record<string, unknown>): TalentProfileViewRecord {
