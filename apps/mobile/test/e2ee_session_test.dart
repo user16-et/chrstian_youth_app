@@ -41,8 +41,8 @@ void main() {
     expect(base64Encode(aSecret), base64Encode(bSecret),
         reason: 'both sides must derive the same X3DH secret');
 
-    final a = E2eeSession(rootKey: aSecret, initiator: true);
-    final b = E2eeSession(rootKey: bSecret, initiator: false);
+    final a = await E2eeSession.create(rootKey: aSecret, initiator: true);
+    final b = await E2eeSession.create(rootKey: bSecret, initiator: false);
 
     // A -> B
     final m1 = await a.encrypt('Grace and peace to you 🙏');
@@ -58,6 +58,22 @@ void main() {
     for (var i = 0; i < sent.length; i++) {
       expect(await b.decrypt(boxes[i]), sent[i]);
     }
+  });
+
+  test('out-of-order delivery still decrypts, and forward secrecy holds', () async {
+    final root = List<int>.generate(32, (i) => (i * 7 + 1) & 0xff);
+    final a = await E2eeSession.create(rootKey: root, initiator: true);
+    final b = await E2eeSession.create(rootKey: root, initiator: false);
+    final boxes = [for (var i = 0; i < 4; i++) await a.encrypt('m$i')];
+
+    // Deliver message 2 before 0 and 1 — the skipped keys are cached.
+    expect(await b.decrypt(boxes[2]), 'm2');
+    expect(await b.decrypt(boxes[0]), 'm0');
+    expect(await b.decrypt(boxes[1]), 'm1');
+    expect(await b.decrypt(boxes[3]), 'm3');
+
+    // Replaying message 0 fails: its key was consumed and discarded (FS).
+    await expectLater(b.decrypt(boxes[0]), throwsA(isA<Object>()));
   });
 
   test('a tampered ciphertext fails to decrypt', () async {
@@ -77,8 +93,8 @@ void main() {
       initiatorIdentityDhB64: base64Encode((await aId.extractPublicKey()).bytes),
       initiatorEphemeralB64: base64Encode((await aEph.extractPublicKey()).bytes),
     );
-    final a = E2eeSession(rootKey: secret, initiator: true);
-    final b = E2eeSession(rootKey: respSecret, initiator: false);
+    final a = await E2eeSession.create(rootKey: secret, initiator: true);
+    final b = await E2eeSession.create(rootKey: respSecret, initiator: false);
     final box = await a.encrypt('secret');
     box['ct'] = base64Encode([...base64Decode('${box['ct']}')]..[0] ^= 0xff);
     await expectLater(b.decrypt(box), throwsA(isA<Object>()));

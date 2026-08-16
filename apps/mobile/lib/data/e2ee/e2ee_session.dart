@@ -84,49 +84,69 @@ class E2eeX3dh {
   }
 }
 
-/// A running symmetric ratchet session between two devices. Persist [rootKey]
-/// (and the send/recv counters) to resume; keys advance forward only.
+/// A running symmetric-ratchet session between two devices. Chain keys advance
+/// one-way and the previous chain key is discarded after each message, so a
+/// compromise of the *current* state can't recompute earlier message keys —
+/// that is the forward secrecy this layer provides. Persist the chain keys +
+/// counters + any cached skipped keys to resume across restarts.
+///
+/// Construct with [create] (key derivation is async).
 class E2eeSession {
-  E2eeSession({
-    required this.rootKey,
-    required this.initiator,
-    this.sendCount = 0,
-    this.recvCount = 0,
-  });
+  E2eeSession._(this._sendChain, this._recvChain, this.initiator,
+      {this.sendCount = 0, this.recvCount = 0, Map<int, List<int>>? skipped})
+      : _skipped = skipped ?? {};
 
-  final List<int> rootKey;
   // The initiator sends on chain "A2B" and receives on "B2A"; the responder is
-  // the mirror. This keeps the two devices' chains aligned.
+  // the mirror, so the two devices' chains stay aligned.
   final bool initiator;
+  List<int> _sendChain;
+  List<int> _recvChain;
   int sendCount;
   int recvCount;
+  // Message keys derived while skipping ahead to an out-of-order message, so a
+  // later-arriving earlier message can still be read. Bounded to avoid a DoS.
+  final Map<int, List<int>> _skipped;
+  static const int _maxSkip = 256;
 
   static final _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
   static final _aead = Chacha20.poly1305Aead();
 
-  String get _sendLabel => initiator ? 'A2B' : 'B2A';
-  String get _recvLabel => initiator ? 'B2A' : 'A2B';
-
-  Future<List<int>> _messageKey(String label, int index) async {
-    final key = await _hkdf.deriveKey(
-      secretKey: SecretKey(rootKey),
+  static Future<List<int>> _kdf(List<int> key, String label) async {
+    final k = await _hkdf.deriveKey(
+      secretKey: SecretKey(key),
       nonce: const <int>[],
-      info: utf8.encode('christian-app/e2ee/chain/$label/$index'),
+      info: utf8.encode('christian-app/e2ee/$label'),
     );
-    return key.extractBytes();
+    return k.extractBytes();
+  }
+
+  /// Derive the two initial chain keys from the X3DH root secret.
+  static Future<E2eeSession> create({required List<int> rootKey, required bool initiator}) async {
+    final sendChain = await _kdf(rootKey, initiator ? 'chain/A2B' : 'chain/B2A');
+    final recvChain = await _kdf(rootKey, initiator ? 'chain/B2A' : 'chain/A2B');
+    return E2eeSession._(sendChain, recvChain, initiator);
   }
 
   static List<int> _nonce(int index) {
-    // 12-byte nonce = counter; safe because each message key is unique per index.
+    // 12-byte nonce = message counter; safe because each message key is unique.
     final b = Uint8List(12);
     b.buffer.asByteData().setUint32(8, index, Endian.big);
     return b;
   }
 
-  /// Encrypt one message; returns a self-describing envelope map (JSON-safe).
+  // Derive this step's message key from a chain key and return the *advanced*
+  // chain key alongside it. The caller discards the old chain key.
+  Future<(List<int> messageKey, List<int> nextChain)> _step(List<int> chain) async {
+    final mk = await _kdf(chain, 'msg');
+    final next = await _kdf(chain, 'chn');
+    return (mk, next);
+  }
+
+  /// Encrypt one message; returns a self-describing, JSON-safe envelope.
   Future<Map<String, dynamic>> encrypt(String plaintext) async {
+    final (mk, next) = await _step(_sendChain);
+    _sendChain = next;
     final index = sendCount++;
-    final mk = await _messageKey(_sendLabel, index);
     final box = await _aead.encrypt(
       utf8.encode(plaintext),
       secretKey: SecretKey(mk),
@@ -139,10 +159,34 @@ class E2eeSession {
     };
   }
 
+  Future<List<int>> _messageKeyForRecv(int index) async {
+    final cached = _skipped.remove(index);
+    if (cached != null) return cached;
+    if (index < recvCount) {
+      // Chain already advanced past this and its key was discarded (forward
+      // secrecy) or evicted — it can no longer be read.
+      throw StateError('message_key_unavailable');
+    }
+    // Advance the receive chain up to `index`, caching skipped message keys.
+    while (recvCount < index) {
+      final (mk, next) = await _step(_recvChain);
+      _recvChain = next;
+      _skipped[recvCount] = mk;
+      recvCount++;
+      if (_skipped.length > _maxSkip) {
+        _skipped.remove(_skipped.keys.first);
+      }
+    }
+    final (mk, next) = await _step(_recvChain);
+    _recvChain = next;
+    recvCount++;
+    return mk;
+  }
+
   /// Decrypt one envelope produced by the peer.
   Future<String> decrypt(Map<String, dynamic> envelope) async {
     final index = (envelope['n'] as num).toInt();
-    final mk = await _messageKey(_recvLabel, index);
+    final mk = await _messageKeyForRecv(index);
     final clear = await _aead.decrypt(
       SecretBox(
         base64Decode('${envelope['ct']}'),
@@ -151,7 +195,6 @@ class E2eeSession {
       ),
       secretKey: SecretKey(mk),
     );
-    if (index >= recvCount) recvCount = index + 1;
     return utf8.decode(clear);
   }
 }
