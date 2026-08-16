@@ -40,6 +40,19 @@ describe('PostsService input validation', () => {
     );
   });
 
+  it('rejects a post with neither body nor media', async () => {
+    await expect(
+      service.create('tok', { body: '   ', language: 'en', mediaUrls: [] } as never),
+    ).rejects.toThrow('body_or_media_required');
+  });
+
+  it('accepts a photo-only post (media, empty body)', async () => {
+    await service.create('tok', { body: '', language: 'en', postType: 'image', mediaUrls: ['https://cdn/x.jpg'] } as never);
+    expect((social as unknown as { createPost: jest.Mock }).createPost).toHaveBeenCalledWith(
+      expect.objectContaining({ body: '', mediaUrls: ['https://cdn/x.jpg'] }),
+    );
+  });
+
   it('rejects a reaction outside the allowlist', async () => {
     // 💡 was offered by an older client build; it must now be refused.
     await expect(service.react('tok', 'post-1', '💡')).rejects.toBeInstanceOf(BadRequestException);

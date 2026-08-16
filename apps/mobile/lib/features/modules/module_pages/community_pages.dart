@@ -497,6 +497,15 @@ class _FeedScreenState extends State<FeedScreen> {
       return;
     }
 
+    final en = widget.language == AppLanguage.english;
+    final body = _postBodyController.text.trim();
+    final urlMedia = _mediaUrlController.text
+        .split(',')
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    final hasMedia = _pickedMedia.isNotEmpty || urlMedia.isNotEmpty;
+
     if (_postType == 'poll') {
       final pollOptions = _pollOptionsController.text
           .split(',')
@@ -504,22 +513,23 @@ class _FeedScreenState extends State<FeedScreen> {
           .where((value) => value.isNotEmpty)
           .toList();
       if (_pollQuestionController.text.trim().isEmpty || pollOptions.length < 2) {
-        setState(() => _status =
-            'A poll needs a question and at least two options (comma-separated).');
+        setState(() => _status = en
+            ? 'A poll needs a question and at least two options (comma-separated).'
+            : 'ምርጫ ጥያቄና ቢያንስ ሁለት አማራጮች ያስፈልጉታል (በኮማ ተለያይተው)።');
         return;
       }
+    } else if (body.isEmpty && !hasMedia) {
+      // Match the server: a non-poll post needs text or at least one photo.
+      setState(() => _status = en
+          ? 'Write something or add a photo to post.'
+          : 'ለመለጠፍ የሆነ ነገር ይጻፉ ወይም ፎቶ ያክሉ።');
+      return;
     }
 
     final success = await _runAction(() async {
-      // Picked photos first; the URL field remains for videos/remote media.
-      final urlMedia = _mediaUrlController.text
-          .split(',')
-          .map((value) => value.trim())
-          .where((value) => value.isNotEmpty)
-          .toList();
       await widget.apiClient.createPost(
         token: token,
-        body: _postBodyController.text,
+        body: body,
         language: widget.language.code,
         postType: _postType,
         mediaUrls: [..._pickedMedia, ...urlMedia],
@@ -574,11 +584,20 @@ class _FeedScreenState extends State<FeedScreen> {
       promptSignIn(context, widget.language);
       return;
     }
-    final result = await widget.apiClient.toggleSavedPost(token, item.id);
-    if (!mounted) return;
-    setState(() => _status =
-        result['saved'] == true ? 'Post saved.' : 'Post removed from saved.');
-    await widget.onDataChanged();
+    final en = widget.language == AppLanguage.english;
+    try {
+      final result = await widget.apiClient.toggleSavedPost(token, item.id);
+      if (!mounted) return;
+      setState(() => _status = result['saved'] == true
+          ? (en ? 'Post saved.' : 'ልጥፍ ተቀምጧል።')
+          : (en ? 'Post removed from saved.' : 'ልጥፍ ከተቀመጡት ተወግዷል።'));
+      await widget.onDataChanged();
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
   }
 
   Future<void> _reportPost(FeedItem item) async {

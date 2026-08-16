@@ -65,13 +65,18 @@ export class PostsService {
     return rows.slice(0, 50).map((row) => row.post);
   }
 
-  async create(actorToken: string, input: { body: string; language: 'en' | 'am'; postType?: string; mediaUrls?: string[]; pollQuestion?: string; pollOptions?: string[] }) {
+  async create(actorToken: string, input: { body?: string; language: 'en' | 'am'; postType?: string; mediaUrls?: string[]; pollQuestion?: string; pollOptions?: string[] }) {
     const actor = await this.userRepository.authenticate(actorToken);
     if (!actor) {
       throw new NotFoundException('authenticated_user_not_found');
     }
-    if (!input.body.trim()) {
-      throw new BadRequestException('body_required');
+    const body = (input.body ?? '').trim();
+    const hasMedia = (input.mediaUrls ?? []).some((url) => (url ?? '').trim().length > 0);
+    // A poll carries its own text (the question); every other post must have
+    // either a body or at least one media attachment — a photo-only post is
+    // fine, a wholly empty post is not.
+    if (input.postType !== 'poll' && !body && !hasMedia) {
+      throw new BadRequestException('body_or_media_required');
     }
     // A poll must ship a question and at least two non-empty options, otherwise
     // it would persist as a poll-typed post with no votable options.
@@ -86,7 +91,7 @@ export class PostsService {
 
     const post = await this.social.createPost({
       authorId: actor.id,
-      body: input.body.trim(),
+      body,
       language: input.language,
       postType: input.postType ?? 'text',
       mediaUrls: input.mediaUrls ?? [],
