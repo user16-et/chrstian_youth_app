@@ -1285,15 +1285,25 @@ class _ShowcaseComposerState extends State<_ShowcaseComposer> {
           Text(_t('Add to showcase', 'ወደ ማሳያ ጨምር'),
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
-          SegmentedButton<String>(
-            segments: [
-              ButtonSegment(value: 'image', icon: const Icon(Icons.image_rounded), label: Text(_t('Photo', 'ፎቶ'))),
-              ButtonSegment(value: 'video', icon: const Icon(Icons.videocam_rounded), label: Text(_t('Video', 'ቪዲዮ'))),
-              ButtonSegment(value: 'audio', icon: const Icon(Icons.audiotrack_rounded), label: Text(_t('Audio', 'ድምጽ'))),
-              ButtonSegment(value: 'link', icon: const Icon(Icons.link_rounded), label: Text(_t('Link', 'አገናኝ'))),
+          // A Wrap of chips instead of a 4-segment SegmentedButton, which would
+          // overflow horizontally on narrow screens (especially in Amharic).
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final opt in const [
+                ('image', 'Photo', 'ፎቶ', Icons.image_rounded),
+                ('video', 'Video', 'ቪዲዮ', Icons.videocam_rounded),
+                ('audio', 'Audio', 'ድምጽ', Icons.audiotrack_rounded),
+                ('link', 'Link', 'አገናኝ', Icons.link_rounded),
+              ])
+                ChoiceChip(
+                  avatar: Icon(opt.$4, size: 16),
+                  label: Text(_t(opt.$2, opt.$3)),
+                  selected: _type == opt.$1,
+                  onSelected: (_) => setState(() => _type = opt.$1),
+                ),
             ],
-            selected: {_type},
-            onSelectionChanged: (s) => setState(() => _type = s.first),
           ),
           const SizedBox(height: 14),
           if (_type == 'image') ...[

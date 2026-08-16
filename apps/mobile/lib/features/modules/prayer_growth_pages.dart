@@ -980,7 +980,7 @@ class _PostCard extends StatelessWidget {
           Text(time, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
           if (showFooter) ...[
             const SizedBox(height: 6),
-            Row(children: [
+            Wrap(spacing: 4, runSpacing: 4, children: [
               InkWell(
                 onTap: onReact,
                 borderRadius: BorderRadius.circular(20),
