@@ -373,7 +373,36 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
     setState(() {
       _detailFuture = future;
     });
-    await future;
+    try {
+      await future;
+    } catch (_) {}
+  }
+
+  // Ministry posts are ordinary social posts (posts.ministry_id), so open them
+  // in the full post view for reactions and comments.
+  Future<void> _openMinistryPost(Map<String, dynamic> item) async {
+    final id = item['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    try {
+      final post = await widget.apiClient
+          .fetchPostById(id, token: widget.session?.token);
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => PostDetailScreen(
+          language: widget.language,
+          item: post,
+          apiClient: widget.apiClient,
+          session: widget.session,
+          onReport: () async {},
+          onDataChanged: _refresh,
+        ),
+      ));
+    } catch (error) {
+      if (mounted) {
+        setState(() =>
+            _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    }
   }
 
   Future<void> _runAction(Future<void> Function() action,
@@ -474,6 +503,61 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
     );
   }
 
+  String _tr(String en, String am) =>
+      widget.language == AppLanguage.english ? en : am;
+
+  // Central English→Amharic map for the leader-dashboard chrome and field
+  // labels, so the management dialogs match the rest of the bilingual app.
+  static const Map<String, String> _am = {
+    'Title': 'ርዕስ',
+    'Message': 'መልእክት',
+    'Body': 'ይዘት',
+    'Post body': 'የልጥፍ ይዘት',
+    'Location': 'ቦታ',
+    'Start time': 'የመጀመሪያ ሰዓት',
+    'Description': 'መግለጫ',
+    'Day': 'ቀን',
+    'Start': 'ጅምር',
+    'End': 'መጨረሻ',
+    'URL': 'አድራሻ',
+    'Needed count': 'የሚያስፈልግ ብዛት',
+    'Date': 'ቀን',
+    'Check-in code': 'የመግቢያ ኮድ',
+    'Cancel': 'ተወው',
+    'Save': 'አስቀምጥ',
+    'Delete': 'ሰርዝ',
+    'Edit': 'አርትዕ',
+    'Manage': 'አስተዳድር',
+    'Create announcement': 'ማስታወቂያ ፍጠር',
+    'Create event': 'ዝግጅት ፍጠር',
+    'Create schedule': 'መርሐግብር ፍጠር',
+    'Upload resource': 'ምንጭ ስቀል',
+    'Open volunteer need': 'የበጎ ፈቃድ ፍላጎት ክፈት',
+    'Create attendance session': 'የተገኝነት ክፍለ ጊዜ ፍጠር',
+    'Publish ministry post': 'የአገልግሎት ልጥፍ አትም',
+    'Ministry leader dashboard': 'የአገልግሎት መሪ ዳሽቦርድ',
+  };
+
+  String _label(String en) =>
+      widget.language == AppLanguage.english ? en : (_am[en] ?? en);
+
+  // A human, bilingual name for a managed-content section.
+  String _sectionName(String section) {
+    const names = {
+      'announcements': ('announcement', 'ማስታወቂያ'),
+      'posts': ('post', 'ልጥፍ'),
+      'events': ('event', 'ዝግጅት'),
+      'schedules': ('schedule', 'መርሐግብር'),
+      'resources': ('resource', 'ምንጭ'),
+      'volunteer-opportunities': ('volunteer need', 'የበጎ ፈቃድ ፍላጎት'),
+      'tasks': ('task', 'ተግባር'),
+      'attendance-sessions': ('attendance session', 'የተገኝነት ክፍለ ጊዜ'),
+    };
+    final n = names[section];
+    if (n == null) return section.replaceAll('-', ' ');
+    return _tr(n.$1, n.$2);
+  }
+
   String _ministryFieldValue(Map<String, dynamic> item, String key) {
     final aliases = <String, List<String>>{
       'startsAt': ['startsAt', 'starts_at'],
@@ -497,7 +581,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
           ? item['title'].toString()
           : item['body']?.toString().isNotEmpty == true
               ? item['body'].toString()
-              : 'Untitled';
+              : _tr('Untitled', 'ርዕስ የሌለው');
 
   List<(String, String)> _ministryFields(String section) {
     return switch (section) {
@@ -549,7 +633,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Edit ${section.replaceAll('-', ' ')}'),
+        title: Text(_tr('Edit ${_sectionName(section)}', '${_sectionName(section)} አርትዕ')),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -558,7 +642,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                       padding: const EdgeInsets.only(bottom: 10),
                       child: TextField(
                         controller: controllers[field.$1],
-                        decoration: InputDecoration(labelText: field.$2),
+                        decoration: InputDecoration(labelText: _label(field.$2)),
                         maxLines:
                             field.$1 == 'description' || field.$1 == 'body'
                                 ? 3
@@ -571,10 +655,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: Text(_label('Cancel'))),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Save')),
+              child: Text(_label('Save'))),
         ],
       ),
     );
@@ -590,7 +674,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
             entry.key: entry.value.text.trim()
         },
       ),
-      successMessage: '${section.replaceAll('-', ' ')} updated.',
+      successMessage: _tr('${_sectionName(section)} updated.', '${_sectionName(section)} ተዘምኗል።'),
     );
   }
 
@@ -602,16 +686,16 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete ${section.replaceAll('-', ' ')}?'),
+        title: Text(_tr('Delete ${_sectionName(section)}?', '${_sectionName(section)} ይሰረዝ?')),
         content: Text(_ministryItemTitle(item),
             maxLines: 3, overflow: TextOverflow.ellipsis),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: Text(_label('Cancel'))),
           FilledButton.tonal(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete')),
+              child: Text(_label('Delete'))),
         ],
       ),
     );
@@ -623,7 +707,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
         section,
         itemId,
       ),
-      successMessage: '${section.replaceAll('-', ' ')} deleted.',
+      successMessage: _tr('${_sectionName(section)} deleted.', '${_sectionName(section)} ተሰርዟል።'),
     );
   }
 
@@ -631,16 +715,16 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
   // leaders manage each item where it is displayed (no separate manage list).
   Widget _ministryManageMenu(String section, Map<String, dynamic> item) {
     return PopupMenuButton<String>(
-      tooltip: 'Manage',
+      tooltip: _label('Manage'),
       icon: const Icon(Icons.more_vert_rounded),
       enabled: !_busy,
       onSelected: (value) {
         if (value == 'edit') _editMinistryContent(section, item);
         if (value == 'delete') _deleteMinistryContent(section, item);
       },
-      itemBuilder: (_) => const [
-        PopupMenuItem(value: 'edit', child: Text('Edit')),
-        PopupMenuItem(value: 'delete', child: Text('Delete')),
+      itemBuilder: (_) => [
+        PopupMenuItem(value: 'edit', child: Text(_label('Edit'))),
+        PopupMenuItem(value: 'delete', child: Text(_label('Delete'))),
       ],
     );
   }
@@ -711,13 +795,13 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('Ministry leader dashboard',
+                Text(_label('Ministry leader dashboard'),
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 10),
                 for (final entry in actions.entries)
                   ListTile(
                     leading: const Icon(Icons.add_circle_outline_rounded),
-                    title: Text(entry.value.$1),
+                    title: Text(_label(entry.value.$1)),
                     onTap: () => Navigator.pop(context, entry.key),
                   ),
               ]),
@@ -741,14 +825,14 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(action.$1),
+        title: Text(_label(action.$1)),
         content: SingleChildScrollView(
           child: Column(
               mainAxisSize: MainAxisSize.min,
               children: action.$2
                   .map((field) => TextField(
                         controller: controllers[field.$1],
-                        decoration: InputDecoration(labelText: field.$2),
+                        decoration: InputDecoration(labelText: _label(field.$2)),
                         maxLines:
                             field.$1 == 'description' || field.$1 == 'body'
                                 ? 3
@@ -759,10 +843,10 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: Text(_label('Cancel'))),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Save')),
+              child: Text(_label('Save'))),
         ],
       ),
     );
@@ -773,7 +857,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
         for (final entry in controllers.entries)
           entry.key: entry.value.text.trim(),
       }),
-      successMessage: '${action.$1} completed.',
+      successMessage: _tr('${action.$1} — done.', '${_label(action.$1)} — ተከናውኗል።'),
     );
   }
 
@@ -985,6 +1069,7 @@ class _MinistryDetailScreenState extends State<MinistryDetailScreen> {
                           title:
                               item['authorName']?.toString() ?? 'Ministry post',
                           subtitle: item['body']?.toString() ?? '',
+                          onTap: () => _openMinistryPost(item),
                           trailing: canManage
                               ? _ministryManageMenu('posts', item)
                               : null);
