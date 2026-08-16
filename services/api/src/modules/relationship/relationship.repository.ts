@@ -417,7 +417,7 @@ export class RelationshipRepository {
     });
   }
 
-  addMessage(userId: string, relationshipId: string, input: Record<string, unknown>) { return this.one('INSERT INTO relationship_messages(relationship_id,author_id,body,verse_reference,attachment_url,attachment_type) VALUES($1,$2,$3,$4,$5,$6) RETURNING *', [relationshipId, userId, input.body ?? '', input.verseReference ?? '', input.attachmentUrl ?? '', input.attachmentType ?? '']); }
+  addMessage(userId: string, relationshipId: string, input: Record<string, unknown>) { return this.one('INSERT INTO relationship_messages(relationship_id,author_id,body,verse_reference,attachment_url,attachment_type,metadata) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING *', [relationshipId, userId, input.body ?? '', input.verseReference ?? '', input.attachmentUrl ?? '', input.attachmentType ?? '', JSON.stringify(input.metadata ?? {})]); }
 
   // Persist a call-log entry into a courtship match's message thread. Authored
   // by the caller; the client renders direction from metadata.callerId.

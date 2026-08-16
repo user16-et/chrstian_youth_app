@@ -15,6 +15,31 @@ export class ConnectedLifeService {
   // Notify the other participant(s) of a new chat message. A direct chat is a
   // "friend message"; a scoped conversation is a "group message" — each gated
   // by its own push preference. Best-effort; never blocks sending.
+  // An E2E-encrypted message carries only ciphertext (per recipient device) in
+  // metadata.envelope; its plaintext body is empty. Accept it as content and
+  // move the envelope into metadata so the server stores but never reads it.
+  private isEncrypted(input: any) {
+    return input?.encrypted === true && input?.envelope && typeof input.envelope === 'object' && Object.keys(input.envelope).length > 0;
+  }
+
+  private assertHasContent(input: any) {
+    if (this.isEncrypted(input)) return;
+    if (!input?.body?.trim() && !input?.attachmentUrl?.trim()) {
+      throw new BadRequestException('message_or_attachment_required');
+    }
+  }
+
+  private normalizeMessageInput(input: any) {
+    if (!this.isEncrypted(input)) return input;
+    return {
+      ...input,
+      body: '',
+      attachmentUrl: '',
+      attachmentType: '',
+      metadata: { ...(input.metadata ?? {}), encrypted: true, envelope: input.envelope },
+    };
+  }
+
   private async notifyNewMessage(senderId: string, conversationId: string, message: Record<string, unknown>) {
     try {
       const conv = await this.life.conversationForNotify(conversationId);
@@ -24,8 +49,13 @@ export class ConnectedLifeService {
       if (recipients.length === 0) return;
       const sender = await this.users.getById(senderId).catch(() => null);
       const name = sender?.fullName?.trim() || 'Someone';
-      const raw = String(message.body ?? '').trim();
-      const preview = raw.length > 80 ? `${raw.slice(0, 80)}…` : (raw || 'Sent an attachment');
+      const meta = (message.metadata ?? {}) as Record<string, unknown>;
+      const encrypted = meta.encrypted === true;
+      const raw = encrypted ? '' : String(message.body ?? '').trim();
+      // Never leak content for encrypted messages — the server can't read it.
+      const preview = encrypted
+        ? 'Sent you a message'
+        : (raw.length > 80 ? `${raw.slice(0, 80)}…` : (raw || 'Sent an attachment'));
       const groupTitle = String(conv.title ?? '').trim();
       for (const userId of recipients) {
         void this.notifications.send({
@@ -107,8 +137,8 @@ export class ConnectedLifeService {
 
   async message(token:string,id:string,input:any) {
     const actor=await this.actor(token);
-    if (!input.body?.trim() && !input.attachmentUrl?.trim()) throw new BadRequestException('message_or_attachment_required');
-    const result=await this.life.message(actor.id,id,input); if(!result) throw new ForbiddenException('conversation_access_denied');
+    this.assertHasContent(input);
+    const result=await this.life.message(actor.id,id,this.normalizeMessageInput(input)); if(!result) throw new ForbiddenException('conversation_access_denied');
     void this.notifyNewMessage(actor.id, id, result);
     return result;
   }
@@ -158,8 +188,8 @@ export class ConnectedLifeService {
   }
 
   async messageAsUser(userId:string,id:string,input:any) {
-    if (!input.body?.trim() && !input.attachmentUrl?.trim()) throw new BadRequestException('message_or_attachment_required');
-    const result=await this.life.message(userId,id,input); if(!result) throw new ForbiddenException('conversation_access_denied');
+    this.assertHasContent(input);
+    const result=await this.life.message(userId,id,this.normalizeMessageInput(input)); if(!result) throw new ForbiddenException('conversation_access_denied');
     void this.notifyNewMessage(userId, id, result);
     return result;
   }

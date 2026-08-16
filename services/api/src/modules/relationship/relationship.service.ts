@@ -178,18 +178,32 @@ export class RelationshipService {
     return this.sendMessage({ id: user.id, fullName: user.fullName }, id, body);
   }
 
+  // An E2E-encrypted courtship message carries only per-device ciphertext in
+  // metadata.envelope; the server stores but can't read it.
+  private isEncryptedMessage(body: Record<string, unknown>) {
+    const env = (body as { envelope?: unknown }).envelope;
+    return body.encrypted === true && !!env && typeof env === 'object' && Object.keys(env as object).length > 0;
+  }
+
   // Core send used by both the REST endpoint and the realtime chat gateway.
   async sendMessage(user: { id: string; fullName: string }, id: string, body: Record<string, unknown>) {
     await this.requireMember(user.id, id);
-    if (!String(body.body ?? '').trim() && !String(body.attachmentUrl ?? '').trim()) {
+    const encrypted = this.isEncryptedMessage(body);
+    if (!encrypted && !String(body.body ?? '').trim() && !String(body.attachmentUrl ?? '').trim()) {
       throw new BadRequestException('message_or_attachment_required');
     }
-    const message = await this.relationships.addMessage(user.id, id, body);
+    const input = encrypted
+      ? { ...body, body: '', attachmentUrl: '', attachmentType: '', metadata: { ...((body.metadata as Record<string, unknown>) ?? {}), encrypted: true, envelope: body.envelope } }
+      : body;
+    const message = await this.relationships.addMessage(user.id, id, input);
     // Sending marks the thread read for the sender, and notifies the recipient.
     await this.relationships.markConnectionRead(user.id, id);
     const partnerId = await this.relationships.partnerOf(user.id, id);
     if (partnerId) {
-      const preview = String(body.body ?? '').trim() || '📎 Attachment';
+      // Never leak content for encrypted messages.
+      const preview = encrypted
+        ? 'Sent you a message'
+        : String(body.body ?? '').trim() || '📎 Attachment';
       this.notify({
         userId: partnerId,
         actorId: user.id,
