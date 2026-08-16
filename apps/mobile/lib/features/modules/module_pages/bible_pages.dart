@@ -1191,6 +1191,43 @@ class _BibleScreenState extends State<BibleScreen> {
     }
   }
 
+  // Open Bible search and, when the user taps a result, jump into the reader at
+  // that verse. Without handling the popped result the search was a dead end
+  // from the hub (tapping a hit simply returned here).
+  Future<void> _openBibleSearch(
+    AppLanguage language, {
+    required List<Map<String, dynamic>> versions,
+    required List<Map<String, dynamic>> books,
+  }) async {
+    final navigator = Navigator.of(context);
+    final result = await navigator.push<BibleSearchResultItem>(
+      MaterialPageRoute(
+        builder: (_) => BibleSearchScreen(
+          apiClient: widget.apiClient,
+          language: language,
+          token: widget.session?.token,
+          versions: versions,
+          books: books,
+          // null => the search screen uses the last-selected Bible translation,
+          // not the app UI language.
+          initialVersion: null,
+        ),
+      ),
+    );
+    if (!mounted || result == null || !result.isNavigable) return;
+    await navigator.push(MaterialPageRoute(
+      builder: (_) => BibleReaderScreen(
+        apiClient: widget.apiClient,
+        token: widget.session?.token,
+        language: language,
+        initialVersion: result.language.isNotEmpty ? result.language : _readerVersion,
+        initialBook: result.book!,
+        initialChapter: result.chapter ?? 1,
+      ),
+    ));
+    if (mounted) _refreshHub();
+  }
+
   List<Map<String, dynamic>> _list(Map<String, dynamic> data, String key) {
     return ((data[key] as List<dynamic>?) ?? const <dynamic>[])
         .whereType<Map<String, dynamic>>()
@@ -1275,18 +1312,11 @@ class _BibleScreenState extends State<BibleScreen> {
               _SearchLauncher(
                 colors: colors,
                 label: _tr('Search the Bible', 'መጽሐፍ ቅዱስን ይፈልጉ'),
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => BibleSearchScreen(
-                    apiClient: widget.apiClient,
-                    language: language,
-                    token: widget.session?.token,
-                    versions: _list(ecosystem, 'versions'),
-                    books: _list(ecosystem, 'books'),
-                    // null => the search screen uses the last-selected Bible
-                    // translation, not the app UI language.
-                    initialVersion: null,
-                  ),
-                )),
+                onTap: () => _openBibleSearch(
+                  language,
+                  versions: _list(ecosystem, 'versions'),
+                  books: _list(ecosystem, 'books'),
+                ),
               ),
               const SizedBox(height: 18),
 

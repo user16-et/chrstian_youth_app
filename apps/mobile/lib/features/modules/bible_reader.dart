@@ -135,65 +135,92 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   }
 
   Future<void> _bootstrap() async {
-    _offline = await _store.downloadedVersions();
-    // Offline-first: with a download on the device, open from the local copy
-    // right away rather than waiting out a network timeout — then refresh the
-    // catalog from the network in the background.
-    if (_offline.isNotEmpty) {
-      _books = await _store.cachedBooks();
-      _versions = (await _store.downloadInfo())
-          .map((d) => {'code': d['version'], 'name': d['name'], 'language': d['language']})
-          .toList();
-      if (_books.isNotEmpty && _versions.isNotEmpty) {
-        _refreshCatalog(); // no await — never blocks reading
-      }
-    }
-    if (_books.isEmpty || _versions.isEmpty) {
+    try {
+      // Offline-first: with a download on the device, open from the local copy
+      // right away rather than waiting out a network timeout — then refresh the
+      // catalog from the network in the background. A local-store hiccup must
+      // never abort startup, so it falls through to the network path.
       try {
-        final results = await Future.wait([
-          widget.apiClient.fetchBibleVersions(),
-          widget.apiClient.fetchBibleBooks(),
-        ]).timeout(const Duration(seconds: 8));
-        _versions = results[0];
-        _books = results[1];
-        await _store.cacheBooks(_books);
-      } catch (_) {
-        // Offline: fall back to the cached book list and downloaded translations.
-        _books = await _store.cachedBooks();
-        _versions = (await _store.downloadInfo())
-            .map((d) => {'code': d['version'], 'name': d['name'], 'language': d['language']})
-            .toList();
-        if (_books.isEmpty || _versions.isEmpty) {
-          if (mounted) {
-            setState(() {
-              _loading = false;
-              _error = _t(lang, 'No connection, and nothing downloaded yet. Connect once to download a translation for offline use.',
-                  'ግንኙነት የለም፣ የወረደም የለም። ለቀጣይ ንባብ አንዴ ተገናኝተው ትርጉም ያውርዱ።');
-            });
+        _offline = await _store.downloadedVersions();
+        if (_offline.isNotEmpty) {
+          _books = await _store.cachedBooks();
+          _versions = (await _store.downloadInfo())
+              .map((d) => {'code': d['version'], 'name': d['name'], 'language': d['language']})
+              .toList();
+          if (_books.isNotEmpty && _versions.isNotEmpty) {
+            _refreshCatalog(); // no await — never blocks reading
           }
-          return;
+        }
+      } catch (_) {
+        _offline = {};
+        _books = const [];
+        _versions = const [];
+      }
+      if (_books.isEmpty || _versions.isEmpty) {
+        try {
+          final results = await Future.wait([
+            widget.apiClient.fetchBibleVersions(),
+            widget.apiClient.fetchBibleBooks(),
+          ]).timeout(const Duration(seconds: 8));
+          _versions = results[0];
+          _books = results[1];
+          try {
+            await _store.cacheBooks(_books);
+          } catch (_) {
+            // Caching is a convenience; reading works without it.
+          }
+        } catch (_) {
+          // Offline: fall back to the cached book list and downloaded translations.
+          try {
+            _books = await _store.cachedBooks();
+            _versions = (await _store.downloadInfo())
+                .map((d) => {'code': d['version'], 'name': d['name'], 'language': d['language']})
+                .toList();
+          } catch (_) {
+            _books = const [];
+            _versions = const [];
+          }
+          if (_books.isEmpty || _versions.isEmpty) {
+            if (mounted) {
+              setState(() {
+                _loading = false;
+                _error = _t(lang, 'No connection, and nothing downloaded yet. Connect once to download a translation for offline use.',
+                    'ግንኙነት የለም፣ የወረደም የለም። ለቀጣይ ንባብ አንዴ ተገናኝተው ትርጉም ያውርዱ።');
+              });
+            }
+            return;
+          }
         }
       }
+      // Reopen in the translation the user last chose, so the reader (and the
+      // search that inherits from it) stay on AMH/KJV across sessions instead of
+      // resetting to the caller's default.
+      final savedVersion = await BibleVersionPref.load();
+      if (savedVersion != null && _versions.any((v) => v['code'] == savedVersion)) {
+        _primary = savedVersion;
+      }
+      if (!_versions.any((v) => v['code'] == _primary) && _versions.isNotEmpty) {
+        _primary = '${_versions.first['code']}';
+      }
+      // Keep the saved version in step with what the reader is actually showing,
+      // so search opened from anywhere defaults to the same AMH/KJV.
+      unawaited(BibleVersionPref.save(_primary));
+      _book = _books.firstWhere(
+        (b) => '${b['name']}'.toLowerCase() == widget.initialBook.toLowerCase(),
+        orElse: () => _books.isNotEmpty ? _books.first : <String, dynamic>{},
+      );
+      unawaited(_loadHighlights());
+      await _loadChapter();
+    } catch (error) {
+      // Last-resort guard so a failure here can never leave the reader stuck on
+      // the loading spinner.
+      if (mounted && _loading) {
+        setState(() {
+          _loading = false;
+          _error = _clean(error);
+        });
+      }
     }
-    // Reopen in the translation the user last chose, so the reader (and the
-    // search that inherits from it) stay on AMH/KJV across sessions instead of
-    // resetting to the caller's default.
-    final savedVersion = await BibleVersionPref.load();
-    if (savedVersion != null && _versions.any((v) => v['code'] == savedVersion)) {
-      _primary = savedVersion;
-    }
-    if (!_versions.any((v) => v['code'] == _primary) && _versions.isNotEmpty) {
-      _primary = '${_versions.first['code']}';
-    }
-    // Keep the saved version in step with what the reader is actually showing,
-    // so search opened from anywhere defaults to the same AMH/KJV.
-    unawaited(BibleVersionPref.save(_primary));
-    _book = _books.firstWhere(
-      (b) => '${b['name']}'.toLowerCase() == widget.initialBook.toLowerCase(),
-      orElse: () => _books.isNotEmpty ? _books.first : <String, dynamic>{},
-    );
-    unawaited(_loadHighlights());
-    await _loadChapter();
   }
 
   // Stable reference key for a verse/range, always in English book name so it
@@ -768,9 +795,13 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                       tooltip: _t(lang, 'Remove download', 'ማውረድ አስወግድ'),
                       icon: Icon(Icons.cloud_done_rounded, color: Theme.of(context).colorScheme.primary),
                       onPressed: () async {
-                        await _store.deleteVersion('${v['code']}');
-                        setState(() => _offline.remove('${v['code']}'));
-                        setSheet(() {});
+                        try {
+                          await _store.deleteVersion('${v['code']}');
+                          setState(() => _offline.remove('${v['code']}'));
+                          setSheet(() {});
+                        } catch (error) {
+                          _toast(_clean(error));
+                        }
                       },
                     )
                   : IconButton(
@@ -968,7 +999,12 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
   Future<void> _shareSelection() async {
     if (_selected.isEmpty) return;
     final params = ShareParams(text: _selectionText(), subject: _selectionReference());
-    await SharePlus.instance.share(params);
+    try {
+      await SharePlus.instance.share(params);
+    } catch (error) {
+      _toast(_clean(error));
+      return;
+    }
     if (mounted) setState(_selected.clear);
   }
 
