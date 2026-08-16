@@ -203,9 +203,11 @@ export class RelationshipRepository {
 
   async viewProfile(viewerId: string, viewedUserId: string) {
     if (viewerId === viewedUserId) return this.profile(viewerId);
-    // Respect visibility: hidden/invisible/teen profiles are not viewable by id.
+    // Respect visibility: hidden/invisible/teen profiles are not viewable by id,
+    // and a block (either direction) hides the profile from the other person.
     const target = await this.one(this.profileSelect(`c.user_id=$1 AND c.visible=true AND c.visibility<>'hidden'
-      AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=c.user_id AND p.is_teen)`), [viewedUserId]);
+      AND NOT EXISTS(SELECT 1 FROM user_profiles p WHERE p.user_id=c.user_id AND p.is_teen)
+      AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=$2) OR (b.blocker_id=$2 AND b.blocked_id=$1))`), [viewedUserId, viewerId]);
     if (!target) return null;
     await this.db.query(`INSERT INTO relationship_profile_views(viewer_id,viewed_user_id) VALUES($1,$2) ON CONFLICT(viewer_id,viewed_user_id) DO UPDATE SET viewed_at=now()`, [viewerId, viewedUserId]);
     await this.db.query('UPDATE courtship_profiles SET profile_views=profile_views+1 WHERE user_id=$1', [viewedUserId]);
@@ -225,6 +227,8 @@ export class RelationshipRepository {
            AND lower(c.gender) IN ('male','female')
            AND (SELECT lower(gender) FROM courtship_profiles WHERE user_id=$1) IN ('male','female')
            AND lower(c.gender) <> (SELECT lower(gender) FROM courtship_profiles WHERE user_id=$1)
+           -- A block in either direction prevents expressing interest.
+           AND NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=$2::uuid) OR (b.blocker_id=$2::uuid AND b.blocked_id=$1))
       )
       ON CONFLICT(sender_id,receiver_id) DO UPDATE SET note=EXCLUDED.note,
         super=courtship_interests.super OR EXCLUDED.super,
@@ -242,8 +246,17 @@ export class RelationshipRepository {
   }
 
   isMember(userId: string, relationshipId: string) {
-    return this.db.query('SELECT 1 FROM relationship_connections WHERE id=$1 AND (user1_id=$2 OR user2_id=$2)', [relationshipId, userId])
-      .then((result) => (result.rowCount ?? 0) > 0);
+    // A block between the two participants freezes the connection: neither can
+    // message, change the stage, or otherwise act on it (this also gates the
+    // realtime chat gateway, which authorizes through isMember).
+    return this.db.query(
+      `SELECT 1 FROM relationship_connections rc
+       WHERE rc.id=$1 AND (rc.user1_id=$2 OR rc.user2_id=$2)
+         AND NOT EXISTS(SELECT 1 FROM user_blocks b
+           WHERE (b.blocker_id=rc.user1_id AND b.blocked_id=rc.user2_id)
+              OR (b.blocker_id=rc.user2_id AND b.blocked_id=rc.user1_id))`,
+      [relationshipId, userId],
+    ).then((result) => (result.rowCount ?? 0) > 0);
   }
 
   async updateInterest(userId: string, id: string, status: 'accepted' | 'declined' | 'rejected') {
