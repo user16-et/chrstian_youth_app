@@ -882,7 +882,11 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
     setState(() {
       _requestsFuture = future;
     });
-    await future;
+    // The FutureBuilder renders the loading/error/empty states; swallow here so
+    // a failed pull-to-refresh doesn't raise an unhandled exception.
+    try {
+      await future;
+    } catch (_) {}
   }
 
   Future<void> _share() async {
@@ -891,14 +895,26 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
       promptSignIn(context, widget.language);
       return;
     }
+    final en = widget.language == AppLanguage.english;
+    final title = _titleController.text.trim();
+    final body = _bodyController.text.trim();
+    // Mirror the server's validation (title/body required, min 3 chars) so the
+    // user gets an instant, clear message instead of a round-trip 400.
+    if (title.length < 3 || body.length < 3) {
+      setState(() => _status = en
+          ? 'Add a short title and prayer (at least 3 characters each).'
+          : 'አጭር ርዕስና ጸሎት ያክሉ (ቢያንስ 3 ፊደላት)።');
+      return;
+    }
     setState(() {
       _busy = true;
+      _status = '';
     });
     try {
       await widget.apiClient.createPrayerRequest(
         token: token,
-        title: _titleController.text,
-        body: _bodyController.text,
+        title: title,
+        body: body,
         anonymous: _anonymous,
       );
       _titleController.clear();
@@ -929,9 +945,19 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
       promptSignIn(context, widget.language);
       return;
     }
-    await widget.apiClient.markPrayerPrayed(token, request.id);
-    if (!mounted) return;
-    setState(() => _status = 'Your prayer commitment was recorded.');
+    final en = widget.language == AppLanguage.english;
+    try {
+      await widget.apiClient.markPrayerPrayed(token, request.id);
+      await _refresh();
+      if (!mounted) return;
+      setState(() => _status = en
+          ? 'Your prayer commitment was recorded.'
+          : 'የጸሎት ቁርጠኝነትዎ ተመዝግቧል።');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() =>
+          _status = error.toString().replaceFirst('HttpException: ', ''));
+    }
   }
 
   @override
@@ -1031,6 +1057,14 @@ class _PrayerWallScreenState extends State<PrayerWallScreen> {
                         padding: EdgeInsets.only(top: 24),
                         child: Center(child: CircularProgressIndicator()),
                       );
+                    }
+                    if (snapshot.hasError && requests.isEmpty) {
+                      return Text(
+                          language == AppLanguage.english
+                              ? "Couldn't load prayer requests. Pull down to retry."
+                              : 'የጸሎት ጥያቄዎችን መጫን አልተቻለም። ለማደስ ወደታች ይጎትቱ።',
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis);
                     }
                     if (requests.isEmpty) {
                       return Text(AppStrings.of(language, 'no_prayer_requests'),

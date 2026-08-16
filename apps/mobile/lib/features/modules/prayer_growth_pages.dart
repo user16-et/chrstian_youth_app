@@ -50,7 +50,11 @@ class _PrayerCirclesTabState extends State<PrayerCirclesTab> {
     setState(() {
       _chainsFuture = future;
     });
-    await future;
+    // The FutureBuilder renders loading/error/empty; swallow so a failed
+    // pull-to-refresh never becomes an unhandled exception.
+    try {
+      await future;
+    } catch (_) {}
   }
 
   @override
@@ -77,6 +81,12 @@ class _PrayerCirclesTabState extends State<PrayerCirclesTab> {
                   padding: EdgeInsets.only(top: 24),
                   child: Center(child: CircularProgressIndicator()),
                 );
+              }
+              if (snapshot.hasError && chains.isEmpty) {
+                return _EmptyCard(
+                    message: language == AppLanguage.english
+                        ? "Couldn't load prayer circles. Pull down to retry."
+                        : 'የጸሎት ክበቦችን መጫን አልተቻለም። ለማደስ ወደታች ይጎትቱ።');
               }
               if (chains.isEmpty) {
                 return _EmptyCard(message: AppStrings.of(language, 'no_prayer_chains'));
@@ -156,7 +166,9 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
     setState(() {
       _snapshotFuture = future;
     });
-    await future;
+    try {
+      await future;
+    } catch (_) {}
   }
 
   Future<void> _join() async {
@@ -371,7 +383,9 @@ class _GrowthScreenState extends State<GrowthScreen> {
     setState(() {
       _snapshotFuture = future;
     });
-    await future;
+    try {
+      await future;
+    } catch (_) {}
   }
 
   Future<void> _checkIn(String kind) async {

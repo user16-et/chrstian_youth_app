@@ -272,10 +272,13 @@ export class PrayerRepository {
   }
 
   private mapPrayerRequestView(row: Record<string, unknown>): PrayerRequestViewRecord {
+    const anonymous = row.anonymous === true;
     return {
       id: String(row.id),
-      requesterId: String(row.requester_id),
-      requesterName: row.anonymous === true ? 'Anonymous' : String(row.requester_name),
+      // Never expose the poster's identity for an anonymous request — masking
+      // only the name while still returning requesterId would de-anonymize them.
+      requesterId: anonymous ? '' : String(row.requester_id),
+      requesterName: anonymous ? 'Anonymous' : String(row.requester_name),
       title: String(row.title),
       body: String(row.body),
       status: String(row.status),
