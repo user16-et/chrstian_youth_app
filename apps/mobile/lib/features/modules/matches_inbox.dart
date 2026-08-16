@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../data/api_client.dart';
 import '../../data/call_client.dart';
 import '../../data/call_controller.dart';
+import '../../data/e2ee/e2ee_manager.dart';
 import '../../data/relationship_chat_client.dart';
 import '../../i18n/app_i18n.dart';
 import 'call_log_bubble.dart';
@@ -247,6 +248,10 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
   DateTime? _partnerLastReadAt;
 
   RelationshipChatClient? _chat;
+  late final E2eeManager _e2ee = E2eeManager(widget.apiClient);
+  // Plaintext of my own outgoing encrypted messages, kept until the server
+  // echoes them back (their stored body is empty), keyed by tempId.
+  final Map<String, String> _pendingPlain = {};
   final List<StreamSubscription> _subs = [];
   bool _partnerTyping = false;
   bool _amTyping = false;
@@ -306,11 +311,12 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     _chat = chat;
   }
 
-  void _onIncoming(Map<String, dynamic> event) {
+  Future<void> _onIncoming(Map<String, dynamic> event) async {
     final message = (event['message'] as Map?)?.cast<String, dynamic>();
     if (message == null) return;
     final id = '${message['id'] ?? ''}';
     if (id.isEmpty || _messageIds.contains(id)) return;
+    await _resolveEncrypted(message, tempId: '${event['tempId'] ?? ''}');
     if (!mounted) return;
     setState(() {
       _messageIds.add(id);
@@ -321,6 +327,30 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     // I'm looking at the thread, so tell the sender it's read.
     final fromPartner = '${message['author_id'] ?? ''}' == widget.partnerId;
     if (fromPartner) _chat?.markRead(widget.connectionId);
+  }
+
+  // Replace an encrypted message's empty body with readable text: decrypt the
+  // partner's messages; for my own, use the plaintext I cached when sending.
+  Future<void> _resolveEncrypted(Map<String, dynamic> message, {String tempId = ''}) async {
+    final meta = (message['metadata'] as Map?)?.cast<String, dynamic>();
+    if (meta == null || meta['encrypted'] != true) return;
+    final id = '${message['id'] ?? ''}';
+    if (_isMine(message)) {
+      final pending = tempId.isEmpty ? null : _pendingPlain.remove(tempId);
+      if (pending != null) {
+        message['body'] = pending;
+        if (id.isNotEmpty) await _e2ee.rememberSent(id, pending);
+      } else {
+        message['body'] = await _e2ee.sentPlaintext(id) ?? '🔒';
+      }
+      return;
+    }
+    final plain = await _e2ee.decryptMessage(
+      conversationId: widget.connectionId,
+      senderUserId: widget.partnerId,
+      message: message,
+    );
+    message['body'] = plain ?? _tr(lang, '🔒 Unable to decrypt', '🔒 መፍታት አልተቻለም');
   }
 
   void _onTyping(Map<String, dynamic> event) {
@@ -382,6 +412,10 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     try {
       final detail = await widget.apiClient.fetchRelationshipConnection(widget.token, widget.connectionId);
       final msgs = (detail['messages'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      // Decrypt any encrypted history before rendering.
+      for (final m in msgs) {
+        await _resolveEncrypted(m);
+      }
       final partnerRead = _parseTime(detail['partnerLastReadAt']);
       if (mounted) {
         setState(() {
@@ -410,17 +444,36 @@ class _MatchChatScreenState extends State<MatchChatScreen> {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
     _stopTyping();
+    // Try to encrypt end-to-end; falls back to plaintext if the partner has no
+    // published keys or E2EE isn't available on this device.
+    final tempId = 'temp-${DateTime.now().microsecondsSinceEpoch}';
+    final enc = await _e2ee.encryptMessage(
+      token: widget.token,
+      conversationId: widget.connectionId,
+      recipientUserId: widget.partnerId,
+      plaintext: text,
+    );
+    if (enc != null) _pendingPlain[tempId] = text;
+    final wireBody = enc == null ? text : '';
     // Realtime path: the socket persists + echoes message:new back to us, which
     // appends it — so no reload and instant delivery to the partner.
     if (_chat?.connected == true) {
-      _chat!.send(connectionId: widget.connectionId, body: text);
+      _chat!.send(
+          connectionId: widget.connectionId,
+          body: wireBody,
+          tempId: tempId,
+          encryption: enc);
       _input.clear();
       return;
     }
     // Fallback when the socket isn't connected.
     setState(() => _sending = true);
     try {
-      await widget.apiClient.sendRelationshipMessage(widget.token, widget.connectionId, text);
+      final sent = await widget.apiClient
+          .sendRelationshipMessage(widget.token, widget.connectionId, wireBody, encryption: enc);
+      if (enc != null && sent is Map && sent['id'] != null) {
+        await _e2ee.rememberSent('${sent['id']}', text);
+      }
       _input.clear();
       await _load();
     } catch (error) {

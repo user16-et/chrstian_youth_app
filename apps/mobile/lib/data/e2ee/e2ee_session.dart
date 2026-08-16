@@ -74,6 +74,23 @@ class E2eeX3dh {
     return _rootFromDh(concat);
   }
 
+  /// Verify a fetched signed prekey against the peer's identity *signing* key
+  /// (Ed25519) — rejects a server that swaps in a forged prekey.
+  static Future<bool> verifySignedPreKey({
+    required String signedPreKeyB64,
+    required String signatureB64,
+    required String identitySignPubB64,
+  }) async {
+    final ed = Ed25519();
+    return ed.verify(
+      _b64(signedPreKeyB64),
+      signature: Signature(
+        _b64(signatureB64),
+        publicKey: SimplePublicKey(_b64(identitySignPubB64), type: KeyPairType.ed25519),
+      ),
+    );
+  }
+
   static Future<List<int>> _rootFromDh(List<int> concat) async {
     final key = await _hkdf.deriveKey(
       secretKey: SecretKey(concat),
@@ -126,6 +143,26 @@ class E2eeSession {
     final recvChain = await _kdf(rootKey, initiator ? 'chain/B2A' : 'chain/A2B');
     return E2eeSession._(sendChain, recvChain, initiator);
   }
+
+  /// Serialize the ratchet state for persistence (secure storage).
+  Map<String, dynamic> toJson() => {
+        'i': initiator,
+        'sc': base64Encode(_sendChain),
+        'rc': base64Encode(_recvChain),
+        'sn': sendCount,
+        'rn': recvCount,
+        'sk': _skipped.map((k, v) => MapEntry('$k', base64Encode(v))),
+      };
+
+  factory E2eeSession.fromJson(Map<String, dynamic> j) => E2eeSession._(
+        base64Decode('${j['sc']}'),
+        base64Decode('${j['rc']}'),
+        j['i'] == true,
+        sendCount: (j['sn'] as num).toInt(),
+        recvCount: (j['rn'] as num).toInt(),
+        skipped: ((j['sk'] as Map?) ?? const {}).map(
+            (k, v) => MapEntry(int.parse('$k'), base64Decode('$v'))),
+      );
 
   static List<int> _nonce(int index) {
     // 12-byte nonce = message counter; safe because each message key is unique.

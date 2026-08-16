@@ -83,6 +83,10 @@ export class RelationshipChatGateway implements OnGatewayConnection {
         body: body?.body ?? '',
         verseReference: body?.verseReference ?? '',
         attachmentUrl: body?.attachmentUrl ?? '',
+        // E2EE passthrough (stored, never read by the server).
+        encrypted: body?.encrypted === true,
+        envelope: body?.envelope,
+        metadata: body?.metadata,
       });
       const event = { connectionId: id, message, tempId: body?.tempId ?? null };
       this.server.to(this.room(id)).emit('message:new', event);

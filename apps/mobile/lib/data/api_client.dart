@@ -2229,9 +2229,9 @@ class ApiClient {
 
   Future<dynamic> sendRelationshipMessage(
       String token, String connectionId, String body,
-      {String verseReference = ''}) {
+      {String verseReference = '', Map<String, dynamic>? encryption}) {
     return _postJson('/relationship/connections/$connectionId/messages',
-        {'body': body, 'verseReference': verseReference},
+        {'body': body, 'verseReference': verseReference, ...?encryption},
         headers: {'Authorization': 'Bearer $token'});
   }
 

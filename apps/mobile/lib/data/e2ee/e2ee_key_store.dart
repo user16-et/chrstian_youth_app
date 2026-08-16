@@ -138,6 +138,32 @@ class E2eeKeyStore {
     return out;
   }
 
+  // ---- Private-key access for X3DH (responder side) ----
+
+  /// The identity DH key pair (private) — needed for both X3DH roles.
+  Future<SimpleKeyPair> identityDhKeyPair() => _identityDhKeyPair();
+
+  /// A fresh single-use ephemeral key pair (initiator side).
+  Future<SimpleKeyPair> newEphemeral() => _x25519.newKeyPair();
+
+  /// The signed-prekey key pair for [id], or null if it's been rotated away
+  /// (this store keeps only the current signed prekey).
+  Future<SimpleKeyPair?> signedPreKeyKeyPair(int id) async {
+    final storedId = await _storage.read(key: _kSignedPreKeyId);
+    final priv = await _storage.read(key: _kSignedPreKeyPriv);
+    if (storedId == null || priv == null || int.parse(storedId) != id) return null;
+    return _x25519.newKeyPairFromSeed(_unb64(priv));
+  }
+
+  /// The one-time prekey key pair for [id], consuming it (each is single-use).
+  /// Returns null if already consumed / unknown.
+  Future<SimpleKeyPair?> takeOneTimePreKey(int id) async {
+    final priv = await _storage.read(key: '$_kOneTimePrefix$id');
+    if (priv == null) return null;
+    await _storage.delete(key: '$_kOneTimePrefix$id');
+    return _x25519.newKeyPairFromSeed(_unb64(priv));
+  }
+
   /// Wipe every private key (e.g. on sign-out or account reset). After this the
   /// device must re-register and past encrypted history becomes unreadable.
   Future<void> wipe() async {

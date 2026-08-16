@@ -67,12 +67,13 @@ class RelationshipChatClient {
     _socket?.emit('leave', {'connectionId': connectionId});
   }
 
-  void send({required String connectionId, required String body, String verseReference = '', String? tempId}) {
+  void send({required String connectionId, required String body, String verseReference = '', String? tempId, Map<String, dynamic>? encryption}) {
     _socket?.emit('message', {
       'connectionId': connectionId,
       'body': body,
       'verseReference': verseReference,
       if (tempId != null && tempId.isNotEmpty) 'tempId': tempId,
+      ...?encryption,
     });
   }
 
