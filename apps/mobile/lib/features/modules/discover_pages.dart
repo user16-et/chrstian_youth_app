@@ -1773,10 +1773,56 @@ class _TalentDetailSheet extends StatelessWidget {
                   ? _t('Endorsed', 'ተደግፏል')
                   : _t('Endorse this talent', 'ይህን ተሰጥኦ ደግፍ')),
             ),
+            if ((token ?? '').isNotEmpty)
+              Align(
+                alignment: Alignment.center,
+                child: TextButton.icon(
+                  onPressed: () => _report(context),
+                  icon: Icon(Icons.flag_outlined, size: 16, color: colors.onSurfaceVariant),
+                  label: Text(_t('Report this profile', 'ይህን መገለጫ ሪፖርት አድርግ'),
+                      style: TextStyle(color: colors.onSurfaceVariant)),
+                ),
+              ),
           ],
         ],
       ),
     );
+  }
+
+  Future<void> _report(BuildContext context) async {
+    final t = token;
+    if (t == null || t.isEmpty) return;
+    final reasons = {
+      'Inappropriate content': _t('Inappropriate content', 'ተገቢ ያልሆነ ይዘት'),
+      'Fake or misleading': _t('Fake or misleading', 'የውሸት ወይም አሳሳች'),
+      'Spam': _t('Spam', 'አይፈለጌ'),
+      'Other': _t('Other', 'ሌላ'),
+    };
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          for (final e in reasons.entries)
+            ListTile(title: Text(e.value), onTap: () => Navigator.pop(context, e.key)),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (reason == null) return;
+    try {
+      await apiClient.createReport(token: t, targetType: 'user', targetId: profile.userId, reason: reason);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_t('Report sent. Our team will review it. Thank you.',
+                'ሪፖርቱ ተልኳል። ቡድናችን ይመረምረዋል። እናመሰግናለን።'))));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    }
   }
 
   Widget _showcaseTile(BuildContext context, TalentShowcaseItem item) {
