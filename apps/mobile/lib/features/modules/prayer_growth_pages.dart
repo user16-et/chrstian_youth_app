@@ -38,11 +38,78 @@ class PrayerCirclesTab extends StatefulWidget {
 
 class _PrayerCirclesTabState extends State<PrayerCirclesTab> {
   late Future<List<PrayerChainItem>> _chainsFuture;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
     _chainsFuture = widget.apiClient.fetchPrayerChains(token: widget.session?.token);
+  }
+
+  Future<void> _createCircle() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    final nameC = TextEditingController();
+    final descC = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(en ? 'New prayer circle' : 'አዲስ የጸሎት ክበብ'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+              controller: nameC,
+              autofocus: true,
+              decoration: InputDecoration(labelText: en ? 'Circle name' : 'የክበብ ስም')),
+          const SizedBox(height: 10),
+          TextField(
+              controller: descC,
+              maxLines: 2,
+              decoration: InputDecoration(
+                  labelText: en ? 'Description (optional)' : 'መግለጫ (አማራጭ)')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(en ? 'Cancel' : 'ተወው')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(en ? 'Create' : 'ፍጠር')),
+        ],
+      ),
+    );
+    final name = nameC.text.trim();
+    final description = descC.text.trim();
+    nameC.dispose();
+    descC.dispose();
+    if (ok != true) return;
+    if (name.length < 3) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(en
+                ? 'Give the circle a name (at least 3 characters).'
+                : 'ለክበቡ ስም ይስጡ (ቢያንስ 3 ፊደላት)።')));
+      }
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final chain = await widget.apiClient
+          .createPrayerChain(token: token, name: name, description: description);
+      await _refresh();
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => PrayerChainScreen(
+          language: widget.language,
+          apiClient: widget.apiClient,
+          session: widget.session,
+          chain: chain,
+        ),
+      ));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _refresh() async {
@@ -72,6 +139,19 @@ class _PrayerCirclesTabState extends State<PrayerCirclesTab> {
             accent: Colors.teal,
           ),
           const SizedBox(height: 16),
+          if (widget.session != null) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                onPressed: _busy ? null : _createCircle,
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: Text(language == AppLanguage.english
+                    ? 'Create a circle'
+                    : 'ክበብ ፍጠር'),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           FutureBuilder<List<PrayerChainItem>>(
             future: _chainsFuture,
             builder: (context, snapshot) {
@@ -246,9 +326,32 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
     }
   }
 
+  Future<void> _leave() async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final en = widget.language == AppLanguage.english;
+    setState(() {
+      _busy = true;
+      _status = AppStrings.of(widget.language, 'working');
+    });
+    try {
+      await widget.apiClient.leavePrayerChain(token: token, chainId: widget.chain.id);
+      await _refresh();
+      if (!mounted) return;
+      setState(() => _status = en ? 'You left this circle.' : 'ከዚህ ክበብ ወጥተዋል።');
+    } catch (error) {
+      if (mounted) {
+        setState(() => _status = error.toString().replaceFirst('HttpException: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final language = widget.language;
+    final en = language == AppLanguage.english;
     return Scaffold(
       appBar: AppBar(title: Text(widget.chain.name)),
       body: RefreshIndicator(
@@ -329,6 +432,15 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
                       FilledButton(
                         onPressed: _busy ? null : _post,
                         child: Text(AppStrings.of(language, 'post_to_chain')),
+                      ),
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: _busy ? null : _leave,
+                          icon: const Icon(Icons.logout_rounded, size: 18),
+                          label: Text(en ? 'Leave circle' : 'ክበብ ልቀቅ'),
+                        ),
                       ),
                     ],
                     if (_status.isNotEmpty) ...[

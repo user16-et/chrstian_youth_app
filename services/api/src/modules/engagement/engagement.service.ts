@@ -99,6 +99,14 @@ export class EngagementService {
     return this.prayerRepository.listPrayerChains();
   }
 
+  async createPrayerChain(token: string, input: { name?: string; description?: string }) {
+    const actor = await this.requireActor(token);
+    const name = String(input.name ?? '').trim();
+    if (name.length < 3) throw new BadRequestException('prayer_chain_name_required');
+    const description = String(input.description ?? '').trim();
+    return this.prayerRepository.createPrayerChain(actor.id, { name, description });
+  }
+
   async listPrayerChainMembers(chainId: string) {
     await this.ensurePrayerChainExists(chainId);
     return this.prayerRepository.listPrayerChainMembers(chainId);
@@ -108,6 +116,13 @@ export class EngagementService {
     const actor = await this.requireActor(token);
     await this.ensurePrayerChainExists(chainId);
     return this.prayerRepository.joinPrayerChain(actor.id, chainId);
+  }
+
+  async leavePrayerChain(token: string, chainId: string) {
+    const actor = await this.requireActor(token);
+    await this.ensurePrayerChainExists(chainId);
+    const left = await this.prayerRepository.leavePrayerChain(actor.id, chainId);
+    return { chainId, left };
   }
 
   async listPrayerChainPosts(chainId: string) {
@@ -124,11 +139,37 @@ export class EngagementService {
     }
     const body = String(input.body ?? '').trim();
     if (!body) throw new BadRequestException('prayer_chain_post_body_required');
-    return this.prayerRepository.createPrayerChainPost({
+    const post = await this.prayerRepository.createPrayerChainPost({
       chainId,
       userId: actor.id,
       body,
     });
+    // Let the rest of the circle know (best-effort — never breaks the post).
+    void this.notifyPrayerChainPost(chainId, actor, post);
+    return post;
+  }
+
+  private async notifyPrayerChainPost(chainId: string, actor: { id: string; fullName: string }, post: { id: string }) {
+    try {
+      const chain = await this.prayerRepository.getPrayerChainById(chainId);
+      const recipients = await this.prayerRepository.chainMemberIds(chainId, actor.id);
+      for (const userId of recipients) {
+        void this.notifications.send({
+          userId,
+          actorId: actor.id,
+          type: 'prayer_chain_post',
+          title: chain?.name ?? 'Prayer circle',
+          body: `${actor.fullName} shared a prayer.`,
+          targetType: 'prayer_chain',
+          targetId: chainId,
+          priority: 'normal',
+          channels: ['in_app', 'push'],
+          dedupeKey: `prayer_chain_post:${post.id}:${userId}`,
+        }).catch(() => undefined);
+      }
+    } catch {
+      // Notification failures must never affect posting.
+    }
   }
 
   listGrowthChallenges() {

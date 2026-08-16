@@ -73,6 +73,20 @@ export class EngagementController {
     return this.engagementService.listPrayerChains();
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a prayer chain (circle)' })
+  @Post('/prayer/chains')
+  createPrayerChain(@Headers('authorization') authorization?: string, @Body() body?: { name?: string; description?: string }) {
+    return this.engagementService.createPrayerChain(requireBearerToken(authorization), body ?? {});
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Leave a prayer chain' })
+  @Post('/prayer/chains/:id/leave')
+  leavePrayerChain(@Headers('authorization') authorization?: string, @Param('id') id?: string) {
+    return this.engagementService.leavePrayerChain(requireBearerToken(authorization), id ?? '');
+  }
+
   @ApiOperation({ summary: 'List prayer chain members' })
   @Get('/prayer/chains/:id/members')
   prayerChainMembers(@Param('id') id: string) {

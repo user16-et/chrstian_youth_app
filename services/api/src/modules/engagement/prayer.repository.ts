@@ -253,6 +253,38 @@ export class PrayerRepository {
     return this.mapPrayerChainPostView(view.rows[0]);
   }
 
+  async createPrayerChain(userId: string, input: { name: string; description: string }) {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    await this.pool.query(
+      'INSERT INTO prayer_chains (id, name, description, created_by, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [id, input.name, input.description, userId, now],
+    );
+    // The creator is automatically the first member.
+    await this.pool.query(
+      'INSERT INTO prayer_chain_members (chain_id, user_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [id, userId, now],
+    );
+    return this.getPrayerChainById(id);
+  }
+
+  async leavePrayerChain(userId: string, chainId: string) {
+    const result = await this.pool.query(
+      'DELETE FROM prayer_chain_members WHERE chain_id = $1 AND user_id = $2 RETURNING chain_id',
+      [chainId, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Member ids for notifying a chain (excluding the actor).
+  async chainMemberIds(chainId: string, excludeUserId: string) {
+    const result = await this.pool.query(
+      'SELECT user_id FROM prayer_chain_members WHERE chain_id = $1 AND user_id <> $2',
+      [chainId, excludeUserId],
+    );
+    return result.rows.map((row) => String(row.user_id));
+  }
+
   async getPrayerChainById(chainId: string) {
     const result = await this.pool.query(
       `SELECT c.id, c.name, c.description, c.created_by, creator.full_name AS creator_name, c.created_at,

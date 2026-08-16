@@ -972,6 +972,30 @@ class ApiClient {
     );
   }
 
+  Future<PrayerChainItem> createPrayerChain({
+    required String token,
+    required String name,
+    String description = '',
+  }) async {
+    final response = await _postJson(
+      '/prayer/chains',
+      {'name': name, 'description': description},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return PrayerChainItem.fromJson((response as Map).cast<String, dynamic>());
+  }
+
+  Future<dynamic> leavePrayerChain({
+    required String token,
+    required String chainId,
+  }) async {
+    return _postJson(
+      '/prayer/chains/$chainId/leave',
+      const {},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
   Future<List<GrowthChallengeItem>> fetchGrowthChallenges({String? token}) async {
     final response =
         await _getJson('/growth/challenges', headers: _bearer(token));
