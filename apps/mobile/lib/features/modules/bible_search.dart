@@ -51,6 +51,19 @@ class _BibleSearchScreenState extends State<BibleSearchScreen> {
   bool get _en => widget.language == AppLanguage.english;
   String _t(String en, String am) => _en ? en : am;
 
+  // The language of the *content* being searched follows the selected Bible
+  // translation — not the app UI language. So an English-UI user searching the
+  // Amharic Bible still sees Amharic book names and references.
+  bool get _contentEnglish {
+    final v = widget.versions.firstWhere(
+        (e) => '${e['code']}' == _version, orElse: () => const {});
+    if (v.isEmpty) return _en;
+    return v['language'] != 'am';
+  }
+
+  AppLanguage get _contentLanguage =>
+      _contentEnglish ? AppLanguage.english : AppLanguage.amharic;
+
   @override
   void initState() {
     super.initState();
@@ -95,7 +108,7 @@ class _BibleSearchScreenState extends State<BibleSearchScreen> {
       };
 
   String _bookName(Map<String, dynamic> book) =>
-      _en ? '${book['name']}' : '${book['nameAm'] ?? book['name']}';
+      _contentEnglish ? '${book['name']}' : '${book['nameAm'] ?? book['name']}';
 
   void _onChanged(String _) {
     _debounce?.cancel();
@@ -129,7 +142,7 @@ class _BibleSearchScreenState extends State<BibleSearchScreen> {
       showDragHandle: true,
       builder: (context) => _BookPickerSheet(
         books: widget.books,
-        language: widget.language,
+        language: _contentLanguage,
       ),
     );
     if (selected != null) {
@@ -295,7 +308,7 @@ class _BibleSearchScreenState extends State<BibleSearchScreen> {
                 itemBuilder: (context, i) => _ResultCard(
                   item: items[i],
                   query: _activeQuery,
-                  language: widget.language,
+                  language: _contentLanguage,
                   onTap: () => Navigator.of(context).pop(items[i]),
                 ),
               ),

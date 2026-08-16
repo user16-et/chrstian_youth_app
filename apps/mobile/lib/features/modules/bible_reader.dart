@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../data/api_client.dart';
 import '../../data/app_models.dart';
 import '../../data/bible_local_store.dart';
+import '../../data/bible_reading_history.dart';
 import '../../data/bible_version_pref.dart';
 import '../../data/theme_controller.dart';
 import '../../i18n/app_i18n.dart';
@@ -265,6 +266,11 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       if (mounted) {
         setState(() { _verses = verses; _secondaryByVerse = secByVerse; _loading = false; });
       }
+      // Remember this chapter for the reading-history sheet (best-effort).
+      if (verses.isNotEmpty) {
+        unawaited(BibleReadingHistory.record(
+            version: _primary, book: '${book['name']}', chapter: _chapter));
+      }
     } catch (error) {
       if (mounted) setState(() { _error = _clean(error); _loading = false; });
     }
@@ -325,22 +331,56 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
             icon: const Icon(Icons.search_rounded),
             onPressed: (_books.isEmpty || _versions.isEmpty) ? null : _openSearch,
           ),
-          IconButton(
-            tooltip: _t(lang, 'Day / night', 'ቀን / ሌሊት'),
-            icon: Icon(Theme.of(context).brightness == Brightness.dark
-                ? Icons.light_mode_rounded
-                : Icons.dark_mode_rounded),
-            onPressed: ThemeController.instance.toggle,
-          ),
           TextButton(
             onPressed: _versions.isEmpty ? null : _openTranslationPicker,
             child: Text(_primary.toUpperCase(),
                 style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w700)),
           ),
-          IconButton(
-            tooltip: _t(lang, 'Text size', 'የፊደል መጠን'),
-            icon: const Icon(Icons.format_size_rounded),
-            onPressed: _openTextSize,
+          // Comfort + history live under one overflow so the book-name selector
+          // in the title keeps as much width as possible.
+          PopupMenuButton<String>(
+            tooltip: _t(lang, 'More', 'ተጨማሪ'),
+            onSelected: (value) {
+              switch (value) {
+                case 'history':
+                  _openHistory();
+                case 'text_size':
+                  _openTextSize();
+                case 'theme':
+                  ThemeController.instance.toggle();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'history',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.history_rounded),
+                  title: Text(_t(lang, 'Reading history', 'የንባብ ታሪክ')),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'text_size',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.format_size_rounded),
+                  title: Text(_t(lang, 'Text size', 'የፊደል መጠን')),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'theme',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Theme.of(context).brightness == Brightness.dark
+                      ? Icons.light_mode_rounded
+                      : Icons.dark_mode_rounded),
+                  title: Text(_t(lang, 'Day / night', 'ቀን / ሌሊት')),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -510,6 +550,107 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       _chapter = item.chapter ?? 1;
     });
     _loadChapter();
+  }
+
+  // Jump to a specific book/chapter, switching the translation to [version]
+  // when we have it. Shared by search results and reading history.
+  void _jumpTo(String bookName, int chapter, {String? version}) {
+    final book = _books.firstWhere(
+      (b) => '${b['name']}'.toLowerCase() == bookName.toLowerCase(),
+      orElse: () => <String, dynamic>{},
+    );
+    if (book.isEmpty) return;
+    if (version != null && _versions.any((v) => v['code'] == version)) {
+      _primary = version;
+      unawaited(BibleVersionPref.save(version));
+    }
+    setState(() {
+      _book = book;
+      _chapter = chapter < 1 ? 1 : chapter;
+    });
+    _loadChapter();
+  }
+
+  // Short, human "when" for a history row without pulling in a date package.
+  String _historyWhen(DateTime when) {
+    final diff = DateTime.now().difference(when);
+    if (diff.inMinutes < 1) return _t(lang, 'just now', 'አሁን');
+    if (diff.inMinutes < 60) return _t(lang, '${diff.inMinutes}m ago', 'ከ${diff.inMinutes}ደ በፊት');
+    if (diff.inHours < 24) return _t(lang, '${diff.inHours}h ago', 'ከ${diff.inHours}ሰ በፊት');
+    if (diff.inDays < 7) return _t(lang, '${diff.inDays}d ago', 'ከ${diff.inDays}ቀ በፊት');
+    final w = (diff.inDays / 7).floor();
+    return _t(lang, '${w}w ago', 'ከ$wሳ በፊት');
+  }
+
+  Future<void> _openHistory() async {
+    final entries = await BibleReadingHistory.load();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.7,
+          child: Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 8, 8),
+              child: Row(children: [
+                Expanded(
+                  child: Text(_t(lang, 'Reading history', 'የንባብ ታሪክ'),
+                      style: Theme.of(context).textTheme.titleMedium),
+                ),
+                if (entries.isNotEmpty)
+                  TextButton(
+                    onPressed: () async {
+                      await BibleReadingHistory.clear();
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: Text(_t(lang, 'Clear', 'አጽዳ')),
+                  ),
+              ]),
+            ),
+            Expanded(
+              child: entries.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Text(
+                            _t(lang, 'Chapters you read will appear here.',
+                                'ያነበቧቸው ምዕራፎች እዚህ ይታያሉ።'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: entries.length,
+                      itemBuilder: (context, i) {
+                        final e = entries[i];
+                        final book = _books.firstWhere(
+                          (b) => '${b['name']}'.toLowerCase() == e.book.toLowerCase(),
+                          orElse: () => <String, dynamic>{},
+                        );
+                        final label =
+                            book.isEmpty ? e.book : _bookLabel(book);
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.menu_book_rounded),
+                          title: Text('$label ${e.chapter}'),
+                          subtitle: Text(
+                              '${e.version.toUpperCase()} · ${_historyWhen(e.readAt)}'),
+                          onTap: () {
+                            Navigator.pop(context);
+                            _jumpTo(e.book, e.chapter, version: e.version);
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   Future<void> _openBookPicker() async {

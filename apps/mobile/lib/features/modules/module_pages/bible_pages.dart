@@ -1422,52 +1422,6 @@ class _BibleScreenState extends State<BibleScreen> {
               ),
               const SizedBox(height: 18),
 
-              // Growth snapshot.
-              _SectionCard(
-                title: _tr('Your growth', 'እድገትዎ'),
-                children: [
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _BibleMetric(
-                          label: _tr('Chapters read', 'ምዕራፎች'),
-                          value: '${analytics['chaptersRead'] ?? 0}'),
-                      _BibleMetric(
-                          label: _tr('Day streak', 'ተከታታይ ቀናት'),
-                          value: '${analytics['currentStreak'] ?? 0}'),
-                      _BibleMetric(
-                          label: AppStrings.of(language, 'bible_notes'),
-                          value: '$notesCount'),
-                      _BibleMetric(
-                          label: _tr('Memorized', 'የተያዙ'),
-                          value:
-                              '${analytics['memorizedVerses'] ?? memory.length}'),
-                    ],
-                  ),
-                  if (topics.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Text(_tr('Explore by topic', 'በርዕስ ያስሱ'),
-                        style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final topic in topics.take(8))
-                          Chip(
-                            avatar: const Icon(Icons.local_offer_rounded,
-                                size: 15),
-                            label: Text(
-                                '${topic['name']} · ${topic['verseCount'] ?? 0}'),
-                          ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 18),
-
               // Personal study journal — free-form notes for solo study or to
               // write up after a physical group study.
               _SectionCard(
@@ -1624,6 +1578,53 @@ class _BibleScreenState extends State<BibleScreen> {
                     ..._buildBookmarks(context, data.bookmarks)
                   else
                     ..._buildHighlights(context, data.highlights),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // Growth snapshot + topic exploration — kept at the bottom, below
+              // the day-to-day reading, study and library tools.
+              _SectionCard(
+                title: _tr('Your growth', 'እድገትዎ'),
+                children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _BibleMetric(
+                          label: _tr('Chapters read', 'ምዕራፎች'),
+                          value: '${analytics['chaptersRead'] ?? 0}'),
+                      _BibleMetric(
+                          label: _tr('Day streak', 'ተከታታይ ቀናት'),
+                          value: '${analytics['currentStreak'] ?? 0}'),
+                      _BibleMetric(
+                          label: AppStrings.of(language, 'bible_notes'),
+                          value: '$notesCount'),
+                      _BibleMetric(
+                          label: _tr('Memorized', 'የተያዙ'),
+                          value:
+                              '${analytics['memorizedVerses'] ?? memory.length}'),
+                    ],
+                  ),
+                  if (topics.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(_tr('Explore by topic', 'በርዕስ ያስሱ'),
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final topic in topics.take(8))
+                          Chip(
+                            avatar: const Icon(Icons.local_offer_rounded,
+                                size: 15),
+                            label: Text(
+                                '${topic['name']} · ${topic['verseCount'] ?? 0}'),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ],
