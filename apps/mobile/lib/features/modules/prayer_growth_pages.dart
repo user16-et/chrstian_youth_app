@@ -302,6 +302,31 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
     }
   }
 
+  Future<void> _openReplies(PrayerChainPostItem post) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: _PrayerRepliesSheet(
+          apiClient: widget.apiClient,
+          session: widget.session,
+          language: widget.language,
+          chainId: widget.chain.id,
+          postId: post.id,
+          isOwner: _isOwner,
+          onCountChanged: (count) {
+            if (mounted) {
+              setState(() =>
+                  _postOverride[post.id] = _effective(post).copyWith(replyCount: count));
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _deletePost(PrayerChainPostItem post) async {
     final token = widget.session?.token;
     if (token == null || token.isEmpty) return;
@@ -539,9 +564,12 @@ class _PrayerChainScreenState extends State<PrayerChainScreen> {
                                   time: relativeTime(post.createdAt),
                                   reactionCount: post.reactionCount,
                                   reactedByMe: post.reactedByMe,
+                                  replyCount: post.replyCount,
                                   onReact: joined ? () => _react(raw) : null,
+                                  onReply: () => _openReplies(raw),
                                   onDelete: canDelete ? () => _deletePost(raw) : null,
                                   prayingLabel: en ? 'Praying' : 'እየጸለይኩ',
+                                  replyLabel: en ? 'Reply' : 'መልስ',
                                 ),
                               );
                             }),
@@ -898,9 +926,12 @@ class _PostCard extends StatelessWidget {
     required this.time,
     this.reactionCount = 0,
     this.reactedByMe = false,
+    this.replyCount = 0,
     this.onReact,
+    this.onReply,
     this.onDelete,
     this.prayingLabel = 'Praying',
+    this.replyLabel = 'Reply',
   });
 
   final String author;
@@ -908,14 +939,17 @@ class _PostCard extends StatelessWidget {
   final String time;
   final int reactionCount;
   final bool reactedByMe;
+  final int replyCount;
   final VoidCallback? onReact;
+  final VoidCallback? onReply;
   final VoidCallback? onDelete;
   final String prayingLabel;
+  final String replyLabel;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final showFooter = onReact != null || onDelete != null || reactionCount > 0;
+    final showFooter = onReact != null || onReply != null || onDelete != null || reactionCount > 0;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -966,10 +1000,208 @@ class _PostCard extends StatelessWidget {
                   ]),
                 ),
               ),
+              if (onReply != null)
+                InkWell(
+                  onTap: onReply,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.mode_comment_outlined, size: 15, color: colors.onSurfaceVariant),
+                      const SizedBox(width: 6),
+                      Text(
+                        replyCount > 0 ? '$replyLabel · $replyCount' : replyLabel,
+                        style: TextStyle(fontSize: 12.5, color: colors.onSurfaceVariant),
+                      ),
+                    ]),
+                  ),
+                ),
             ]),
           ],
         ],
       ),
+    );
+  }
+}
+
+class _PrayerRepliesSheet extends StatefulWidget {
+  const _PrayerRepliesSheet({
+    required this.apiClient,
+    required this.session,
+    required this.language,
+    required this.chainId,
+    required this.postId,
+    required this.isOwner,
+    required this.onCountChanged,
+  });
+
+  final ApiClient apiClient;
+  final AuthResult? session;
+  final AppLanguage language;
+  final String chainId;
+  final String postId;
+  final bool isOwner;
+  final ValueChanged<int> onCountChanged;
+
+  @override
+  State<_PrayerRepliesSheet> createState() => _PrayerRepliesSheetState();
+}
+
+class _PrayerRepliesSheetState extends State<_PrayerRepliesSheet> {
+  List<PrayerChainReplyItem> _replies = const [];
+  bool _loading = true;
+  bool _sending = false;
+  final TextEditingController _input = TextEditingController();
+
+  bool get _en => widget.language == AppLanguage.english;
+  String get _myId => widget.session?.user.id ?? '';
+  bool get _signedIn => (widget.session?.token ?? '').isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final r = await widget.apiClient
+          .fetchPrayerChainReplies(widget.chainId, widget.postId, token: widget.session?.token);
+      if (mounted) setState(() { _replies = r; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final token = widget.session?.token;
+    final body = _input.text.trim();
+    if (token == null || token.isEmpty || body.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      final reply = await widget.apiClient.createPrayerChainReply(
+          token: token, chainId: widget.chainId, postId: widget.postId, body: body);
+      _input.clear();
+      if (mounted) setState(() => _replies = [..._replies, reply]);
+      widget.onCountChanged(_replies.length);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _delete(PrayerChainReplyItem reply) async {
+    final token = widget.session?.token;
+    if (token == null || token.isEmpty) return;
+    final prev = _replies;
+    setState(() => _replies = _replies.where((r) => r.id != reply.id).toList());
+    widget.onCountChanged(_replies.length);
+    try {
+      await widget.apiClient.deletePrayerChainReply(
+          token: token, chainId: widget.chainId, postId: widget.postId, replyId: reply.id);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _replies = prev);
+        widget.onCountChanged(_replies.length);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error.toString().replaceFirst('HttpException: ', ''))));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.95,
+      builder: (context, scroll) => Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(_en ? 'Replies' : 'መልሶች', style: Theme.of(context).textTheme.titleLarge),
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _replies.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                            _en
+                                ? 'No replies yet. Be the first to encourage.'
+                                : 'ገና መልስ የለም። መጀመሪያ አበረታች ይሁኑ።',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: colors.onSurfaceVariant)),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scroll,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _replies.length,
+                      itemBuilder: (context, i) {
+                        final r = _replies[i];
+                        final canDelete = widget.isOwner || r.userId == _myId;
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const CircleAvatar(child: Icon(Icons.person_rounded, size: 18)),
+                          title: Text(r.userName, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(r.body),
+                          trailing: canDelete
+                              ? IconButton(
+                                  icon: Icon(Icons.delete_outline_rounded, size: 18, color: colors.onSurfaceVariant),
+                                  onPressed: () => _delete(r))
+                              : Text(relativeTime(r.createdAt), style: Theme.of(context).textTheme.bodySmall),
+                        );
+                      },
+                    ),
+        ),
+        if (_signedIn)
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+              child: Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    minLines: 1,
+                    maxLines: 4,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: _en ? 'Write an encouragement…' : 'አበረታች ጻፍ…',
+                      filled: true,
+                      fillColor: colors.surfaceContainerHighest,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton.filled(
+                  onPressed: _sending ? null : _send,
+                  icon: _sending
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.send_rounded),
+                ),
+              ]),
+            ),
+          ),
+      ]),
     );
   }
 }

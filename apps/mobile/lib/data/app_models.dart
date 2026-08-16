@@ -603,6 +603,7 @@ class PrayerChainPostItem {
     required this.createdAt,
     this.reactionCount = 0,
     this.reactedByMe = false,
+    this.replyCount = 0,
   });
 
   final String id;
@@ -613,8 +614,9 @@ class PrayerChainPostItem {
   final String createdAt;
   final int reactionCount;
   final bool reactedByMe;
+  final int replyCount;
 
-  PrayerChainPostItem copyWith({int? reactionCount, bool? reactedByMe}) =>
+  PrayerChainPostItem copyWith({int? reactionCount, bool? reactedByMe, int? replyCount}) =>
       PrayerChainPostItem(
         id: id,
         chainId: chainId,
@@ -624,6 +626,7 @@ class PrayerChainPostItem {
         createdAt: createdAt,
         reactionCount: reactionCount ?? this.reactionCount,
         reactedByMe: reactedByMe ?? this.reactedByMe,
+        replyCount: replyCount ?? this.replyCount,
       );
 
   factory PrayerChainPostItem.fromJson(Map<String, dynamic> json) {
@@ -636,6 +639,36 @@ class PrayerChainPostItem {
       createdAt: json['createdAt'] as String? ?? '',
       reactionCount: (json['reactionCount'] as num?)?.toInt() ?? 0,
       reactedByMe: json['reactedByMe'] == true,
+      replyCount: (json['replyCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class PrayerChainReplyItem {
+  const PrayerChainReplyItem({
+    required this.id,
+    required this.postId,
+    required this.userId,
+    required this.userName,
+    required this.body,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String postId;
+  final String userId;
+  final String userName;
+  final String body;
+  final String createdAt;
+
+  factory PrayerChainReplyItem.fromJson(Map<String, dynamic> json) {
+    return PrayerChainReplyItem(
+      id: json['id'] as String? ?? '',
+      postId: json['postId'] as String? ?? '',
+      userId: json['userId'] as String? ?? '',
+      userName: json['userName'] as String? ?? '',
+      body: json['body'] as String? ?? '',
+      createdAt: json['createdAt'] as String? ?? '',
     );
   }
 }

@@ -154,6 +154,61 @@ export class EngagementService {
     return this.prayerRepository.togglePrayerChainReaction(postId, actor.id);
   }
 
+  async listPrayerChainPostReplies(chainId: string, postId: string) {
+    await this.ensurePrayerChainExists(chainId);
+    if (!(await this.prayerRepository.postInChain(postId, chainId))) {
+      throw new NotFoundException('prayer_chain_post_not_found');
+    }
+    return this.prayerRepository.listPrayerChainPostReplies(postId);
+  }
+
+  async createPrayerChainReply(token: string, chainId: string, postId: string, input: { body: string }) {
+    const actor = await this.requireActor(token);
+    await this.ensurePrayerChainExists(chainId);
+    const members = await this.prayerRepository.listPrayerChainMembers(chainId);
+    if (!members.some((member) => member.userId === actor.id)) {
+      throw new BadRequestException('prayer_chain_membership_required');
+    }
+    if (!(await this.prayerRepository.postInChain(postId, chainId))) {
+      throw new NotFoundException('prayer_chain_post_not_found');
+    }
+    const body = String(input.body ?? '').trim();
+    if (!body) throw new BadRequestException('prayer_chain_reply_body_required');
+    const reply = await this.prayerRepository.createPrayerChainReply({ chainId, postId, userId: actor.id, body });
+    void this.notifyPrayerChainReply(chainId, postId, actor);
+    return reply;
+  }
+
+  async deletePrayerChainReply(token: string, chainId: string, postId: string, replyId: string) {
+    const actor = await this.requireActor(token);
+    await this.ensurePrayerChainExists(chainId);
+    const deleted = await this.prayerRepository.deletePrayerChainReply(replyId, chainId, actor.id);
+    if (!deleted) throw new ForbiddenException('cannot_delete_this_reply');
+    return { replyId, deleted: true };
+  }
+
+  private async notifyPrayerChainReply(chainId: string, postId: string, actor: { id: string; fullName: string }) {
+    try {
+      const authorId = await this.prayerRepository.prayerChainPostAuthor(postId);
+      if (!authorId || authorId === actor.id) return; // don't notify yourself
+      const chain = await this.prayerRepository.getPrayerChainById(chainId);
+      void this.notifications.send({
+        userId: authorId,
+        actorId: actor.id,
+        type: 'prayer_chain_reply',
+        title: chain?.name ?? 'Prayer circle',
+        body: `${actor.fullName} replied to your prayer.`,
+        targetType: 'prayer_chain',
+        targetId: chainId,
+        priority: 'normal',
+        channels: ['in_app', 'push'],
+        dedupeKey: `prayer_chain_reply:${postId}:${actor.id}:${Math.floor(Date.now() / 60000)}`,
+      }).catch(() => undefined);
+    } catch {
+      // Never break the reply on a notification failure.
+    }
+  }
+
   async listPrayerChainPosts(token: string | null, chainId: string) {
     await this.ensurePrayerChainExists(chainId);
     const viewer = token ? await this.authorization.authenticate(token) : null;

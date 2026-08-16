@@ -88,6 +88,7 @@ export interface PrayerChainPostViewRecord {
   createdAt: string;
   reactionCount: number;
   reactedByMe: boolean;
+  replyCount: number;
 }
 
 // Prayer domain: prayer requests, personal prayer journal, and prayer chains
@@ -227,6 +228,7 @@ export class PrayerRepository {
     const result = await this.pool.query(
       `SELECT p.id, p.chain_id, p.user_id, u.full_name AS user_name, p.body, p.created_at,
               (SELECT count(*)::int FROM prayer_chain_post_reactions r WHERE r.post_id = p.id) AS reaction_count,
+              (SELECT count(*)::int FROM prayer_chain_post_replies rp WHERE rp.post_id = p.id) AS reply_count,
               ($2::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM prayer_chain_post_reactions r WHERE r.post_id = p.id AND r.user_id = $2)) AS reacted_by_me
        FROM prayer_chain_posts p
        JOIN users u ON u.id = p.user_id
@@ -261,6 +263,49 @@ export class PrayerRepository {
   async postInChain(postId: string, chainId: string) {
     const row = await this.one('SELECT 1 FROM prayer_chain_posts WHERE id = $1 AND chain_id = $2', [postId, chainId]);
     return row != null;
+  }
+
+  // ---- Replies ----
+
+  async listPrayerChainPostReplies(postId: string) {
+    const result = await this.pool.query(
+      `SELECT rp.id, rp.post_id AS "postId", rp.user_id AS "userId", u.full_name AS "userName", rp.body, rp.created_at AS "createdAt"
+       FROM prayer_chain_post_replies rp JOIN users u ON u.id = rp.user_id
+       WHERE rp.post_id = $1 ORDER BY rp.created_at ASC`,
+      [postId],
+    );
+    return result.rows;
+  }
+
+  async createPrayerChainReply(input: { postId: string; chainId: string; userId: string; body: string }) {
+    const created = await this.one(
+      `INSERT INTO prayer_chain_post_replies (post_id, chain_id, user_id, body) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [input.postId, input.chainId, input.userId, input.body],
+    );
+    const view = await this.one(
+      `SELECT rp.id, rp.post_id AS "postId", rp.user_id AS "userId", u.full_name AS "userName", rp.body, rp.created_at AS "createdAt"
+       FROM prayer_chain_post_replies rp JOIN users u ON u.id = rp.user_id WHERE rp.id = $1`,
+      [created.id],
+    );
+    return view;
+  }
+
+  async deletePrayerChainReply(replyId: string, chainId: string, userId: string) {
+    // The reply's author OR the circle's creator may delete it.
+    const result = await this.pool.query(
+      `DELETE FROM prayer_chain_post_replies
+       WHERE id = $1 AND chain_id = $2
+         AND (user_id = $3 OR EXISTS(SELECT 1 FROM prayer_chains c WHERE c.id = $2 AND c.created_by = $3))
+       RETURNING id`,
+      [replyId, chainId, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // The author of a post (to notify them of a reply).
+  async prayerChainPostAuthor(postId: string) {
+    const row = await this.one('SELECT user_id FROM prayer_chain_posts WHERE id = $1', [postId]);
+    return row ? String(row.user_id) : null;
   }
 
   // Toggle the viewer's 🙏 reaction on a post; returns the new state + count.
@@ -411,6 +456,7 @@ export class PrayerRepository {
       createdAt: iso(row.created_at),
       reactionCount: Number(row.reaction_count ?? 0),
       reactedByMe: row.reacted_by_me === true,
+      replyCount: Number(row.reply_count ?? 0),
     };
   }
 }

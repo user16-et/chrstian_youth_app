@@ -90,4 +90,31 @@ describe('PrayerRepository circles create/join/leave (integration)', () => {
     expect(await repo.deletePrayerChain(id, creator.id)).toBe(true);
     expect(await repo.getPrayerChainById(id)).toBeNull();
   });
+
+  it('threads replies under a post with replyCount, and enforces delete rules', async () => {
+    const chain = await repo.createPrayerChain(creator.id, { name: 'Vigil', description: '' });
+    const id = chain!.id;
+    await repo.joinPrayerChain(joiner.id, id);
+    const post = await repo.createPrayerChainPost({ chainId: id, userId: creator.id, body: 'Please pray' });
+
+    const r1 = await repo.createPrayerChainReply({ chainId: id, postId: post.id, userId: joiner.id, body: 'Praying now 🙏' });
+    await repo.createPrayerChainReply({ chainId: id, postId: post.id, userId: creator.id, body: 'Thank you' });
+
+    const replies = await repo.listPrayerChainPostReplies(post.id);
+    expect(replies.map((r) => r.body)).toEqual(['Praying now 🙏', 'Thank you']); // oldest first
+    expect(replies[0]).toMatchObject({ userName: joiner.fullName });
+
+    const posts = await repo.listPrayerChainPosts(id, null);
+    expect(posts[0]).toMatchObject({ replyCount: 2 });
+
+    // The post author (a notification target) is the creator.
+    expect(await repo.prayerChainPostAuthor(post.id)).toBe(creator.id);
+
+    // A different member can't delete someone else's reply; the author can.
+    expect(await repo.deletePrayerChainReply(r1.id, id, creator.id)).toBe(true); // creator = circle owner
+    const secondReply = replies[1];
+    expect(await repo.deletePrayerChainReply(secondReply.id, id, joiner.id)).toBe(false); // not author, not owner
+    expect(await repo.deletePrayerChainReply(secondReply.id, id, creator.id)).toBe(true); // author + owner
+    expect(await repo.listPrayerChainPostReplies(post.id)).toHaveLength(0);
+  });
 });

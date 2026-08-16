@@ -1027,6 +1027,41 @@ class ApiClient {
     return (response as Map).cast<String, dynamic>();
   }
 
+  Future<List<PrayerChainReplyItem>> fetchPrayerChainReplies(
+      String chainId, String postId, {String? token}) async {
+    final response = await _getJson(
+        '/prayer/chains/$chainId/posts/$postId/replies',
+        headers: _bearer(token));
+    return (response as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(PrayerChainReplyItem.fromJson)
+        .toList();
+  }
+
+  Future<PrayerChainReplyItem> createPrayerChainReply({
+    required String token,
+    required String chainId,
+    required String postId,
+    required String body,
+  }) async {
+    final response = await _postJson(
+      '/prayer/chains/$chainId/posts/$postId/replies',
+      {'body': body},
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    return PrayerChainReplyItem.fromJson((response as Map).cast<String, dynamic>());
+  }
+
+  Future<dynamic> deletePrayerChainReply({
+    required String token,
+    required String chainId,
+    required String postId,
+    required String replyId,
+  }) {
+    return _deleteJson('/prayer/chains/$chainId/posts/$postId/replies/$replyId',
+        headers: {'Authorization': 'Bearer $token'});
+  }
+
   Future<List<GrowthChallengeItem>> fetchGrowthChallenges({String? token}) async {
     final response =
         await _getJson('/growth/challenges', headers: _bearer(token));

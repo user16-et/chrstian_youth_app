@@ -120,6 +120,26 @@ export class EngagementController {
     return this.engagementService.reactPrayerChainPost(requireBearerToken(authorization), id, postId);
   }
 
+  @ApiOperation({ summary: 'List replies on a prayer chain post' })
+  @Get('/prayer/chains/:id/posts/:postId/replies')
+  prayerChainReplies(@Param('id') id: string, @Param('postId') postId: string) {
+    return this.engagementService.listPrayerChainPostReplies(id, postId);
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Reply to a prayer chain post' })
+  @Post('/prayer/chains/:id/posts/:postId/replies')
+  createPrayerChainReply(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Param('postId') postId: string, @Body() body?: { body?: string }) {
+    return this.engagementService.createPrayerChainReply(requireBearerToken(authorization), id, postId, { body: body?.body ?? '' });
+  }
+
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a prayer chain reply (author or circle creator)' })
+  @Delete('/prayer/chains/:id/posts/:postId/replies/:replyId')
+  deletePrayerChainReply(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Param('postId') postId: string, @Param('replyId') replyId: string) {
+    return this.engagementService.deletePrayerChainReply(requireBearerToken(authorization), id, postId, replyId);
+  }
+
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Join a prayer chain' })
   @Post('/prayer/chains/:id/join')
